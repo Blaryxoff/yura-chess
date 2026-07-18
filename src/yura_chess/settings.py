@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     engine_move_deadline_seconds: float = Field(default=3.0, gt=0.0, le=3.0)
     engine_move_time_seconds: float = Field(default=1.0, gt=0.0)
     engine_restart_delay_seconds: float = Field(default=1.0, gt=0.0)
+    # Below this the skill asks instead of moving: a misheard move is worse than a question.
+    voice_move_confidence_threshold: float = Field(default=0.7, gt=0.0, le=1.0)
+    asr_transcript_retention_days: int = Field(default=30, ge=1)
+    asr_transcript_text_limit: int = Field(default=255, ge=16, le=255)
 
 
 @lru_cache

@@ -17,7 +17,7 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 TEST_DSN_ENV = "YURA_CHESS_TEST_DATABASE_URL"
-_TABLES = ("request_replays", "pending_engine_turns", "game_moves", "games")
+_TABLES = ("asr_transcripts", "request_replays", "pending_engine_turns", "game_moves", "games")
 
 
 def truncate_tables(engine: Engine) -> None:

@@ -20,6 +20,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 OWNER_KEY_LENGTH = 64
 FINGERPRINT_LENGTH = 64
+TRANSCRIPT_TEXT_LENGTH = 255
 
 
 class Base(DeclarativeBase):
@@ -74,6 +75,27 @@ class PendingEngineTurnRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     game: Mapped[GameRow] = relationship(back_populates="pending_engine_turn")
+
+
+class AsrTranscriptRow(Base):
+    """Corpus row for improving speech recognition.
+
+    Deliberately narrow: the normalised utterance, what the resolver made of it
+    and the pseudonymous owner. No audio, no token, no raw webhook payload and no
+    direct Alice identifier is representable here.
+    """
+
+    __tablename__ = "asr_transcripts"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), index=True)
+    normalized_text: Mapped[str] = mapped_column(String(TRANSCRIPT_TEXT_LENGTH))
+    outcome: Mapped[str] = mapped_column(String(16))
+    # Percent rather than a float: the corpus is aggregated, not recomputed.
+    confidence_percent: Mapped[int] = mapped_column(SmallInteger)
+    candidate_count: Mapped[int] = mapped_column(SmallInteger)
+    legal_move_count: Mapped[int] = mapped_column(SmallInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
 
 
 class RequestReplayRow(Base):
