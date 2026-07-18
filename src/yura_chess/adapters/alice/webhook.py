@@ -42,6 +42,9 @@ from yura_chess.storage.models import FINGERPRINT_LENGTH
 
 logger = logging.getLogger(__name__)
 
+# What the card path leaves the webhook for serialising the answer it already has.
+CARD_DEADLINE_MARGIN_SECONDS = 0.2
+
 
 class Intent(StrEnum):
     """The commands this adapter can dispatch on its own.
@@ -135,7 +138,10 @@ async def _attach_card(
     if card is None:
         return response
     try:
-        image_id = await images.image_id_for(card.position_hash, card.render, remaining_seconds)
+        # A slow upload must expire before the webhook does, or a card that never
+        # arrives would cost the player the move reply that is already composed.
+        async with asyncio.timeout(remaining_seconds - CARD_DEADLINE_MARGIN_SECONDS):
+            image_id = await images.image_id_for(card.position_hash, card.render, remaining_seconds)
     except Exception as error:  # noqa: BLE001 - the card is never worth failing the answer for
         logger.warning("board card skipped", extra={"error": type(error).__name__})
         return response

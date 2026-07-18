@@ -10,6 +10,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
+from time import sleep
 
 import chess
 import pytest
@@ -248,6 +249,19 @@ class TestAttachCard:
             raise OSError("image api down")
 
         response = await self._attach(True, await self._service(failing))
+
+        assert response.response.card is None
+        assert response.response.text == "Мой ход. Е2 Е4."
+
+    async def test_slow_upload_is_abandoned_with_the_answer_intact(self) -> None:
+        """A trickling upload must not eat the budget the composed reply needs."""
+
+        def slow(_png: bytes) -> str | None:
+            sleep(2.0)
+            return "img-1"
+
+        # Enough budget to start the upload, far too little to finish it.
+        response = await _attach_card(self._response(), _result(), True, await self._service(slow), 1.0)
 
         assert response.response.card is None
         assert response.response.text == "Мой ход. Е2 Е4."
