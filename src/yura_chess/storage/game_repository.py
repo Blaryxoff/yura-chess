@@ -1,0 +1,218 @@
+"""Repository for games, UCI history and Alice replay records.
+
+Every read and write requires the owner key: a game is never loaded or modified
+by `game_id` alone, so a foreign or forged Alice state cannot reveal or touch it.
+"""
+
+from __future__ import annotations
+
+import uuid
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from yura_chess.domain.game import (
+    START_FEN,
+    EngineSettings,
+    GameState,
+    GameStatus,
+    PendingEngineTurn,
+    PlayerColor,
+)
+from yura_chess.storage.models import (
+    GameMoveRow,
+    GameRow,
+    PendingEngineTurnRow,
+    RequestReplayRow,
+)
+
+
+class GameNotFoundError(LookupError):
+    """No game with this id belongs to this owner."""
+
+
+class RevisionConflictError(RuntimeError):
+    """The game changed between read and write; the caller must reload."""
+
+
+class ReplayFingerprintConflictError(RuntimeError):
+    """The replay key was reused with different significant request fields."""
+
+
+class PendingTurnConflictError(RuntimeError):
+    """The game already has an unfinished engine turn."""
+
+
+def _to_state(row: GameRow) -> GameState:
+    pending = row.pending_engine_turn
+    return GameState(
+        id=row.id,
+        owner_key=row.owner_key,
+        status=GameStatus(row.status),
+        player_color=PlayerColor(row.player_color),
+        initial_fen=row.initial_fen,
+        moves=tuple(move.uci for move in row.moves),
+        revision=row.revision,
+        engine=EngineSettings(skill_level=row.engine_skill_level, move_time_ms=row.engine_move_time_ms),
+        pending_engine_turn=(
+            PendingEngineTurn(token=pending.token, player_move_uci=pending.player_move_uci) if pending else None
+        ),
+    )
+
+
+class GameRepository:
+    """Thin data-access layer bound to one short transaction (one Session)."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create_game(
+        self,
+        owner_key: str,
+        player_color: PlayerColor,
+        engine: EngineSettings | None = None,
+        initial_fen: str = START_FEN,
+    ) -> GameState:
+        engine = engine or EngineSettings()
+        row = GameRow(
+            id=str(uuid.uuid4()),
+            owner_key=owner_key,
+            status=GameStatus.ACTIVE.value,
+            player_color=player_color.value,
+            initial_fen=initial_fen,
+            revision=1,
+            engine_skill_level=engine.skill_level,
+            engine_move_time_ms=engine.move_time_ms,
+        )
+        self._session.add(row)
+        self._session.flush()
+        return _to_state(row)
+
+    def load(self, game_id: str, owner_key: str) -> GameState:
+        return _to_state(self._load_row(game_id, owner_key))
+
+    def find(self, game_id: str, owner_key: str) -> GameState | None:
+        """Owner mismatch and unknown id are indistinguishable by design."""
+        try:
+            return self.load(game_id, owner_key)
+        except GameNotFoundError:
+            return None
+
+    def append_moves(
+        self,
+        game_id: str,
+        owner_key: str,
+        expected_revision: int,
+        moves: tuple[str, ...],
+        status: GameStatus | None = None,
+    ) -> GameState:
+        row = self._load_row(game_id, owner_key, expected_revision)
+        next_ply = len(row.moves)
+        for offset, uci in enumerate(moves):
+            row.moves.append(GameMoveRow(game_id=row.id, ply=next_ply + offset, uci=uci))
+        if status is not None:
+            row.status = status.value
+        return self._bump_revision(row)
+
+    def set_pending_engine_turn(
+        self,
+        game_id: str,
+        owner_key: str,
+        expected_revision: int,
+        token: str,
+        player_move_uci: str,
+    ) -> GameState:
+        row = self._load_row(game_id, owner_key, expected_revision)
+        if row.pending_engine_turn is not None:
+            raise PendingTurnConflictError(f"game {game_id} already has a pending engine turn")
+        row.pending_engine_turn = PendingEngineTurnRow(
+            game_id=row.id,
+            token=token,
+            player_move_uci=player_move_uci,
+        )
+        return self._bump_revision(row)
+
+    def clear_pending_engine_turn(self, game_id: str, owner_key: str, expected_revision: int) -> GameState:
+        row = self._load_row(game_id, owner_key, expected_revision)
+        row.pending_engine_turn = None
+        return self._bump_revision(row)
+
+    def record_request(
+        self,
+        skill_id: str,
+        session_id: str,
+        message_id: str,
+        request_fingerprint: str,
+        owner_key: str,
+        game_id: str | None = None,
+    ) -> RequestReplayRow:
+        """Claim the replay key, or return the stored record for an exact repeat.
+
+        A matching key with a different fingerprint is rejected without touching
+        the game.
+        """
+        existing = self._find_replay(skill_id, session_id, message_id)
+        if existing is not None:
+            return self._verify_replay(existing, request_fingerprint, owner_key)
+
+        row = RequestReplayRow(
+            skill_id=skill_id,
+            session_id=session_id,
+            message_id=message_id,
+            request_fingerprint=request_fingerprint,
+            owner_key=owner_key,
+            game_id=game_id,
+        )
+        try:
+            # A savepoint keeps a lost insert race from discarding the caller's transaction.
+            with self._session.begin_nested():
+                self._session.add(row)
+        except IntegrityError:
+            # A concurrent delivery of the same request won the unique constraint.
+            concurrent = self._find_replay(skill_id, session_id, message_id)
+            if concurrent is None:
+                raise
+            return self._verify_replay(concurrent, request_fingerprint, owner_key)
+        return row
+
+    def store_response(self, replay: RequestReplayRow, response_payload: str, game_id: str | None = None) -> None:
+        replay.response_payload = response_payload
+        if game_id is not None:
+            replay.game_id = game_id
+        self._session.flush()
+
+    def _find_replay(self, skill_id: str, session_id: str, message_id: str) -> RequestReplayRow | None:
+        return self._session.scalars(
+            select(RequestReplayRow).where(
+                RequestReplayRow.skill_id == skill_id,
+                RequestReplayRow.session_id == session_id,
+                RequestReplayRow.message_id == message_id,
+            )
+        ).one_or_none()
+
+    @staticmethod
+    def _verify_replay(row: RequestReplayRow, request_fingerprint: str, owner_key: str) -> RequestReplayRow:
+        if row.request_fingerprint != request_fingerprint or row.owner_key != owner_key:
+            raise ReplayFingerprintConflictError(
+                f"replay key ({row.skill_id}, {row.session_id}, {row.message_id}) reused with different request"
+            )
+        return row
+
+    def _load_row(self, game_id: str, owner_key: str, expected_revision: int | None = None) -> GameRow:
+        statement = select(GameRow).where(GameRow.id == game_id, GameRow.owner_key == owner_key)
+        if expected_revision is not None:
+            # A locking read serialises concurrent writers on the same game: the
+            # second one waits, then sees the bumped revision and is rejected.
+            statement = statement.with_for_update()
+        row = self._session.scalars(statement).one_or_none()
+        if row is None:
+            raise GameNotFoundError(f"game {game_id} is not available for this owner")
+        if expected_revision is not None and row.revision != expected_revision:
+            raise RevisionConflictError(f"game {game_id} is at revision {row.revision}, expected {expected_revision}")
+        return row
+
+    def _bump_revision(self, row: GameRow) -> GameState:
+        row.revision += 1
+        self._session.flush()
+        return _to_state(row)

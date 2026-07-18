@@ -2,6 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import MySQLDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,10 +17,15 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "production"] = "development"
     host: str = "0.0.0.0"
     port: int = 8000
-    database_path: Path = Path("var/yura_chess.sqlite3")
+    # No default: the DSN carries credentials and must come from the environment.
+    database_url: MySQLDsn
+    database_pool_size: int = 5
+    database_max_overflow: int = 5
+    database_pool_recycle_seconds: int = 900
     stockfish_path: Path = Path("/usr/games/stockfish")
 
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    # Required fields are supplied by the environment, which mypy cannot see.
+    return Settings()  # type: ignore[call-arg]
