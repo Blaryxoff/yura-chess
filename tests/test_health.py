@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from settings_fixtures import TEST_IDENTITY_SALT
 
 from yura_chess.main import create_app
 from yura_chess.settings import Settings
@@ -67,7 +68,7 @@ def test_readiness_is_green_against_a_migrated_database() -> None:
     if not dsn:
         pytest.skip("YURA_CHESS_TEST_DATABASE_URL is not set; readiness needs a migrated MariaDB")
 
-    settings = Settings(environment="test", database_url=dsn)  # type: ignore[arg-type]
+    settings = Settings(environment="test", database_url=dsn, identity_salt=TEST_IDENTITY_SALT)  # type: ignore[arg-type]
     with TestClient(create_app(settings)) as client:
         response = client.get("/health/ready")
 

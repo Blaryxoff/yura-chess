@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, MySQLDsn
+from pydantic import Field, MySQLDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     port: int = 8000
     # No default: the DSN carries credentials and must come from the environment.
     database_url: MySQLDsn
+    # No default: the salt is what keeps stored owner keys unlinkable to Alice accounts.
+    identity_salt: SecretStr
+    # Alice drops the answer after five seconds; the skill answers within 4.5.
+    webhook_deadline_seconds: float = Field(default=4.5, gt=0.0, le=5.0)
     database_pool_size: int = 5
     database_max_overflow: int = 5
     database_pool_recycle_seconds: int = 900

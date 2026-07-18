@@ -5,6 +5,7 @@ import threading
 
 import chess
 import pytest
+from settings_fixtures import TEST_IDENTITY_SALT, UNREACHABLE_DATABASE_URL
 
 from yura_chess.engine.stockfish import (
     EngineProcess,
@@ -16,13 +17,12 @@ from yura_chess.settings import Settings
 
 pytestmark = pytest.mark.anyio
 
-UNREACHABLE_DATABASE_URL = "mysql+pymysql://user:pass@127.0.0.1:13306/yura_chess_unreachable?charset=utf8mb4"
-
 
 def engine_settings(**overrides: object) -> Settings:
     values: dict[str, object] = {
         "environment": "test",
         "database_url": UNREACHABLE_DATABASE_URL,
+        "identity_salt": TEST_IDENTITY_SALT,
         "engine_pool_size": 2,
         "engine_acquire_timeout_seconds": 0.1,
         "engine_move_deadline_seconds": 0.2,

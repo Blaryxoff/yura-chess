@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from yura_chess import __version__
+from yura_chess.adapters.alice.webhook import build_router as build_alice_router
 from yura_chess.engine.stockfish import StockfishPool
 from yura_chess.settings import Settings, get_settings
 from yura_chess.storage.database import (
@@ -85,4 +86,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             components={"http": "ready", "database": database, "engine": _engine_component(app)},
         )
 
+    app.include_router(build_alice_router())
     return app

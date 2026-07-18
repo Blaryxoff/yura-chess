@@ -93,16 +93,16 @@ Firebat test использует существующий `staging-mariadb` в 
 
 **Files:** Create `src/yura_chess/adapters/alice/models.py`, `src/yura_chess/adapters/alice/webhook.py`, `src/yura_chess/application/player_identity.py`, `tests/adapters/test_alice_webhook.py`; Modify `src/yura_chess/main.py`, `src/yura_chess/settings.py`
 
-- [ ] Валидировать обязательные поля протокола Алисы без логирования персональных payload целиком
-- [ ] Получать `skill_id`, `session_id`, `message_id`, строить fingerprint значимых полей и использовать их только как составной replay key
-- [ ] Псевдонимизировать `user_id`, а при его отсутствии ограниченно использовать `application_id`, с секретным server-side salt
-- [ ] Проверять владельца для любого `game_id` из Alice state; чужой или повреждённый state не должен раскрывать существование и состояние партии
-- [ ] Возвращать минимальный `user_state_update` с `game_id` и ревизией
-- [ ] При точном replay возвращать сохранённый ответ или безопасно возобновлять pending turn; конфликт fingerprint отклонять без изменения партии
-- [ ] Определять поддержку экрана через `meta.interfaces.screen`
-- [ ] Ограничить размер `text`, `tts` и state до лимитов платформы и обеспечивать полный webhook deadline 4,5 секунды
-- [ ] Добавить golden tests для последовательности отдельных Alice requests, cross-user доступа, повторов и параллельных запросов одной партии
-- [ ] Mark completed
+- [x] Валидировать обязательные поля протокола Алисы без логирования персональных payload целиком
+- [x] Получать `skill_id`, `session_id`, `message_id`, строить fingerprint значимых полей и использовать их только как составной replay key
+- [x] Псевдонимизировать `user_id`, а при его отсутствии ограниченно использовать `application_id`, с секретным server-side salt
+- [x] Проверять владельца для любого `game_id` из Alice state; чужой или повреждённый state не должен раскрывать существование и состояние партии
+- [x] Возвращать минимальный `user_state_update` с `game_id` и ревизией
+- [x] При точном replay возвращать сохранённый ответ или безопасно возобновлять pending turn; конфликт fingerprint отклонять без изменения партии
+- [x] Определять поддержку экрана через `meta.interfaces.screen`
+- [x] Ограничить размер `text`, `tts` и state до лимитов платформы и обеспечивать полный webhook deadline 4,5 секунды
+- [x] Добавить golden tests для последовательности отдельных Alice requests, cross-user доступа, повторов и параллельных запросов одной партии
+- [x] Mark completed
 
 ### Task 6: Реализовать CommandRouter, голосовое распознавание ходов и безопасный ASR-корпус
 
