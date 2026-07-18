@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import MySQLDsn
+from pydantic import Field, MySQLDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     database_max_overflow: int = 5
     database_pool_recycle_seconds: int = 900
     stockfish_path: Path = Path("/usr/games/stockfish")
+    engine_pool_size: int = Field(default=2, ge=1, le=8)
+    engine_threads: int = Field(default=1, ge=1)
+    engine_hash_mb: int = Field(default=64, ge=1)
+    engine_skill_level: int = Field(default=5, ge=0, le=20)
+    engine_acquire_timeout_seconds: float = Field(default=0.5, gt=0.0, le=1.0)
+    # The Alice webhook budget is 4.5 s; a search may never eat more than three of them.
+    engine_move_deadline_seconds: float = Field(default=3.0, gt=0.0, le=3.0)
+    engine_move_time_seconds: float = Field(default=1.0, gt=0.0)
+    engine_restart_delay_seconds: float = Field(default=1.0, gt=0.0)
 
 
 @lru_cache

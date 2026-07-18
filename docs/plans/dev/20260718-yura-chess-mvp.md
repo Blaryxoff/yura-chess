@@ -63,15 +63,15 @@ Firebat test использует существующий `staging-mariadb` в 
 
 **Files:** Create `src/yura_chess/engine/stockfish.py`, `tests/engine/test_stockfish.py`; Modify `src/yura_chess/main.py`, `src/yura_chess/settings.py`, `AGENTS.md`
 
-- [ ] Запускать в lifespan FastAPI настраиваемый bounded pool, по умолчанию из двух независимых UCI-процессов, и гарантированно закрывать все процессы при shutdown
-- [ ] Выделить каждому worker отдельный lock и выполнять блокирующие UCI-вызовы вне event loop
-- [ ] Настроить `Threads`, `Hash`, уровень силы, acquisition timeout и deadline поиска не более 3 секунд из settings
-- [ ] При исчерпании пула быстро возвращать контролируемый результат, не создавать неограниченную очередь и укладываться в общий Alice deadline 4,5 секунды
-- [ ] Перезапускать только повреждённый worker после отсутствия бинаря, timeout или завершения процесса и не отдавать его следующему запросу до readiness
-- [ ] Включить количество готовых workers в `/health/ready`, не запуская поиск хода
-- [ ] Использовать fake workers в unit-тестах; проверить параллельную работу двух users, насыщение пула, timeout и shutdown
-- [ ] Обновить архитектурное правило `AGENTS.md` с одного процесса на утверждённый bounded pool
-- [ ] Mark completed
+- [x] Запускать в lifespan FastAPI настраиваемый bounded pool, по умолчанию из двух независимых UCI-процессов, и гарантированно закрывать все процессы при shutdown
+- [x] Выделить каждому worker отдельный lock и выполнять блокирующие UCI-вызовы вне event loop
+- [x] Настроить `Threads`, `Hash`, уровень силы, acquisition timeout и deadline поиска не более 3 секунд из settings
+- [x] При исчерпании пула быстро возвращать контролируемый результат, не создавать неограниченную очередь и укладываться в общий Alice deadline 4,5 секунды
+- [x] Перезапускать только повреждённый worker после отсутствия бинаря, timeout или завершения процесса и не отдавать его следующему запросу до readiness
+- [x] Включить количество готовых workers в `/health/ready`, не запуская поиск хода
+- [x] Использовать fake workers в unit-тестах; проверить параллельную работу двух users, насыщение пула, timeout и shutdown
+- [x] Обновить архитектурное правило `AGENTS.md` с одного процесса на утверждённый bounded pool
+- [x] Mark completed
 
 ### Task 4: Реализовать GameService и устойчивый шахматный жизненный цикл
 

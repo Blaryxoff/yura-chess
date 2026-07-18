@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from yura_chess import __version__
+from yura_chess.engine.stockfish import StockfishPool
 from yura_chess.settings import Settings, get_settings
 from yura_chess.storage.database import (
     check_connection,
@@ -27,9 +28,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     engine = create_database_engine(app.state.settings)
     app.state.database_engine = engine
     app.state.session_factory = create_session_factory(engine)
+    pool = StockfishPool(app.state.settings, process_factory=getattr(app.state, "engine_process_factory", None))
+    app.state.engine_pool = pool
+    await pool.start()
     try:
         yield
     finally:
+        await pool.stop()
         engine.dispose()
 
 
@@ -44,6 +49,15 @@ def _database_component(app: FastAPI) -> str:
     except Exception as error:  # noqa: BLE001 - any failure means "not ready"
         return f"unavailable: {type(error).__name__}"
     return "ready"
+
+
+def _engine_component(app: FastAPI) -> str:
+    """Report worker readiness by count only; never start a search from a health probe."""
+    pool: StockfishPool | None = getattr(app.state, "engine_pool", None)
+    if pool is None:
+        return "unavailable: pool not initialised"
+    ready = pool.ready_workers
+    return f"{'ready' if ready else 'degraded'}: {ready}/{pool.size} workers"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -68,7 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status="ready" if ready else "degraded",
             service="yura-chess",
             version=__version__,
-            components={"http": "ready", "database": database},
+            components={"http": "ready", "database": database, "engine": _engine_component(app)},
         )
 
     return app
