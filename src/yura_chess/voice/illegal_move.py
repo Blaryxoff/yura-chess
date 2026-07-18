@@ -105,7 +105,7 @@ def explain(recognized: RecognizedMove, board: chess.Board) -> Explanation:
         return _explain_king_safety(board, move) if move not in board.legal_moves else _explain_pseudo_legal(recognized)
 
     if piece.piece_type is chess.PAWN:
-        return _explain_pawn(board, piece, source, destination, recognized)
+        return _explain_pawn(board, piece, source, destination)
     return _explain_geometry(board, piece, source, destination)
 
 
@@ -137,17 +137,10 @@ def _explain_king_safety(board: chess.Board, move: chess.Move) -> Explanation:
     )
 
 
-def _explain_pawn(
-    board: chess.Board,
-    piece: chess.Piece,
-    source: int,
-    destination: int,
-    recognized: RecognizedMove,
-) -> Explanation:
+def _explain_pawn(board: chess.Board, piece: chess.Piece, source: int, destination: int) -> Explanation:
     source_name, destination_name = _name(source), _name(destination)
     forward = 1 if piece.color is chess.WHITE else -1
     start_rank = 1 if piece.color is chess.WHITE else 6
-    last_rank = 7 if piece.color is chess.WHITE else 0
     file_delta = chess.square_file(destination) - chess.square_file(source)
     rank_delta = chess.square_rank(destination) - chess.square_rank(source)
 
@@ -182,14 +175,9 @@ def _explain_pawn(
             destination=destination_name,
         )
 
+    # A diagonal step reaches this far only when there is nothing to capture:
+    # with a capture available the move would already be pseudo-legal.
     if abs(file_delta) == 1 and rank_delta == forward:
-        if chess.square_rank(destination) == last_rank and not recognized.promotion:
-            return Explanation(
-                IllegalReason.PROMOTION,
-                "Пешка доходит до последней горизонтали — скажите, в какую фигуру ее превратить.",
-                source=source_name,
-                destination=destination_name,
-            )
         return Explanation(
             IllegalReason.EN_PASSANT,
             f"По диагонали пешка ходит только со взятием, а на {destination_name} брать некого. "

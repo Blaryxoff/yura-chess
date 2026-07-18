@@ -157,13 +157,22 @@ def test_pawn_geometry_beyond_its_reach() -> None:
     assert explanation.destination == "e5"
 
 
-def test_promotion_piece_is_asked_for_on_the_last_rank() -> None:
+def test_a_capture_to_the_last_rank_with_nothing_to_take_is_not_a_promotion_problem() -> None:
     board = chess.Board("3nk3/P7/8/8/8/8/8/4K3 w - - 0 1")
 
     explanation = explain(RecognizedMove(piece="P", source="a7", destination="b8"), board)
 
-    assert explanation.reason is IllegalReason.PROMOTION
-    assert "в какую фигуру" in explanation.text
+    assert explanation.reason is IllegalReason.EN_PASSANT
+    assert "брать некого" in explanation.text
+
+
+def test_a_promotion_without_a_named_piece_is_clarified_not_explained() -> None:
+    board = chess.Board(PROMOTION_FEN)
+
+    routed = route("пешка а семь а восемь", board)
+
+    assert routed.kind is CommandKind.CLARIFY
+    assert routed.explanation is None
 
 
 def test_promotion_claimed_away_from_the_last_rank() -> None:
