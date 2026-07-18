@@ -14,6 +14,7 @@ from enum import StrEnum
 
 import chess
 
+from yura_chess.voice.illegal_move import Explanation, explain
 from yura_chess.voice.move_resolver import resolve
 from yura_chess.voice.normalizer import normalize
 from yura_chess.voice.types import MoveResolution, Normalized, ResolutionStatus
@@ -33,6 +34,8 @@ class CommandKind(StrEnum):
     REPEAT_HEARD = "repeat_heard"
     HELP = "help"
     MOVE = "move"
+    # A move was understood but is not legal in the current position.
+    ILLEGAL_MOVE = "illegal_move"
     # A move was understood but not certainly enough to play it.
     CLARIFY = "clarify"
     CANCEL_CLARIFY = "cancel_clarify"
@@ -57,6 +60,8 @@ class RoutedCommand:
     clarification: PendingClarification | None = None
     # What «что ты услышала» answers with, i.e. the previous turn's utterance.
     heard: str | None = None
+    # Why the described move cannot be played; set only for `ILLEGAL_MOVE`.
+    explanation: Explanation | None = None
 
 
 _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
@@ -103,7 +108,7 @@ def route(
         return RoutedCommand(CommandKind.UNKNOWN, normalized)
 
     resolution = resolve(normalized, board)
-    return _from_resolution(normalized, resolution, confidence_threshold)
+    return _from_resolution(normalized, resolution, board, confidence_threshold)
 
 
 def _answer_clarification(normalized: Normalized, pending: PendingClarification) -> RoutedCommand | None:
@@ -121,14 +126,24 @@ def _answer_clarification(normalized: Normalized, pending: PendingClarification)
 def _from_resolution(
     normalized: Normalized,
     resolution: MoveResolution,
+    board: chess.Board,
     confidence_threshold: float,
 ) -> RoutedCommand:
     if resolution.status is ResolutionStatus.RESOLVED and resolution.confidence >= confidence_threshold:
         return RoutedCommand(CommandKind.MOVE, normalized, move=resolution.move, resolution=resolution)
-    if resolution.status is ResolutionStatus.UNMATCHED and resolution.recognized.is_empty:
-        return RoutedCommand(CommandKind.UNKNOWN, normalized, resolution=resolution)
-    # Ambiguous, low-confidence and reconstructible-but-illegal all wait for the
-    # player instead of touching the game.
+    if resolution.status is ResolutionStatus.UNMATCHED:
+        if resolution.recognized.is_empty:
+            return RoutedCommand(CommandKind.UNKNOWN, normalized, resolution=resolution)
+        # Nothing legal matched a move the player did describe: say why, rather
+        # than asking them to repeat a move that would stay illegal.
+        return RoutedCommand(
+            CommandKind.ILLEGAL_MOVE,
+            normalized,
+            resolution=resolution,
+            explanation=explain(resolution.recognized, board),
+        )
+    # Ambiguous and low-confidence readings wait for the player instead of
+    # touching the game.
     return RoutedCommand(
         CommandKind.CLARIFY,
         normalized,
