@@ -44,6 +44,10 @@ class PendingTurnConflictError(RuntimeError):
     """The game already has an unfinished engine turn."""
 
 
+class PendingTurnMismatchError(RuntimeError):
+    """The engine turn being finished is not the one the game is waiting for."""
+
+
 def _to_state(row: GameRow) -> GameState:
     pending = row.pending_engine_turn
     return GameState(
@@ -115,6 +119,67 @@ class GameRepository:
             row.status = status.value
         return self._bump_revision(row)
 
+    def truncate_moves(
+        self,
+        game_id: str,
+        owner_key: str,
+        expected_revision: int,
+        keep_plies: int,
+    ) -> GameState:
+        """Drop the tail of the UCI history; the remaining prefix stays canonical."""
+        row = self._load_row(game_id, owner_key, expected_revision)
+        if row.pending_engine_turn is not None:
+            raise PendingTurnConflictError(f"game {game_id} has a pending engine turn")
+        del row.moves[keep_plies:]
+        return self._bump_revision(row)
+
+    def begin_engine_turn(
+        self,
+        game_id: str,
+        owner_key: str,
+        expected_revision: int,
+        player_move_uci: str,
+        token: str,
+    ) -> GameState:
+        """Transaction A: store the player's move and the debt for the engine reply in one bump."""
+        row = self._load_row(game_id, owner_key, expected_revision)
+        if row.pending_engine_turn is not None:
+            raise PendingTurnConflictError(f"game {game_id} already has a pending engine turn")
+        row.moves.append(GameMoveRow(game_id=row.id, ply=len(row.moves), uci=player_move_uci))
+        row.pending_engine_turn = PendingEngineTurnRow(
+            game_id=row.id,
+            token=token,
+            player_move_uci=player_move_uci,
+        )
+        return self._bump_revision(row)
+
+    def finish_engine_turn(
+        self,
+        game_id: str,
+        owner_key: str,
+        expected_revision: int,
+        token: str | None,
+        engine_move_uci: str,
+        status: GameStatus | None = None,
+    ) -> GameState:
+        """Transaction B: settle the debt recorded by `token` and store the engine reply.
+
+        `token` is `None` only for the engine's opening move, which is owed by the
+        position itself rather than by a preceding player move.
+        """
+        row = self._load_row(game_id, owner_key, expected_revision)
+        pending = row.pending_engine_turn
+        if token is None:
+            if pending is not None:
+                raise PendingTurnMismatchError(f"game {game_id} is waiting for another engine turn")
+        elif pending is None or pending.token != token:
+            raise PendingTurnMismatchError(f"game {game_id} is not waiting for engine turn {token}")
+        row.pending_engine_turn = None
+        row.moves.append(GameMoveRow(game_id=row.id, ply=len(row.moves), uci=engine_move_uci))
+        if status is not None:
+            row.status = status.value
+        return self._bump_revision(row)
+
     def set_pending_engine_turn(
         self,
         game_id: str,
@@ -146,15 +211,16 @@ class GameRepository:
         request_fingerprint: str,
         owner_key: str,
         game_id: str | None = None,
-    ) -> RequestReplayRow:
-        """Claim the replay key, or return the stored record for an exact repeat.
+    ) -> tuple[RequestReplayRow, bool]:
+        """Claim the replay key and report whether this call is the one that claimed it.
 
-        A matching key with a different fingerprint is rejected without touching
-        the game.
+        `created is False` means the request was already seen: the caller must
+        replay or resume it instead of applying it again. A matching key with a
+        different fingerprint is rejected without touching the game.
         """
         existing = self._find_replay(skill_id, session_id, message_id)
         if existing is not None:
-            return self._verify_replay(existing, request_fingerprint, owner_key)
+            return self._verify_replay(existing, request_fingerprint, owner_key), False
 
         row = RequestReplayRow(
             skill_id=skill_id,
@@ -175,8 +241,8 @@ class GameRepository:
             concurrent = self._find_replay(skill_id, session_id, message_id, for_update=True)
             if concurrent is None:
                 raise
-            return self._verify_replay(concurrent, request_fingerprint, owner_key)
-        return row
+            return self._verify_replay(concurrent, request_fingerprint, owner_key), False
+        return row, True
 
     def store_response(self, replay: RequestReplayRow, response_payload: str, game_id: str | None = None) -> None:
         replay.response_payload = response_payload

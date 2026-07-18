@@ -77,17 +77,17 @@ Firebat test использует существующий `staging-mariadb` в 
 
 **Files:** Create `src/yura_chess/application/game_service.py`, `src/yura_chess/domain/results.py`, `tests/application/test_game_service.py`; Modify `src/yura_chess/storage/game_repository.py`
 
-- [ ] Реализовать start/continue/player move/engine move/resign/new game/undo turn с обязательной проверкой владельца
-- [ ] В транзакции A проверять owner/revision/replay, применять ход пользователя и фиксировать `pending_engine_turn`
-- [ ] Вызывать Stockfish после commit транзакции A и без открытой DB-транзакции
-- [ ] В транзакции B повторно проверять owner/revision/pending token, применять ответ движка и атомарно сохранять финальный response
-- [ ] При acquisition timeout или search timeout сохранять согласованный pending turn и возвращать ответ, который предлагает продолжить без повторения шахматного хода
-- [ ] При retry с тем же replay key возобновлять pending engine calculation либо возвращать готовый response; никогда не применять ход пользователя дважды
-- [ ] Проверять мат, пат, недостаточный материал, 75 ходов и пятикратное повторение автоматически
-- [ ] Поддержать требование ничьей по 50 ходам и троекратному повторению отдельной командой
-- [ ] Отменять полный завершённый ход пользователя и движка на основе UCI-истории; явно отклонять undo во время pending turn
-- [ ] Покрыть восстановление board, crash/retry между транзакциями A/B, конфликт revision и независимые параллельные партии
-- [ ] Mark completed
+- [x] Реализовать start/continue/player move/engine move/resign/new game/undo turn с обязательной проверкой владельца
+- [x] В транзакции A проверять owner/revision/replay, применять ход пользователя и фиксировать `pending_engine_turn`
+- [x] Вызывать Stockfish после commit транзакции A и без открытой DB-транзакции
+- [x] В транзакции B повторно проверять owner/revision/pending token, применять ответ движка и атомарно сохранять финальный response
+- [x] При acquisition timeout или search timeout сохранять согласованный pending turn и возвращать ответ, который предлагает продолжить без повторения шахматного хода
+- [x] При retry с тем же replay key возобновлять pending engine calculation либо возвращать готовый response; никогда не применять ход пользователя дважды
+- [x] Проверять мат, пат, недостаточный материал, 75 ходов и пятикратное повторение автоматически
+- [x] Поддержать требование ничьей по 50 ходам и троекратному повторению отдельной командой
+- [x] Отменять полный завершённый ход пользователя и движка на основе UCI-истории; явно отклонять undo во время pending turn
+- [x] Покрыть восстановление board, crash/retry между транзакциями A/B, конфликт revision и независимые параллельные партии
+- [x] Mark completed
 
 ### Task 5: Реализовать Alice protocol adapter, identity и idempotency
 

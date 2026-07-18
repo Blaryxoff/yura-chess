@@ -224,12 +224,13 @@ def test_status_transition_is_persisted(repository: GameRepository, session: Ses
 
 def test_exact_replay_returns_the_stored_record(repository: GameRepository, session: Session) -> None:
     game_id = _new_game(repository, session)
-    first = repository.record_request("skill", "session", "message-1", FINGERPRINT, OWNER, game_id)
+    first, created = repository.record_request("skill", "session", "message-1", FINGERPRINT, OWNER, game_id)
     repository.store_response(first, '{"response": "ok"}')
     session.commit()
 
-    second = repository.record_request("skill", "session", "message-1", FINGERPRINT, OWNER, game_id)
+    second, replayed = repository.record_request("skill", "session", "message-1", FINGERPRINT, OWNER, game_id)
 
+    assert (created, replayed) == (True, False)
     assert second.id == first.id
     assert second.response_payload == '{"response": "ok"}'
 
@@ -256,8 +257,8 @@ def test_replay_key_reused_by_another_owner_is_rejected(repository: GameReposito
 
 
 def test_same_message_id_in_another_session_is_a_distinct_request(repository: GameRepository, session: Session) -> None:
-    first = repository.record_request("skill", "session-a", "message-1", FINGERPRINT, OWNER)
-    second = repository.record_request("skill", "session-b", "message-1", FINGERPRINT, OWNER)
+    first, _ = repository.record_request("skill", "session-a", "message-1", FINGERPRINT, OWNER)
+    second, _ = repository.record_request("skill", "session-b", "message-1", FINGERPRINT, OWNER)
     session.commit()
 
     assert first.id != second.id
@@ -270,12 +271,13 @@ def test_concurrent_delivery_of_the_same_request_yields_one_record(
 ) -> None:
     with session_factory() as concurrent_session:
         concurrent = GameRepository(concurrent_session)
-        first = repository.record_request("skill", "session", "message-1", FINGERPRINT, OWNER)
+        first, created = repository.record_request("skill", "session", "message-1", FINGERPRINT, OWNER)
         session.commit()
 
-        second = concurrent.record_request("skill", "session", "message-1", FINGERPRINT, OWNER)
+        second, replayed = concurrent.record_request("skill", "session", "message-1", FINGERPRINT, OWNER)
         concurrent_session.commit()
 
+    assert (created, replayed) == (True, False)
     assert first.id == second.id
 
 
@@ -289,13 +291,14 @@ def test_replay_recovery_sees_a_row_committed_after_the_snapshot_opened(
     assert repository.find("00000000-0000-0000-0000-000000000000", OWNER) is None
 
     with session_factory() as rival_session:
-        winner = GameRepository(rival_session).record_request("skill", "session", "message-1", FINGERPRINT, OWNER)
+        winner, _ = GameRepository(rival_session).record_request("skill", "session", "message-1", FINGERPRINT, OWNER)
         rival_session.commit()
         winner_id = winner.id
 
-    loser = repository.record_request("skill", "session", "message-1", FINGERPRINT, OWNER)
+    loser, replayed = repository.record_request("skill", "session", "message-1", FINGERPRINT, OWNER)
     session.commit()
 
+    assert replayed is False
     assert loser.id == winner_id
 
 
