@@ -170,7 +170,9 @@ class GameRepository:
                 self._session.add(row)
         except IntegrityError:
             # A concurrent delivery of the same request won the unique constraint.
-            concurrent = self._find_replay(skill_id, session_id, message_id)
+            # The re-read must lock: a plain SELECT would reuse this transaction's
+            # REPEATABLE READ snapshot, which predates the rival commit.
+            concurrent = self._find_replay(skill_id, session_id, message_id, for_update=True)
             if concurrent is None:
                 raise
             return self._verify_replay(concurrent, request_fingerprint, owner_key)
@@ -182,14 +184,21 @@ class GameRepository:
             replay.game_id = game_id
         self._session.flush()
 
-    def _find_replay(self, skill_id: str, session_id: str, message_id: str) -> RequestReplayRow | None:
-        return self._session.scalars(
-            select(RequestReplayRow).where(
-                RequestReplayRow.skill_id == skill_id,
-                RequestReplayRow.session_id == session_id,
-                RequestReplayRow.message_id == message_id,
-            )
-        ).one_or_none()
+    def _find_replay(
+        self,
+        skill_id: str,
+        session_id: str,
+        message_id: str,
+        for_update: bool = False,
+    ) -> RequestReplayRow | None:
+        statement = select(RequestReplayRow).where(
+            RequestReplayRow.skill_id == skill_id,
+            RequestReplayRow.session_id == session_id,
+            RequestReplayRow.message_id == message_id,
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        return self._session.scalars(statement).one_or_none()
 
     @staticmethod
     def _verify_replay(row: RequestReplayRow, request_fingerprint: str, owner_key: str) -> RequestReplayRow:

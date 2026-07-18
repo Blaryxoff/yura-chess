@@ -277,3 +277,60 @@ def test_concurrent_delivery_of_the_same_request_yields_one_record(
         concurrent_session.commit()
 
     assert first.id == second.id
+
+
+def test_replay_recovery_sees_a_row_committed_after_the_snapshot_opened(
+    repository: GameRepository,
+    session: Session,
+    session_factory: sessionmaker[Session],
+) -> None:
+    """The losing side of an insert race must return the winner's record."""
+    # Open this session's read snapshot before the rival row exists.
+    assert repository.find("00000000-0000-0000-0000-000000000000", OWNER) is None
+
+    with session_factory() as rival_session:
+        winner = GameRepository(rival_session).record_request("skill", "session", "message-1", FINGERPRINT, OWNER)
+        rival_session.commit()
+        winner_id = winner.id
+
+    loser = repository.record_request("skill", "session", "message-1", FINGERPRINT, OWNER)
+    session.commit()
+
+    assert loser.id == winner_id
+
+
+def test_row_lock_blocks_the_second_writer_until_the_first_commits(
+    repository: GameRepository,
+    session: Session,
+    session_factory: sessionmaker[Session],
+) -> None:
+    import threading
+
+    game_id = _new_game(repository, session)
+    outcome: list[object] = []
+    started = threading.Event()
+
+    def second_writer() -> None:
+        with session_factory() as other_session:
+            other = GameRepository(other_session)
+            started.set()
+            try:
+                other.append_moves(game_id, OWNER, expected_revision=1, moves=("d2d4",))
+                other_session.commit()
+                outcome.append("committed")
+            except Exception as error:  # noqa: BLE001 - the test asserts on the type
+                other_session.rollback()
+                outcome.append(error)
+
+    # Take the row lock first and hold it while the second writer contends for it.
+    repository.append_moves(game_id, OWNER, expected_revision=1, moves=("e2e4",))
+    thread = threading.Thread(target=second_writer)
+    thread.start()
+    started.wait(timeout=5)
+    session.commit()
+    thread.join(timeout=30)
+
+    assert not thread.is_alive()
+    assert len(outcome) == 1
+    assert isinstance(outcome[0], RevisionConflictError), outcome[0]
+    assert repository.load(game_id, OWNER).moves == ("e2e4",)
