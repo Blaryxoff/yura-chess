@@ -1,0 +1,107 @@
+# Firebat production: a self-contained stack inside the `yura-chess` Incus
+# container, with its own MariaDB 11.4 on an internal network.
+services:
+  app:
+    image: ${YURA_CHESS_IMAGE:?set an immutable image tag}
+    restart: unless-stopped
+    env_file:
+      # Present on Firebat only, so `docker compose config` still validates elsewhere.
+      - path: ${YURA_CHESS_ENV_FILE:-/srv/yura-chess/production.env}
+        required: false
+    environment:
+      YURA_CHESS_ENVIRONMENT: production
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    # Loopback only; the Incus proxy-device carries it to the host for nginx.
+    ports:
+      - "127.0.0.1:${YURA_CHESS_PORT:-8080}:8000"
+    networks:
+      # `egress` exists only so the skill can reach the Yandex image API; the
+      # database itself stays on the internal network.
+      - internal
+      - egress
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/health/ready"]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  mariadb:
+    image: mariadb:11.4
+    restart: unless-stopped
+    env_file:
+      - path: ${YURA_CHESS_DB_ENV_FILE:-/srv/yura-chess/production-db.env}
+        required: false
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max-connections=100
+    # No `ports`: the database is reachable only from the internal network.
+    networks:
+      - internal
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # Release step: deploy.sh runs it to completion before the new app starts.
+  migrate:
+    image: ${YURA_CHESS_IMAGE:?set an immutable image tag}
+    profiles: ["release"]
+    env_file:
+      # Present on Firebat only, so `docker compose config` still validates elsewhere.
+      - path: ${YURA_CHESS_ENV_FILE:-/srv/yura-chess/production.env}
+        required: false
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    networks:
+      - internal
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
+networks:
+  internal:
+    internal: true
+  egress:
+
+volumes:
+  mariadb-data:

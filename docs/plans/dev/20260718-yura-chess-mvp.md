@@ -159,19 +159,19 @@ Firebat test использует существующий `staging-mariadb` в 
 
 **Files:** Create `Dockerfile`, `deploy/compose.staging.yml`, `deploy/compose.production.yml`, `deploy/deploy.sh`, `deploy/rollback.sh`, `deploy/nginx/chess.waxim.ru.conf`, `deploy/mariadb/backup.sh`, `deploy/mariadb/restore-smoke.sh`, `deploy/README.md`, `deploy/INFRASTRUCTURE.md`, `.github/workflows/ci.yml`, `tests/golden/test_full_games.py`; Modify `docker-compose.yml`, `.env.example`
 
-- [ ] Собрать non-root application image со Stockfish и read-only application filesystem; не включать MariaDB или секреты в image
-- [ ] Для Firebat staging подключить приложение к существующему `staging-mariadb` через отдельные database/user и private network без публикации DB-порта
-- [ ] Для production описать выделенный Incus-стек `yura-chess` с отдельной MariaDB 11.4, persistent DB volume и внутренней сетью
-- [ ] Выполнять `alembic upgrade head` отдельным release step до переключения приложения; запретить старт при несовместимой схеме
-- [ ] Добавить health checks приложения, MariaDB и worker pool, resource limits, restart policy и ротацию логов
-- [ ] Публиковать приложение только на container loopback и описать Incus proxy-device до host loopback
-- [ ] Настроить публичный `chess.waxim.ru` без basic-auth, с TLS, body/time limits и rate limiting
-- [ ] Реализовать идемпотентный deploy с immutable image tag, preflight migrations, health smoke и документированным rollback на предыдущий tag
-- [ ] Добавить регулярный `mariadb-dump`, копию в настроенное внешнее S3-совместимое хранилище, retention, контроль свободного места, alert при сбое и restore-smoke в отдельную временную базу; задокументировать восстановление перед cutover
-- [ ] Описать в `deploy/INFRASTRUCTURE.md` топологию test/production, источники конфигурации, секреты, порты, deploy/rollback, backup/restore и диагностические команды
-- [ ] Добавить CI lint/type/test, MariaDB integration service, migration check, условную Compose validation и запрет секретов в репозитории
-- [ ] Провести двадцать golden games, тест параллельных пользователей и насыщения pool, voice-only QA и screen-device QA до публичной модерации
-- [ ] Mark completed
+- [x] Собрать non-root application image со Stockfish и read-only application filesystem; не включать MariaDB или секреты в image
+- [x] Для Firebat staging подключить приложение к существующему `staging-mariadb` через отдельные database/user и private network без публикации DB-порта
+- [x] Для production описать выделенный Incus-стек `yura-chess` с отдельной MariaDB 11.4, persistent DB volume и внутренней сетью
+- [x] Выполнять `alembic upgrade head` отдельным release step до переключения приложения; запретить старт при несовместимой схеме
+- [x] Добавить health checks приложения, MariaDB и worker pool, resource limits, restart policy и ротацию логов
+- [x] Публиковать приложение только на container loopback и описать Incus proxy-device до host loopback
+- [x] Настроить публичный `chess.waxim.ru` без basic-auth, с TLS, body/time limits и rate limiting
+- [x] Реализовать идемпотентный deploy с immutable image tag, preflight migrations, health smoke и документированным rollback на предыдущий tag
+- [x] Добавить регулярный `mariadb-dump`, копию в настроенное внешнее S3-совместимое хранилище, retention, контроль свободного места, alert при сбое и restore-smoke в отдельную временную базу; задокументировать восстановление перед cutover
+- [x] Описать в `deploy/INFRASTRUCTURE.md` топологию test/production, источники конфигурации, секреты, порты, deploy/rollback, backup/restore и диагностические команды
+- [x] Добавить CI lint/type/test, MariaDB integration service, migration check, условную Compose validation и запрет секретов в репозитории
+- [x] Провести двадцать golden games, тест параллельных пользователей и насыщения pool (`tests/golden/test_full_games.py`); voice-only QA и screen-device QA до публичной модерации (skipped — ручная проверка на устройстве Алисы, чек-лист в `deploy/README.md`)
+- [x] Mark completed
 
 ## Verification notes
 

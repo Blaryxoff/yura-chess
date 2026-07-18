@@ -1,6 +1,25 @@
 # Local development only: the service binds to loopback and its credentials are
 # throwaway defaults. Firebat staging and production use deploy/compose.*.yml.
 services:
+  # Optional: `docker compose up app` runs the same image the deployment uses.
+  # Day-to-day development runs uvicorn from the host instead.
+  app:
+    build:
+      context: .
+    profiles: ["app"]
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      YURA_CHESS_DATABASE_URL: mysql+pymysql://${MARIADB_USER:-yura_chess}:${MARIADB_PASSWORD:-yura_chess_dev}@mariadb:3306/${MARIADB_DATABASE:-yura_chess}?charset=utf8mb4
+    ports:
+      - "127.0.0.1:${YURA_CHESS_PORT:-8000}:8000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+
   mariadb:
     image: mariadb:11.4
     restart: unless-stopped

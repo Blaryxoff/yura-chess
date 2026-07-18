@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Repository tests run against the service container, not an in-memory stand-in.
+  YURA_CHESS_TEST_DATABASE_URL: mysql+pymysql://root:ci_root@127.0.0.1:3306/yura_chess_test?charset=utf8mb4
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: ci_root
+          MARIADB_DATABASE: yura_chess_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format
+        run: uv run ruff format --check .
+
+      - name: Types
+        run: uv run mypy src
+
+      - name: Tests
+        run: uv run pytest
+
+      - name: Migration check
+        env:
+          ALEMBIC_DATABASE_URL: ${{ env.YURA_CHESS_TEST_DATABASE_URL }}
+        run: uv run alembic check
+
+      - name: Compose validation
+        run: |
+          # Skipped rather than failed when a compose file is absent, so the job
+          # stays honest about what it actually validated.
+          for file in docker-compose.yml deploy/compose.staging.yml deploy/compose.production.yml; do
+            if [ -f "$file" ]; then
+              echo "validating $file"
+              YURA_CHESS_IMAGE=ghcr.io/blaryx/yura-chess:ci \
+                docker compose --file "$file" config --quiet
+            else
+              echo "::notice::$file is absent; nothing to validate"
+            fi
+          done
+
+      - name: Image build
+        run: docker build --tag yura-chess:ci .
+
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject committed secret files
+        run: |
+          tracked=$(git ls-files \
+            '.env' '*.env' '!*.env.example' '*.pem' '*.key' '*.p12' '*.pfx' \
+            '*.sqlite' '*.sqlite3' '*.db' 2>/dev/null || true)
+          if [ -n "$tracked" ]; then
+            echo "these files must never be committed:"
+            echo "$tracked"
+            exit 1
+          fi
+
+      - name: Scan for secret-looking values
+        run: |
+          # Narrow on purpose: real Yandex OAuth tokens and private keys, not
+          # every string that contains the word "token".
+          if git grep -nIE \
+              -e 'y[0-9]_[A-Za-z0-9_-]{40,}' \
+              -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' \
+              -- . ':!*.lock' ':!.github/workflows/ci.yml'; then
+            echo "a credential-looking value is committed"
+            exit 1
+          fi
