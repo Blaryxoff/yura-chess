@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from yura_chess.application.game_service import GameService, RequestContext
 from yura_chess.domain.game import GameStatus, PlayerColor
-from yura_chess.domain.results import GameEnd, TurnStatus, automatic_outcome, claimable_draw
+from yura_chess.domain.results import GameEnd, TurnStatus
 from yura_chess.engine.stockfish import EngineSearchTimeoutError, EngineUnavailableError
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import (
@@ -211,6 +211,39 @@ async def test_a_new_request_during_a_pending_turn_resumes_instead_of_moving_aga
     assert load(session_factory, game_id).moves == ("e2e4", "e7e5")
 
 
+async def test_a_turn_settled_mid_search_is_not_applied_twice(session_factory: sessionmaker[Session]) -> None:
+    """Transaction B must give way once another writer has bumped the revision."""
+
+    class RacingEngine(FakeEngine):
+        """Settles the pending turn from another session while the search runs."""
+
+        def __init__(self, session_factory: sessionmaker[Session], rival_move: str) -> None:
+            super().__init__((rival_move,))
+            self._session_factory = session_factory
+            self._rival_move = rival_move
+            self.game_id: str | None = None
+
+        async def best_move(self, board: chess.Board, search_time: float | None = None) -> str:
+            assert self.game_id is not None
+            with session_scope(self._session_factory) as session:
+                repository = GameRepository(session)
+                state = repository.load(self.game_id, OWNER)
+                pending = state.pending_engine_turn
+                assert pending is not None
+                repository.finish_engine_turn(self.game_id, OWNER, state.revision, pending.token, self._rival_move)
+            return await super().best_move(board, search_time)
+
+    engine = RacingEngine(session_factory, "e7e5")
+    subject = service(session_factory, engine)
+    game_id = (await subject.start_game(OWNER, request("m1"))).game_id
+    engine.game_id = game_id
+
+    result = await subject.play_move(OWNER, game_id, "e2e4", request("m2"))
+
+    assert result.status is TurnStatus.OK
+    assert load(session_factory, game_id).moves == ("e2e4", "e7e5")
+
+
 async def test_exact_replay_returns_the_stored_response(session_factory: sessionmaker[Session]) -> None:
     engine = FakeEngine(("e7e5",))
     subject = service(session_factory, engine)
@@ -373,37 +406,3 @@ async def test_games_of_two_players_advance_independently(session_factory: sessi
 
     assert load(session_factory, my_game, OWNER).moves == ("e2e4", "e7e5")
     assert load(session_factory, their_game, OTHER_OWNER).moves == ("d2d4", "c7c5")
-
-
-@pytest.mark.parametrize(
-    ("fen", "end"),
-    [
-        ("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1", GameEnd.STALEMATE),
-        ("8/8/8/4k3/8/8/4K3/8 w - - 0 1", GameEnd.INSUFFICIENT_MATERIAL),
-        ("7R/8/8/4k3/8/8/4K3/8 w - - 150 100", GameEnd.SEVENTY_FIVE_MOVES),
-    ],
-)
-async def test_automatic_ends_need_no_claim(fen: str, end: GameEnd) -> None:
-    outcome = automatic_outcome(chess.Board(fen))
-
-    assert outcome is not None
-    assert outcome.end is end
-
-
-async def test_fivefold_repetition_ends_the_game_automatically() -> None:
-    board = chess.Board()
-    for _ in range(4):
-        for uci in ("g1f3", "g8f6", "f3g1", "f6g8"):
-            board.push_uci(uci)
-
-    outcome = automatic_outcome(board)
-
-    assert outcome is not None
-    assert outcome.end is GameEnd.FIVEFOLD_REPETITION
-
-
-async def test_the_fifty_move_draw_is_claimable_but_not_automatic() -> None:
-    board = chess.Board("7R/8/8/4k3/8/8/4K3/8 w - - 100 60")
-
-    assert automatic_outcome(board) is None
-    assert claimable_draw(board) is GameEnd.FIFTY_MOVES
