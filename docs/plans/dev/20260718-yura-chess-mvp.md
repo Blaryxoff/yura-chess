@@ -146,14 +146,14 @@ Firebat test использует существующий `staging-mariadb` в 
 
 **Files:** Create `src/yura_chess/presentation/board_image.py`, `src/yura_chess/adapters/yandex_images.py`, `migrations/versions/0003_board_image_cache.py`, `tests/presentation/test_board_image.py`; Modify `src/yura_chess/presentation/response_composer.py`, `src/yura_chess/storage/models.py`
 
-- [ ] Рендерить PNG только в памяти по текущему board, цвету пользователя и последнему ходу
-- [ ] Вычислять стабильный position hash без записи PNG на постоянный диск
-- [ ] Загружать изображение в Yandex resources и через SQLAlchemy-модель сохранять только `position_hash -> image_id` и служебные timestamps
-- [ ] Ограничить загрузку изображения оставшимся бюджетом webhook и без карточки завершать голосовой ответ до общего deadline 4,5 секунды
-- [ ] Возвращать `BigImage` только для screen-capable request
-- [ ] Реализовать ограниченную очистку image IDs по TTL/LRU после проверки квот API
-- [ ] Проверить, что недоступность image API и очистка cache не влияют на voice/text response и не заполняют Firebat PNG-файлами
-- [ ] Mark completed
+- [x] Рендерить PNG только в памяти по текущему board, цвету пользователя и последнему ходу
+- [x] Вычислять стабильный position hash без записи PNG на постоянный диск
+- [x] Загружать изображение в Yandex resources и через SQLAlchemy-модель сохранять только `position_hash -> image_id` и служебные timestamps
+- [x] Ограничить загрузку изображения оставшимся бюджетом webhook и без карточки завершать голосовой ответ до общего deadline 4,5 секунды
+- [x] Возвращать `BigImage` только для screen-capable request
+- [x] Реализовать ограниченную очистку image IDs по TTL/LRU после проверки квот API
+- [x] Проверить, что недоступность image API и очистка cache не влияют на voice/text response и не заполняют Firebat PNG-файлами
+- [x] Mark completed
 
 ### Task 10: Подготовить Firebat deployment, MariaDB operations и релизный контур
 

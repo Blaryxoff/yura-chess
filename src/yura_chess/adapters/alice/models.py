@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 TEXT_LIMIT = 1024
 TTS_LIMIT = 1024
 STATE_LIMIT_BYTES = 1024
+CARD_TITLE_LIMIT = 128
 
 # `request_replays` stores the replay key in CHAR/VARCHAR(64) columns.
 IDENTIFIER_LIMIT = 64
@@ -81,9 +82,18 @@ class AliceRequest(_AliceModel):
         return self.session.application.application_id if self.session.application else None
 
 
+class BigImageCard(_AliceModel):
+    """The single-image card; sent only to a device that has a screen."""
+
+    type: str = "BigImage"
+    image_id: str
+    title: str | None = Field(default=None, max_length=CARD_TITLE_LIMIT)
+
+
 class ResponseBody(_AliceModel):
     text: str
     tts: str | None = None
+    card: BigImageCard | None = None
     end_session: bool = False
 
 

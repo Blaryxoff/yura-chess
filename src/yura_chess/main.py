@@ -7,6 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from yura_chess import __version__
 from yura_chess.adapters.alice.webhook import build_router as build_alice_router
+from yura_chess.adapters.yandex_images import BoardImageService
 from yura_chess.engine.stockfish import StockfishPool
 from yura_chess.settings import Settings, get_settings
 from yura_chess.storage.database import (
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     engine = create_database_engine(app.state.settings)
     app.state.database_engine = engine
     app.state.session_factory = create_session_factory(engine)
+    app.state.board_images = BoardImageService(app.state.session_factory, app.state.settings)
     pool = StockfishPool(app.state.settings, process_factory=getattr(app.state, "engine_process_factory", None))
     app.state.engine_pool = pool
     await pool.start()

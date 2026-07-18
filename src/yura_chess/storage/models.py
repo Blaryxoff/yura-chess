@@ -21,6 +21,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 OWNER_KEY_LENGTH = 64
 FINGERPRINT_LENGTH = 64
 TRANSCRIPT_TEXT_LENGTH = 255
+POSITION_HASH_LENGTH = 64
+IMAGE_ID_LENGTH = 128
 
 
 class Base(DeclarativeBase):
@@ -96,6 +98,22 @@ class AsrTranscriptRow(Base):
     candidate_count: Mapped[int] = mapped_column(SmallInteger)
     legal_move_count: Mapped[int] = mapped_column(SmallInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+
+class BoardImageCacheRow(Base):
+    """Which Yandex resource already holds the picture of a rendered position.
+
+    Only the mapping and its timestamps live here — never the PNG itself, which
+    exists solely in memory for the duration of one request.
+    """
+
+    __tablename__ = "board_image_cache"
+
+    position_hash: Mapped[str] = mapped_column(CHAR(POSITION_HASH_LENGTH), primary_key=True)
+    image_id: Mapped[str] = mapped_column(String(IMAGE_ID_LENGTH))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Bumped on every cache hit so eviction can drop the least recently used.
+    last_used_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
 
 
 class RequestReplayRow(Base):

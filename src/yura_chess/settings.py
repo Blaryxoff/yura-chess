@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     engine_restart_delay_seconds: float = Field(default=1.0, gt=0.0)
     # Below this the skill asks instead of moving: a misheard move is worse than a question.
     voice_move_confidence_threshold: float = Field(default=0.7, gt=0.0, le=1.0)
+    # The screen card is optional everywhere: without credentials the skill stays voice-only.
+    board_image_enabled: bool = True
+    yandex_skill_id: str | None = None
+    yandex_oauth_token: SecretStr | None = None
+    # Whatever is left of the 4.5 s budget after speech; an upload never gets more.
+    image_upload_timeout_seconds: float = Field(default=1.0, gt=0.0, le=2.0)
+    board_image_ttl_days: int = Field(default=30, ge=1)
+    board_image_cache_limit: int = Field(default=5000, ge=1)
     asr_transcript_retention_days: int = Field(default=30, ge=1)
     asr_transcript_text_limit: int = Field(default=255, ge=16, le=255)
 

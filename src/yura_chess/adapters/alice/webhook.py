@@ -15,23 +15,28 @@ import logging
 from collections.abc import Callable
 from enum import StrEnum
 from hashlib import sha256
+from time import monotonic
 
 from fastapi import APIRouter
 from fastapi import Request as HttpRequest
 from pydantic import SecretStr
 
 from yura_chess.adapters.alice.models import (
+    CARD_TITLE_LIMIT,
     STATE_LIMIT_BYTES,
     TEXT_LIMIT,
     TTS_LIMIT,
     AliceRequest,
     AliceResponse,
+    BigImageCard,
     GameStateUpdate,
     ResponseBody,
 )
+from yura_chess.adapters.yandex_images import BoardImageService
 from yura_chess.application.game_service import GameService, RequestContext
 from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key
 from yura_chess.domain.results import TurnResult, TurnStatus
+from yura_chess.presentation.response_composer import compose_board_card
 from yura_chess.storage.game_repository import ReplayFingerprintConflictError
 from yura_chess.storage.models import FINGERPRINT_LENGTH
 
@@ -63,9 +68,15 @@ def build_router(interpreter: Interpreter = default_interpreter) -> APIRouter:
     async def webhook(payload: AliceRequest, http_request: HttpRequest) -> AliceResponse:
         settings = http_request.app.state.settings
         service = GameService(http_request.app.state.session_factory, http_request.app.state.engine_pool)
+        images: BoardImageService | None = getattr(http_request.app.state, "board_images", None)
+        started = monotonic()
         try:
             async with asyncio.timeout(settings.webhook_deadline_seconds):
-                return await _handle(payload, service, settings.identity_salt, interpreter)
+                response, result = await _handle(payload, service, settings.identity_salt, interpreter)
+                # The answer is already complete; the card is added only if the
+                # rest of the budget can pay for it.
+                remaining = settings.webhook_deadline_seconds - (monotonic() - started)
+                return await _attach_card(response, result, payload.has_screen, images, remaining)
         except TimeoutError:
             # Whatever was committed stays committed; the next request resumes it.
             logger.warning("alice request exceeded the webhook deadline", extra={"session": payload.session.session_id})
@@ -79,13 +90,13 @@ async def _handle(
     service: GameService,
     salt: SecretStr,
     interpreter: Interpreter,
-) -> AliceResponse:
+) -> tuple[AliceResponse, TurnResult | None]:
     try:
         owner = owner_key(salt, payload.user_id, payload.application_id)
     except UnidentifiedRequestError:
         # Without an identifier there is no owner, and without an owner no game
         # may be read or written.
-        return _plain(payload, "Не удалось определить пользователя. Попробуйте открыть навык ещё раз.")
+        return _plain(payload, "Не удалось определить пользователя. Попробуйте открыть навык ещё раз."), None
 
     context = RequestContext(
         skill_id=payload.session.skill_id,
@@ -102,12 +113,36 @@ async def _handle(
             result = await service.continue_game(owner, game_id, context)
     except ReplayFingerprintConflictError:
         # Same replay key, different request: answer without touching the game.
-        return _plain(payload, "Не расслышала. Повторите, пожалуйста.")
+        return _plain(payload, "Не расслышала. Повторите, пожалуйста."), None
     except LookupError:
         # A foreign or stale game_id must not reveal whether that game exists.
         result = await service.start_game(owner, context)
 
-    return _compose(payload, result)
+    return _compose(payload, result), result
+
+
+async def _attach_card(
+    response: AliceResponse,
+    result: TurnResult | None,
+    has_screen: bool,
+    images: BoardImageService | None,
+    remaining_seconds: float,
+) -> AliceResponse:
+    """Add the board picture when there is a screen, an image service and time left."""
+    if result is None or images is None:
+        return response
+    card = compose_board_card(result, has_screen)
+    if card is None:
+        return response
+    try:
+        image_id = await images.image_id_for(card.position_hash, card.render, remaining_seconds)
+    except Exception as error:  # noqa: BLE001 - the card is never worth failing the answer for
+        logger.warning("board card skipped", extra={"error": type(error).__name__})
+        return response
+    if image_id is None:
+        return response
+    response.response.card = BigImageCard(image_id=image_id, title=_clip(card.title, CARD_TITLE_LIMIT))
+    return response
 
 
 def _claimed_game_id(payload: AliceRequest) -> str | None:

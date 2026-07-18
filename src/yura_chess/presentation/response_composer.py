@@ -8,10 +8,15 @@ text — otherwise Alice speaks the text itself.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
+from functools import partial
+
 import chess
 
 from yura_chess.domain.game import PlayerColor
 from yura_chess.domain.results import GameEnd, GameOutcome, TurnResult, TurnStatus
+from yura_chess.presentation.board_image import position_hash, render_png
 from yura_chess.presentation.move_speech import Speech, describe_move, describe_played_move
 
 _STATUS_TEXTS: dict[TurnStatus, str] = {
@@ -39,6 +44,32 @@ def compose_turn(result: TurnResult, board_before: chess.Board | None = None) ->
     if not parts:
         return Speech.of(_STATUS_TEXTS.get(result.status, "Ваш ход."))
     return Speech.of(" ".join(parts))
+
+
+@dataclass(frozen=True, slots=True)
+class BoardCard:
+    """A card the adapter may attach — never a card it has to attach."""
+
+    position_hash: str
+    render: Callable[[], bytes]
+    title: str
+
+
+def compose_board_card(result: TurnResult, has_screen: bool) -> BoardCard | None:
+    """Describe the picture of the position, or nothing if no screen will show it."""
+    if not has_screen:
+        return None
+    board = chess.Board(result.fen)
+    last_move = result.engine_move or result.player_move
+    return BoardCard(
+        position_hash=position_hash(board, result.player_color, last_move),
+        render=partial(render_png, board, result.player_color, last_move),
+        title="Ваш ход" if board.turn == _chess_color(result.player_color) else "Мой ход",
+    )
+
+
+def _chess_color(color: PlayerColor) -> chess.Color:
+    return chess.WHITE if color is PlayerColor.WHITE else chess.BLACK
 
 
 def _move_text(result: TurnResult, board_before: chess.Board | None) -> str:
