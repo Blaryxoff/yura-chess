@@ -10,11 +10,17 @@ set -Eeuo pipefail
 
 ENV_FILE="${YURA_CHESS_BACKUP_ENV_FILE:-/srv/yura-chess/backup.env}"
 if [[ -f "$ENV_FILE" ]]; then
+  mode="$(stat -c %a "$ENV_FILE")"
+  if (( 10#$mode % 100 != 0 )); then
+    echo "refusing group/world-readable secret file $ENV_FILE (mode $mode)" >&2
+    exit 2
+  fi
   # shellcheck disable=SC1090
   set -a && source "$ENV_FILE" && set +a
 fi
 
 PROJECT="${YURA_CHESS_COMPOSE_PROJECT:-yura-chess-production}"
+COMPOSE_FILE="${YURA_CHESS_COMPOSE_FILE:-/srv/yura-chess/repo/deploy/compose.production.yml}"
 DB_SERVICE="${YURA_CHESS_DB_SERVICE:-mariadb}"
 DB_NAME="${YURA_CHESS_DB_NAME:?YURA_CHESS_DB_NAME is required}"
 DB_USER="${YURA_CHESS_RESTORE_DB_USER:-root}"
@@ -23,8 +29,8 @@ BACKUP_DIR="${YURA_CHESS_BACKUP_DIR:-/srv/yura-chess/backups}"
 
 ARCHIVE="${1:-}"
 if [[ -z "$ARCHIVE" ]]; then
-  ARCHIVE="$(find "$BACKUP_DIR" -type f -name "${DB_NAME}-*.sql.gz" -print0 \
-    | xargs -0 ls -1t 2>/dev/null | head -1 || true)"
+  ARCHIVE="$(find "$BACKUP_DIR" -type f -name "${DB_NAME}-*.sql.gz" -printf '%T@ %p\n' \
+    | sort -rn | head -1 | cut -d' ' -f2-)"
 fi
 if [[ -z "$ARCHIVE" || ! -f "$ARCHIVE" ]]; then
   echo "no backup archive found in $BACKUP_DIR" >&2
@@ -38,8 +44,10 @@ if [[ "$RESTORE_DB" == "$DB_NAME" ]]; then
 fi
 
 mariadb_client() {
-  docker compose --project-name "$PROJECT" exec -T \
-    --env "MYSQL_PWD=$DB_PASSWORD" "$DB_SERVICE" \
+  # The password is scoped to this one command instead of exported, so it stays
+  # out of the environment of every other child this script spawns.
+  MYSQL_PWD="$DB_PASSWORD" docker compose --project-name "$PROJECT" --file "$COMPOSE_FILE" exec -T \
+    --env MYSQL_PWD "$DB_SERVICE" \
     mariadb --user="$DB_USER" --default-character-set=utf8mb4 "$@"
 }
 
@@ -72,8 +80,19 @@ if [[ -z "$REVISION" ]]; then
 fi
 
 # The games table is the one whose loss would end the service; an empty restore
-# of a non-empty production database means the dump did not capture data.
+# of a non-empty live database means the dump captured schema only. A live
+# database that is itself empty is legitimate, so the counts are compared.
 GAMES="$(mariadb_client --skip-column-names --batch --execute \
   "SELECT COUNT(*) FROM \`$RESTORE_DB\`.games")"
+LIVE_GAMES="$(mariadb_client --skip-column-names --batch --execute \
+  "SELECT COUNT(*) FROM \`$DB_NAME\`.games")"
+if [[ ! "$GAMES" =~ ^[0-9]+$ || ! "$LIVE_GAMES" =~ ^[0-9]+$ ]]; then
+  echo "could not count games in the restored or the live database" >&2
+  exit 1
+fi
+if (( GAMES == 0 && LIVE_GAMES > 0 )); then
+  echo "restored backup has no games while the live database has $LIVE_GAMES" >&2
+  exit 1
+fi
 
 echo "==> restore smoke passed: revision $REVISION, $GAMES games"

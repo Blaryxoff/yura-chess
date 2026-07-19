@@ -11,11 +11,17 @@ set -Eeuo pipefail
 
 ENV_FILE="${YURA_CHESS_BACKUP_ENV_FILE:-/srv/yura-chess/backup.env}"
 if [[ -f "$ENV_FILE" ]]; then
+  mode="$(stat -c %a "$ENV_FILE")"
+  if (( 10#$mode % 100 != 0 )); then
+    echo "refusing group/world-readable secret file $ENV_FILE (mode $mode)" >&2
+    exit 2
+  fi
   # shellcheck disable=SC1090
   set -a && source "$ENV_FILE" && set +a
 fi
 
 PROJECT="${YURA_CHESS_COMPOSE_PROJECT:-yura-chess-production}"
+COMPOSE_FILE="${YURA_CHESS_COMPOSE_FILE:-/srv/yura-chess/repo/deploy/compose.production.yml}"
 DB_SERVICE="${YURA_CHESS_DB_SERVICE:-mariadb}"
 DB_NAME="${YURA_CHESS_DB_NAME:?YURA_CHESS_DB_NAME is required}"
 DB_USER="${YURA_CHESS_BACKUP_DB_USER:?YURA_CHESS_BACKUP_DB_USER is required}"
@@ -39,7 +45,7 @@ alert() {
   fi
 }
 
-trap 'alert "unexpected error on line $LINENO"' ERR
+trap 'rm -f "$ARCHIVE.partial"; alert "unexpected error on line $LINENO"' ERR
 
 install -d -m 0700 "$BACKUP_DIR"
 
@@ -50,10 +56,11 @@ if (( FREE_MB < MIN_FREE_MB )); then
 fi
 
 echo "==> dumping $DB_NAME"
-# The password reaches the client through the environment, so it never appears
-# in the process list on a shared host.
-docker compose --project-name "$PROJECT" exec -T \
-  --env "MYSQL_PWD=$DB_PASSWORD" "$DB_SERVICE" \
+# Passed by name, not as `--env NAME=value`: the value is read from this one
+# command's environment instead of appearing in the host process list. Scoped to
+# the command rather than exported, so `aws` and the alert hook never see it.
+MYSQL_PWD="$DB_PASSWORD" docker compose --project-name "$PROJECT" --file "$COMPOSE_FILE" exec -T \
+  --env MYSQL_PWD "$DB_SERVICE" \
   mariadb-dump --user="$DB_USER" --single-transaction --quick \
     --routines --events --default-character-set=utf8mb4 "$DB_NAME" \
   | gzip -9 >"$ARCHIVE.partial"
@@ -76,18 +83,23 @@ echo "==> wrote $ARCHIVE (${SIZE_BYTES} bytes)"
 
 if [[ -n "$S3_TARGET" ]]; then
   echo "==> copying to $S3_TARGET"
-  if ! aws ${YURA_CHESS_BACKUP_S3_ENDPOINT:+--endpoint-url "$YURA_CHESS_BACKUP_S3_ENDPOINT"} \
-      s3 cp "$ARCHIVE" "$S3_TARGET/$(basename "$ARCHIVE")"; then
+  s3_args=()
+  if [[ -n "${YURA_CHESS_BACKUP_S3_ENDPOINT:-}" ]]; then
+    s3_args+=(--endpoint-url "$YURA_CHESS_BACKUP_S3_ENDPOINT")
+  fi
+  if ! aws "${s3_args[@]}" s3 cp "$ARCHIVE" "$S3_TARGET/$(basename "$ARCHIVE")"; then
     alert "off-host copy to $S3_TARGET failed"
     exit 1
   fi
 else
   # A backup that exists only on Firebat does not survive Firebat.
   alert "YURA_CHESS_BACKUP_S3_TARGET is not set: this backup has no off-host copy"
+  exit 1
 fi
 
 echo "==> pruning local archives older than $RETENTION_DAYS days"
 find "$BACKUP_DIR" -type f -name "${DB_NAME}-*.sql.gz" -mtime "+$RETENTION_DAYS" -delete
+find "$BACKUP_DIR" -type f -name "${DB_NAME}-*.sql.gz.partial" -delete
 
 trap - ERR
 echo "==> backup complete"

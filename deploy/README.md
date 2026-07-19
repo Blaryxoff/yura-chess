@@ -14,14 +14,18 @@ Operational runbook. The topology, ports and secrets themselves are described in
 | `nginx/chess.waxim.ru.conf` | Host nginx vhost: TLS, limits, rate limiting |
 | `mariadb/backup.sh` | Scheduled dump, off-host copy, retention, alerting |
 | `mariadb/restore-smoke.sh` | Restore the latest dump into a temporary database and verify it |
+| `systemd/` | Daily backup and weekly restore-smoke units for the production Incus container |
 
 ## Build and publish
 
 ```bash
 TAG="$(git rev-parse --short HEAD)"
-docker build --tag "ghcr.io/blaryx/yura-chess:$TAG" .
-docker push "ghcr.io/blaryx/yura-chess:$TAG"
+docker build --tag "ghcr.io/blaryxoff/yura-chess:$TAG" .
+docker push "ghcr.io/blaryxoff/yura-chess:$TAG"
 ```
+
+Pushes to `main` also publish `ghcr.io/blaryxoff/yura-chess:<40-character-git-sha>`
+through `.github/workflows/publish.yml`.
 
 Only immutable tags are deployable. `deploy.sh` refuses `latest`.
 
@@ -67,6 +71,8 @@ deploy/mariadb/restore-smoke.sh /srv/yura-chess/backups/yura_chess-<stamp>.sql.g
 report success when the archive is missing, corrupt, implausibly small, or when
 free space is below the configured floor, and it alerts through
 `YURA_CHESS_BACKUP_ALERT_COMMAND`. A missing off-host target is itself an alert.
+The S3-compatible bucket must also have a lifecycle expiration matching
+`YURA_CHESS_BACKUP_RETENTION_DAYS`; local pruning cannot remove remote objects.
 
 Verify restorability regularly and always before a cutover:
 
@@ -76,6 +82,15 @@ deploy/mariadb/restore-smoke.sh
 
 It restores into `yura_chess_restore_smoke`, checks every canonical table and the
 Alembic revision, then drops it. It refuses to touch the live database.
+
+Install the units during provisioning, but enable them only after
+`YURA_CHESS_BACKUP_S3_TARGET` and the matching credentials are configured:
+
+```bash
+install -m 0644 deploy/systemd/yura-chess-* /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now yura-chess-backup.timer yura-chess-restore-smoke.timer
+```
 
 ## Cutover checklist
 

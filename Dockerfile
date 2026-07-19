@@ -24,7 +24,7 @@ FROM python:3.12-slim-bookworm AS runtime
 
 # Stockfish comes from the distribution: the image must never ship a vendored binary.
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y stockfish curl \
+    && apt-get install --no-install-recommends -y stockfish \
     && rm -rf /var/lib/apt/lists/*
 
 # A fixed non-root uid keeps volume ownership predictable across hosts.
@@ -47,7 +47,10 @@ EXPOSE 8000
 
 # The container answers only on its own loopback-published port; nginx on the
 # host terminates TLS. See deploy/INFRASTRUCTURE.md.
+# Liveness, not readiness: a failing check restarts the container, and restarting
+# does not bring back a missing Stockfish binary or a down database. Readiness is
+# the deploy gate instead (deploy/deploy.sh).
 HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=4 \
-    CMD curl --fail --silent http://127.0.0.1:8000/health/ready || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2)"
 
 CMD ["uvicorn", "--factory", "yura_chess.main:create_app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Yura Chess database backup daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=30m
+Persistent=true
+Unit=yura-chess-backup.service
+
+[Install]
+WantedBy=timers.target

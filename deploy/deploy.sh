@@ -12,12 +12,13 @@ ENVIRONMENT="${1:?usage: deploy.sh <staging|production> <image-tag>}"
 IMAGE_TAG="${2:?usage: deploy.sh <staging|production> <image-tag>}"
 
 case "$ENVIRONMENT" in
-  staging|production) ;;
+  staging) DEFAULT_PORT=8081 ;;
+  production) DEFAULT_PORT=8082 ;;
   *) echo "unknown environment: $ENVIRONMENT" >&2; exit 2 ;;
 esac
 
-if [[ "$IMAGE_TAG" == "latest" || "$IMAGE_TAG" == *:latest ]]; then
-  echo "refusing a mutable tag: deploy an immutable one (git sha or version)" >&2
+if [[ ! "$IMAGE_TAG" =~ ^([0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+  echo "refusing a mutable tag: use a git sha or vMAJOR.MINOR.PATCH" >&2
   exit 2
 fi
 
@@ -25,11 +26,18 @@ DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_DIR="${YURA_CHESS_STATE_DIR:-/srv/yura-chess}"
 COMPOSE_FILE="$DEPLOY_DIR/compose.$ENVIRONMENT.yml"
 PROJECT="yura-chess-$ENVIRONMENT"
-IMAGE_REPOSITORY="${YURA_CHESS_IMAGE_REPOSITORY:-ghcr.io/blaryx/yura-chess}"
-HEALTH_URL="${YURA_CHESS_HEALTH_URL:-http://127.0.0.1:${YURA_CHESS_PORT:-8080}/health/ready}"
+IMAGE_REPOSITORY="${YURA_CHESS_IMAGE_REPOSITORY:-ghcr.io/blaryxoff/yura-chess}"
+HEALTH_URL="${YURA_CHESS_HEALTH_URL:-http://127.0.0.1:${YURA_CHESS_PORT:-$DEFAULT_PORT}/health/ready}"
 HEALTH_ATTEMPTS="${YURA_CHESS_HEALTH_ATTEMPTS:-30}"
 CURRENT_FILE="$STATE_DIR/$ENVIRONMENT.current-image"
 PREVIOUS_FILE="$STATE_DIR/$ENVIRONMENT.previous-image"
+
+install -d -m 0750 "$STATE_DIR"
+exec 9>"$STATE_DIR/$ENVIRONMENT.deploy.lock"
+if ! flock -n 9; then
+  echo "another deploy or rollback is already running for $ENVIRONMENT" >&2
+  exit 3
+fi
 
 export YURA_CHESS_IMAGE="$IMAGE_REPOSITORY:$IMAGE_TAG"
 
@@ -64,10 +72,21 @@ echo "==> pulling image"
 compose pull --quiet
 
 echo "==> starting dependencies"
-compose up --detach --wait mariadb 2>/dev/null || true
+if compose config --services | grep --quiet '^mariadb$'; then
+  compose up --detach --wait mariadb
+fi
 
 echo "==> applying migrations"
-compose --profile release run --rm migrate
+for attempt in $(seq 1 10); do
+  if compose --profile release run --rm migrate; then
+    break
+  fi
+  if (( attempt == 10 )); then
+    echo "migration failed after $attempt attempts" >&2
+    exit 1
+  fi
+  sleep 3
+done
 
 echo "==> starting application"
 compose up --detach --wait app
@@ -79,12 +98,15 @@ if ! smoke; then
     # Only the application goes back: a migration that already ran stays applied,
     # which is why every migration must be backwards compatible by one release.
     echo "==> rolling back to $RUNNING_IMAGE" >&2
+    YURA_CHESS_IMAGE="$RUNNING_IMAGE" compose pull --quiet app
     YURA_CHESS_IMAGE="$RUNNING_IMAGE" compose up --detach --wait app
+    if ! smoke; then
+      echo "automatic rollback also failed health checks" >&2
+    fi
   fi
   exit 1
 fi
 
-install -d -m 0750 "$STATE_DIR"
 if [[ -n "$RUNNING_IMAGE" && "$RUNNING_IMAGE" != "$YURA_CHESS_IMAGE" ]]; then
   printf '%s\n' "$RUNNING_IMAGE" >"$PREVIOUS_FILE"
 fi

@@ -1,0 +1,20 @@
+[Unit]
+Description=Back up the Yura Chess MariaDB database
+Requires=docker.service
+After=docker.service
+ConditionPathExists=/srv/yura-chess/backup.env
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=YURA_CHESS_BACKUP_ENV_FILE=/srv/yura-chess/backup.env
+ExecStart=/srv/yura-chess/repo/deploy/mariadb/backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/srv/yura-chess/backups

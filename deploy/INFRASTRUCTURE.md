@@ -12,7 +12,7 @@ Firebat environments. The step-by-step runbook is in [README.md](README.md).
                 │ Firebat host                │
                 │  nginx  (TLS, SNI, limits)  │
                 └──┬──────────────────┬───────┘
-       127.0.0.1:8080         127.0.0.1:8081
+       127.0.0.1:8082         127.0.0.1:8081
                    │                  │
       Incus proxy-device   Incus proxy-device
                    │                  │
@@ -35,8 +35,8 @@ Neither MariaDB is published beyond its container network.
 | Compose file | `deploy/compose.staging.yml` | `deploy/compose.production.yml` |
 | Compose project | `yura-chess-staging` | `yura-chess-production` |
 | Database | existing `staging-mariadb`, own db `yura_chess_staging` and own user `yura-chess` | own MariaDB 11.4, volume `mariadb-data` |
-| App port (container loopback) | 8000 → published `127.0.0.1:8081` | 8000 → published `127.0.0.1:8080` |
-| Host port via proxy-device | `127.0.0.1:8081` | `127.0.0.1:8080` |
+| App port (container loopback) | 8000 → published `127.0.0.1:8081` | 8000 → published `127.0.0.1:8082` |
+| Host port via proxy-device | `127.0.0.1:8081` | `127.0.0.1:8082` |
 | Public name | none (host-local only) | `https://chess.waxim.ru` |
 | `YURA_CHESS_ENVIRONMENT` | `test` | `production` |
 
@@ -51,7 +51,7 @@ loopback port to the host loopback:
 
 ```bash
 incus config device add yura-chess app-proxy proxy \
-  listen=tcp:127.0.0.1:8080 connect=tcp:127.0.0.1:8080
+  listen=tcp:127.0.0.1:8082 connect=tcp:127.0.0.1:8082
 incus config device add staging yura-chess-proxy proxy \
   listen=tcp:127.0.0.1:8081 connect=tcp:127.0.0.1:8081
 ```
@@ -81,7 +81,7 @@ Secrets that exist only on Firebat and never in git:
 | --- | --- | --- |
 | 443/tcp | public | nginx TLS for `chess.waxim.ru` |
 | 80/tcp | public | ACME challenge and redirect to 443 |
-| 127.0.0.1:8080 | host loopback | production application via proxy-device |
+| 127.0.0.1:8082 | host loopback | production application via proxy-device |
 | 127.0.0.1:8081 | host loopback | staging application via proxy-device |
 | 3306/tcp | container network only | MariaDB; never published |
 
@@ -109,9 +109,15 @@ Details and the cutover checklist: [README.md](README.md).
 - `deploy/mariadb/backup.sh` — daily `mariadb-dump --single-transaction`, gzip,
   copy to the S3-compatible target, prune by `YURA_CHESS_BACKUP_RETENTION_DAYS`,
   free-space floor, alert on any failure including a missing off-host copy.
+- Backup commands use the explicit production Compose file from
+  `YURA_CHESS_COMPOSE_FILE`, so timers do not depend on their working directory.
 - `deploy/mariadb/restore-smoke.sh` — restore the latest archive into
   `yura_chess_restore_smoke`, assert every canonical table and the Alembic
   revision, then drop it. Run before every cutover.
+- `deploy/systemd/yura-chess-backup.timer` runs daily and
+  `yura-chess-restore-smoke.timer` verifies the latest archive weekly. Install
+  both during provisioning, but enable them only after the off-host target and
+  credentials are present.
 
 Full restore into the live database (announced outage):
 
@@ -130,7 +136,7 @@ docker compose --project-name yura-chess-production start app
 curl -i -X POST https://chess.waxim.ru/alice/webhook -H 'Content-Type: application/json' -d '{}'
 
 # Application readiness from the host (never exposed publicly)
-curl -s http://127.0.0.1:8080/health/ready | jq
+curl -s http://127.0.0.1:8082/health/ready | jq
 
 # Container state and logs
 docker compose --project-name yura-chess-production ps
