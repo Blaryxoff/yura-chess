@@ -52,6 +52,8 @@ class CommandKind(StrEnum):
     REMATCH = "rematch"
     # A coaching question, or switching the trainer on or off.
     TRAINING = "training"
+    # A question about a finished game: review, PGN or dictation.
+    REVIEW = "review"
     MOVE = "move"
     # A move was understood but is not legal in the current position.
     ILLEGAL_MOVE = "illegal_move"
@@ -122,6 +124,27 @@ class TrainingRequest:
     move_text: str | None = None
 
 
+class ReviewQuestion(StrEnum):
+    """What was asked about a finished game; every answer is read-only."""
+
+    SUMMARY = "summary"
+    # Picks up an interrupted review where its stored cursor stopped.
+    CONTINUE = "continue"
+    TURNING_POINT = "turning_point"
+    MAIN_MISTAKE = "main_mistake"
+    MISTAKE_COUNT = "mistake_count"
+    MOVES = "moves"
+    PGN = "pgn"
+    # A training branch from the turning point; started only after a confirmation.
+    REPLAY_POSITION = "replay_position"
+    EXIT = "exit"
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewRequest:
+    question: ReviewQuestion
+
+
 @dataclass(frozen=True, slots=True)
 class RematchRequest:
     color: RematchColor = RematchColor.SAME
@@ -147,6 +170,8 @@ class RoutedCommand:
     rematch: RematchRequest | None = None
     # Which coaching question was asked; set only for `TRAINING`.
     training: TrainingRequest | None = None
+    # Which question about a finished game was asked; set only for `REVIEW`.
+    review: ReviewRequest | None = None
 
 
 _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
@@ -269,6 +294,26 @@ _TRAINING_PATTERNS: tuple[tuple[TrainingQuestion, re.Pattern[str]], ...] = (
     (TrainingQuestion.HINT, re.compile(r"подсказ|дай совет|посоветуй|помоги с ходом")),
 )
 
+# Review phrases are read before the control table: «продолжить разбор» would
+# otherwise resume the game, and «сыграть эту позицию заново» would start one.
+_REVIEW_PATTERNS: tuple[tuple[ReviewQuestion, re.Pattern[str]], ...] = (
+    (ReviewQuestion.EXIT, re.compile(r"(выйти|выход|закончить|закрой|закрыть|хватит|стоп)\w*( из)? разбор")),
+    (ReviewQuestion.CONTINUE, re.compile(r"продолж\w* разбор|дальше по разбору")),
+    (
+        ReviewQuestion.REPLAY_POSITION,
+        re.compile(r"(сыграть|сыграем|переиграть|разыграть)\w* эту позицию|с этой позиции"),
+    ),
+    (ReviewQuestion.TURNING_POINT, re.compile(r"перелом")),
+    (ReviewQuestion.MAIN_MISTAKE, re.compile(r"главн(ая|ую) ошибк|сам(ая|ую) больш(ая|ую) ошибк|худший ход")),
+    (ReviewQuestion.MISTAKE_COUNT, re.compile(r"сколько (я )?ошиб|сколько ошибок|число ошибок")),
+    (ReviewQuestion.PGN, re.compile(r"\bpgn\b|\bпгн\b|покажи нотацию|партию в нотации")),
+    (
+        ReviewQuestion.MOVES,
+        re.compile(r"продиктуй (партию|ходы)|прочитай (партию|ходы)|назови все ходы|продиктуй игру"),
+    ),
+    (ReviewQuestion.SUMMARY, re.compile(r"разбери (партию|игру)|разбор партии|проанализируй партию|итоги партии")),
+)
+
 # What is left of a preview question once the framing words are dropped.
 _PREVIEW_PREFIX = re.compile(
     r"^.*?(?:если (?:я )?(?:сыграю|пойду|походу|сделаю ход)?|стоит ли (?:мне )?(?:играть|ходить))\s*"
@@ -310,6 +355,9 @@ def route(
     rematch = parse_rematch(normalized.text)
     if rematch is not None:
         return RoutedCommand(CommandKind.REMATCH, normalized, rematch=rematch, clarification=None)
+    review = parse_review(normalized.text)
+    if review is not None:
+        return RoutedCommand(CommandKind.REVIEW, normalized, review=review, clarification=None)
     training = parse_training(normalized.text)
     if training is not None:
         return RoutedCommand(CommandKind.TRAINING, normalized, training=training, clarification=None)
@@ -348,6 +396,14 @@ def parse_training(text: str) -> TrainingRequest | None:
                 return TrainingRequest(question)
             # The move itself is resolved later, against the real position.
             return TrainingRequest(question, move_text=_PREVIEW_PREFIX.sub("", text).strip() or None)
+    return None
+
+
+def parse_review(text: str) -> ReviewRequest | None:
+    """Read a question about a finished game, or return `None` when it is not one."""
+    for question, pattern in _REVIEW_PATTERNS:
+        if pattern.search(text):
+            return ReviewRequest(question)
     return None
 
 

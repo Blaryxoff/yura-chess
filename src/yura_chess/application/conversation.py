@@ -17,11 +17,14 @@ from yura_chess.application.command_router import (
     PreferenceChange,
     RematchColor,
     RematchRequest,
+    ReviewQuestion,
+    ReviewRequest,
     RoutedCommand,
     confirmation_answer,
     route,
 )
 from yura_chess.application.game_service import GameService, MoveSearch, RequestContext
+from yura_chess.application.review_service import ReviewService
 from yura_chess.application.training_service import PositionSearch, TrainingService
 from yura_chess.domain.game import EngineSettings, GameMode, GameState, GameStatus, PlayerColor
 from yura_chess.domain.preferences import (
@@ -100,6 +103,9 @@ class ConversationState:
     position_page: int = 0
     # Where the open help stopped reading; `None` while help is closed.
     help: HelpState | None = None
+    # True while a review is being read, so «дальше» turns its page rather than
+    # the board's. The durable cursor itself lives server-side.
+    reviewing: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +115,8 @@ class PendingAction:
     # A rematch keeps the colour and level it was asked for; re-reading the
     # utterance after the confirmation would lose them.
     rematch: RematchRequest | None = None
+    # Which review question is waiting for a yes; only the training branch asks.
+    review: ReviewRequest | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +139,7 @@ class ConversationService:
     def __init__(self, session_factory: sessionmaker[Session], engine: ChessEngine, settings: Settings) -> None:
         self._session_factory = session_factory
         self._training = TrainingService(session_factory, engine, settings)
+        self._review = ReviewService(session_factory, engine, settings)
         self._games = GameService(session_factory, engine, observer=self._training)
         self._settings = settings
 
@@ -218,6 +227,7 @@ class ConversationService:
             clarification=None,
             position_page=0,
             help=None,
+            reviewing=False,
         )
 
         if state.pending_action is not None:
@@ -238,6 +248,15 @@ class ConversationService:
                 base = game or self._games.find_latest_game(owner_key)
                 if base is not None:
                     return await self._rematch(owner_key, base, request, confirmed.rematch, next_state, preferences)
+            if confirmed.kind is CommandKind.REVIEW:
+                base = self._reviewable(owner_key, game)
+                if base is not None:
+                    branch_id, speech = await self._review.start_branch(owner_key, base)
+                    branch = self._load(owner_key, branch_id) if branch_id is not None else None
+                    return ConversationReply(
+                        speech,
+                        self._with_game(next_state, branch) if branch is not None else next_state,
+                    )
             if confirmed.kind is CommandKind.NEW_GAME:
                 return await self._start(owner_key, confirmed.utterance, request, next_state, preferences)
             if confirmed.kind is CommandKind.RESIGN and game is not None:
@@ -256,6 +275,18 @@ class ConversationService:
             navigated = help_speech.navigate(utterance, state.help, mode) or help_speech.bare_topic(utterance)
             if navigated is not None:
                 return self._help_reply(navigated, next_state, game)
+        # An open review owns «дальше» and «назад» while it is being dictated,
+        # exactly as open help owns them.
+        if state.reviewing and routed.kind is not CommandKind.REVIEW:
+            reviewed = self._reviewable(owner_key, game)
+            step = _review_step(routed.normalized.text)
+            if reviewed is not None and step is not None:
+                return ConversationReply(
+                    self._review.dictate(owner_key, reviewed, step),
+                    replace(self._with_game(next_state, reviewed), reviewing=True),
+                )
+        if routed.kind is CommandKind.REVIEW and routed.review is not None:
+            return await self._review_reply(owner_key, game, routed.review, utterance, next_state)
         if routed.kind is CommandKind.HELP_EXIT:
             return self._help_reply(help_speech.close(), next_state, game)
         if routed.kind is CommandKind.HELP:
@@ -407,6 +438,46 @@ class ConversationService:
             Speech.of("Не поняла команду." + _hint(preferences, "Скажите ход или попросите помощь.")),
             self._with_game(next_state, game),
         )
+
+    async def _review_reply(
+        self,
+        owner_key: str,
+        game: GameState | None,
+        request: ReviewRequest,
+        utterance: str,
+        state: ConversationState,
+    ) -> ConversationReply:
+        """Answer a question about a finished game; the game itself stays as it is."""
+        reviewed = self._reviewable(owner_key, game)
+        if reviewed is None:
+            return ConversationReply(
+                Speech.of("Законченной партии еще нет, разбирать нечего. Скажите «новая игра»."),
+                self._with_game(state, game) if game is not None else state,
+            )
+        if request.question is ReviewQuestion.REPLAY_POSITION:
+            return ConversationReply(
+                self._review.branch_prompt(),
+                replace(
+                    self._with_game(state, reviewed),
+                    pending_action=PendingAction(CommandKind.REVIEW, utterance[:255], review=request),
+                    reviewing=True,
+                ),
+            )
+        speech = await self._review.answer(owner_key, reviewed, request)
+        return ConversationReply(
+            speech,
+            replace(
+                self._with_game(state, reviewed),
+                reviewing=request.question is not ReviewQuestion.EXIT,
+            ),
+        )
+
+    def _reviewable(self, owner_key: str, game: GameState | None) -> GameState | None:
+        """The finished game a review question is about, if there is one."""
+        if game is not None and game.status is not GameStatus.ACTIVE:
+            return game
+        latest = self._games.find_latest_game(owner_key)
+        return latest if latest is not None and latest.status is not GameStatus.ACTIVE else None
 
     async def _start(
         self,
@@ -634,6 +705,22 @@ class ConversationService:
                 candidate_count=len(resolution.candidates) if resolution is not None else 0,
                 legal_move_count=board.legal_moves.count() if board is not None else 0,
             )
+
+
+_REVIEW_NEXT = re.compile(r"^(дальше|далее|еще|ещё|следующ\w*)$")
+_REVIEW_PREVIOUS = re.compile(r"^(назад|обратно|предыдущ\w*)$")
+_REVIEW_RESTART = re.compile(r"^(сначала|с начала|заново|в начало|начало)$")
+
+
+def _review_step(text: str) -> int | None:
+    """How far a navigation word moves the dictation, or `None` if it is not one."""
+    if _REVIEW_NEXT.match(text):
+        return 1
+    if _REVIEW_PREVIOUS.match(text):
+        return -1
+    if _REVIEW_RESTART.match(text):
+        return 0
+    return None
 
 
 def _hint(preferences: PlayerPreferences, text: str) -> str:
