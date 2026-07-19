@@ -17,9 +17,9 @@ from PIL import Image, ImageDraw, ImageFont
 from yura_chess.domain.game import PlayerColor
 
 POSITION_HASH_LENGTH = 64
-RENDER_VERSION = 2
-SQUARE_PIXELS = 54
-BORDER_PIXELS = 20
+RENDER_VERSION = 3
+SQUARE_PIXELS = 58
+BORDER_PIXELS = 12
 BOARD_PIXELS = SQUARE_PIXELS * 8 + BORDER_PIXELS * 2
 CARD_WIDTH = 1120
 CARD_HEIGHT = 500
@@ -30,19 +30,15 @@ _HIGHLIGHT = (246, 246, 105)
 _BORDER = (48, 44, 40)
 _WHITE_PIECE = (255, 255, 255)
 _BLACK_PIECE = (26, 26, 26)
-_OUTLINE = (90, 90, 90)
+
+_PIECE_FONT_PATHS = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    "/Library/Fonts/Arial Unicode.ttf",
+)
 
 # `load_default` returns either variant depending on how Pillow was built.
 _Font = ImageFont.FreeTypeFont | ImageFont.ImageFont
-
-_LETTERS = {
-    chess.PAWN: "P",
-    chess.KNIGHT: "N",
-    chess.BISHOP: "B",
-    chess.ROOK: "R",
-    chess.QUEEN: "Q",
-    chess.KING: "K",
-}
 
 
 def position_hash(board: chess.Board, orientation: PlayerColor, last_move_uci: str | None) -> str:
@@ -56,7 +52,7 @@ def render_png(board: chess.Board, orientation: PlayerColor, last_move_uci: str 
     highlighted = _highlighted_squares(last_move_uci)
     board_image = Image.new("RGB", (BOARD_PIXELS, BOARD_PIXELS), _BORDER)
     canvas = ImageDraw.Draw(board_image)
-    font = ImageFont.load_default(size=SQUARE_PIXELS // 2)
+    font = _piece_font()
 
     for square in chess.SQUARES:
         left, top = _square_origin(square, orientation)
@@ -104,19 +100,29 @@ def _square_color(square: int, highlighted: bool) -> tuple[int, int, int]:
 def _draw_piece(canvas: ImageDraw.ImageDraw, piece: chess.Piece, left: int, top: int, font: _Font) -> None:
     center = (left + SQUARE_PIXELS // 2, top + SQUARE_PIXELS // 2)
     fill = _WHITE_PIECE if piece.color is chess.WHITE else _BLACK_PIECE
+    outline = _BLACK_PIECE if piece.color is chess.WHITE else _WHITE_PIECE
     canvas.text(
         center,
-        _LETTERS[piece.piece_type],
+        piece.unicode_symbol(),
         fill=fill,
         font=font,
         anchor="mm",
-        stroke_width=1,
-        stroke_fill=_OUTLINE,
+        stroke_width=2,
+        stroke_fill=outline,
     )
 
 
+def _piece_font() -> _Font:
+    for path in _PIECE_FONT_PATHS:
+        try:
+            return ImageFont.truetype(path, size=SQUARE_PIXELS - 8)
+        except OSError:
+            continue
+    return ImageFont.load_default(size=SQUARE_PIXELS)
+
+
 def _draw_coordinates(canvas: ImageDraw.ImageDraw, orientation: PlayerColor) -> None:
-    font = ImageFont.load_default(size=BORDER_PIXELS - 6)
+    font = ImageFont.load_default(size=BORDER_PIXELS - 2)
     files = chess.FILE_NAMES if orientation is PlayerColor.WHITE else tuple(reversed(chess.FILE_NAMES))
     ranks = tuple(reversed(chess.RANK_NAMES)) if orientation is PlayerColor.WHITE else chess.RANK_NAMES
     for index in range(8):

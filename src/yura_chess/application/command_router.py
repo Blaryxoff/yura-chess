@@ -29,6 +29,7 @@ class CommandKind(StrEnum):
     RESIGN = "resign"
     CLAIM_DRAW = "claim_draw"
     UNDO = "undo"
+    LEVEL_QUERY = "level_query"
     POSITION_QUERY = "position_query"
     # «что ты услышала» — replays the previous normalised utterance.
     REPEAT_HEARD = "repeat_heard"
@@ -78,6 +79,13 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (CommandKind.HELP, re.compile(r"помощь|что ты умеешь|справка|как играть")),
     (CommandKind.START, re.compile(r"начать игру|начн?ем игру|давай играть|поехали|старт")),
     (CommandKind.CONTINUE, re.compile(r"продолж")),
+    (
+        CommandKind.LEVEL_QUERY,
+        re.compile(
+            r"какой( сейчас)? уровень|какая( сейчас)? сложность|текущ(ий уровень|ая сложность)|"
+            r"на каком уровне|^уровень сложности$"
+        ),
+    ),
     (
         CommandKind.POSITION_QUERY,
         re.compile(

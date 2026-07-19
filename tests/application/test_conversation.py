@@ -150,6 +150,21 @@ async def test_new_game_accepts_black_and_engine_level(
     assert game.moves
 
 
+async def test_current_engine_level_can_be_asked_in_natural_speech(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра уровень семь", context(1))
+
+    reply = await conversation.handle(OWNER, "Какой уровень сложности?", context(2), started.state)
+
+    assert reply.turn is None
+    assert reply.speech.text == (
+        "Сейчас установлен уровень сложности 7 из 20. Чтобы изменить его, скажите «новая игра уровень десять»."
+    )
+
+
 async def test_new_session_offers_the_latest_unfinished_game_and_last_two_moves(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,

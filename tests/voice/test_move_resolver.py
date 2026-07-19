@@ -205,6 +205,7 @@ def test_utterance_without_move_tokens_is_unmatched() -> None:
         ("предлагаю ничью", CommandKind.CLAIM_DRAW),
         ("продолжаем", CommandKind.CONTINUE),
         ("что ты умеешь", CommandKind.HELP),
+        ("какой уровень сложности", CommandKind.LEVEL_QUERY),
         ("какая позиция", CommandKind.POSITION_QUERY),
         ("где стоит мой король", CommandKind.POSITION_QUERY),
         ("где белые слоны", CommandKind.POSITION_QUERY),

@@ -201,6 +201,15 @@ class ConversationService:
         if game is None:
             if routed.kind is CommandKind.HELP:
                 return ConversationReply(Speech.of(_HELP), next_state)
+            if routed.kind is CommandKind.LEVEL_QUERY:
+                level = self._settings.engine_skill_level
+                return ConversationReply(
+                    Speech.of(
+                        f"Уровень сложности по умолчанию — {level} из 20. "
+                        "Чтобы выбрать другой, скажите «новая игра уровень десять»."
+                    ),
+                    next_state,
+                )
             if routed.kind is CommandKind.CONTINUE:
                 candidate = self._games.find_latest_active_game(owner_key)
                 if candidate is None:
@@ -230,6 +239,15 @@ class ConversationService:
         if routed.kind is CommandKind.REPEAT_HEARD:
             heard = routed.heard or "пока ничего"
             return ConversationReply(Speech.of(f"Я услышала: {heard}."), self._with_game(next_state, game))
+        if routed.kind is CommandKind.LEVEL_QUERY:
+            level = game.engine.skill_level
+            return ConversationReply(
+                Speech.of(
+                    f"Сейчас установлен уровень сложности {level} из 20. "
+                    "Чтобы изменить его, скажите «новая игра уровень десять»."
+                ),
+                self._with_game(next_state, game),
+            )
         if routed.kind is CommandKind.POSITION_QUERY:
             answer = answer_position_query(utterance, board, state.position_page)
             return ConversationReply(

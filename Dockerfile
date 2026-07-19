@@ -24,7 +24,7 @@ FROM python:3.12-slim-bookworm AS runtime
 
 # Stockfish comes from the distribution: the image must never ship a vendored binary.
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y stockfish \
+    && apt-get install --no-install-recommends -y fonts-dejavu-core stockfish \
     && rm -rf /var/lib/apt/lists/*
 
 # A fixed non-root uid keeps volume ownership predictable across hosts.

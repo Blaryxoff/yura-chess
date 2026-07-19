@@ -18,7 +18,7 @@ from urllib.request import Request
 
 import chess
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 from sqlalchemy.orm import Session, sessionmaker
 
 from yura_chess.adapters.alice.models import AliceRequest, AliceResponse, BigImageCard, ResponseBody
@@ -75,6 +75,21 @@ class TestRendering:
 
         assert horizontal_margin > 0
         assert vertical_margin > vertical_crop
+        assert CARD_HEIGHT - BOARD_PIXELS <= 12
+
+    def test_uses_chess_piece_symbols_instead_of_letters(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        drawn: list[str] = []
+        original_text = ImageDraw.ImageDraw.text
+
+        def record_text(self: ImageDraw.ImageDraw, xy: object, text: str, *args: object, **kwargs: object) -> None:
+            drawn.append(text)
+            original_text(self, xy, text, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(ImageDraw.ImageDraw, "text", record_text)
+
+        render_png(chess.Board(), PlayerColor.WHITE)
+
+        assert set("♙♘♗♖♕♔♟♞♝♜♛♚").issubset(drawn)
 
     def test_writes_nothing_to_disk(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.chdir(tmp_path)
