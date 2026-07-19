@@ -149,6 +149,43 @@ async def test_the_summary_names_the_result_the_counts_and_the_turning_point(
     assert (after.moves, after.revision, after.status) == (game.moves, game.revision, game.status)
 
 
+async def test_a_claimed_draw_is_reported_as_a_draw_in_speech_and_in_the_pgn(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    # Knights back and forth until the starting position has stood three times.
+    repetition = ("g1f3", "g8f6", "f3g1", "f6g8") * 2
+    service = ReviewService(session_factory, FakeEngine(), offline_settings)
+    game = finished_game(session_factory, moves=repetition)
+
+    summary = await service.answer(OWNER, game, ReviewRequest(ReviewQuestion.SUMMARY))
+    export = await service.answer(OWNER, game, ReviewRequest(ReviewQuestion.PGN))
+
+    assert "вничью" in summary.text
+    parsed = chess.pgn.read_game(io.StringIO(export.text))
+    assert parsed is not None
+    assert parsed.headers["Result"] == "1/2-1/2"
+
+
+async def test_the_turning_point_is_the_move_that_lost_the_game_not_the_costliest(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    """The first move that gave a playable position away outranks a bigger later loss."""
+    # 1. f3 loses a won position; 2. g4 is worse in centipawns but the game was
+    # already gone by then.
+    engine = FakeEngine(scores={"d2d4": 100, "e7e5": 400, "d8h4": 900}, default=0)
+    service = ReviewService(session_factory, engine, offline_settings)
+    game = finished_game(session_factory)
+
+    turning = await service.answer(OWNER, game, ReviewRequest(ReviewQuestion.TURNING_POINT))
+    worst = await service.answer(OWNER, game, ReviewRequest(ReviewQuestion.MAIN_MISTAKE))
+
+    assert "ход 1" in turning.text
+    assert "Практичнее было" in turning.text
+    assert "ход 2" in worst.text
+
+
 async def test_a_clean_game_reports_no_significant_mistakes(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,

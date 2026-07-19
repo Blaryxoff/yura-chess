@@ -35,7 +35,7 @@ from yura_chess.domain.analysis import (
     position_hash,
 )
 from yura_chess.domain.game import EngineSettings, GameMode, GameState, GameStatus, PlayerColor
-from yura_chess.domain.results import GameEnd, GameOutcome, automatic_outcome
+from yura_chess.domain.results import GameEnd, GameOutcome, automatic_outcome, claimable_draw
 from yura_chess.domain.review import GameReview, ReviewSection
 from yura_chess.engine.stockfish import EngineSearchTimeoutError, EngineUnavailableError
 from yura_chess.presentation import pgn
@@ -386,11 +386,20 @@ def _pawns(centipawns: int) -> str:
 
 
 def _outcome(game: GameState) -> GameOutcome | None:
-    """How the finished game ended, read from its own history and status."""
+    """How the finished game ended, read from its own history and status.
+
+    A draw the player demanded leaves no automatic outcome on the board, so a
+    finished game without one is read as the draw that was claimable in it.
+    """
     if game.status is GameStatus.RESIGNED:
         winner = PlayerColor.BLACK if game.player_color is PlayerColor.WHITE else PlayerColor.WHITE
         return GameOutcome(GameEnd.RESIGNATION, winner)
-    return automatic_outcome(game.board())
+    board = game.board()
+    outcome = automatic_outcome(board)
+    if outcome is not None or game.status is not GameStatus.FINISHED:
+        return outcome
+    claimed = claimable_draw(board)
+    return GameOutcome(claimed) if claimed is not None else None
 
 
 def _result_text(game: GameState) -> str:
