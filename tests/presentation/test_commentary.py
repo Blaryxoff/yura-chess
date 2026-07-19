@@ -20,6 +20,9 @@ CHECK_LINE = ("e2e4", "e7e5", "d1h5", "b8c6", "f1c4", "g8f6", "h5f7")
 # A White rook on a1 against a hanging Black rook on h1 that h8 defends.
 ROOKS = "4k2r/8/8/8/8/8/4K3/R6r w k - 0 1"
 
+# A White queen alone against a walking Black king.
+LONE_QUEEN = "3k4/8/8/8/8/8/8/K2Q4 w - - 0 1"
+
 
 def comment(
     moves: tuple[str, ...],
@@ -90,9 +93,11 @@ def test_the_cooldown_silences_a_second_remark_too_soon_after_the_first() -> Non
 
 
 def test_the_same_category_is_never_raised_twice_in_a_row() -> None:
-    # A second check well past the cooldown is still the same subject.
-    repeated = (*CHECK_LINE, "e8f7", "c4d5", "f7e8", "d5c4", "e8e7", "c4b5")
-    assert comment(repeated) is None
+    # A lone queen checks, the king walks away, and four plies later — past the
+    # cooldown — the queen checks again: still the same subject, so still silent.
+    repeated = ("d1d5", "d8c7", "d5d4", "c7c8", "d4c4")
+    assert comment(repeated[:1], fen=LONE_QUEEN) is not None
+    assert comment(repeated, fen=LONE_QUEEN) is None
 
 
 def test_an_engine_gain_is_commented_only_when_the_loss_map_says_so() -> None:
