@@ -169,11 +169,11 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Create `migrations/versions/0010_game_reviews.py`, `src/yura_chess/domain/review.py`, `src/yura_chess/storage/review_repository.py`, `tests/storage/test_review_repository.py`; Modify `src/yura_chess/storage/models.py`
 
-- [ ] Добавить owner-scoped review row с game id, текущим разделом, ply/page и timestamps
-- [ ] Проверять, что разбираемая партия завершена и принадлежит владельцу
-- [ ] Обновлять курсор идемпотентно и удалять review state каскадно с партией
-- [ ] Проверить reload, cross-user isolation, concurrent revision и очистку завершённого разбора
-- [ ] Mark completed
+- [x] Добавить owner-scoped review row с game id, текущим разделом, ply/page и timestamps
+- [x] Проверять, что разбираемая партия завершена и принадлежит владельцу
+- [x] Обновлять курсор идемпотентно и удалять review state каскадно с партией
+- [x] Проверить reload, cross-user isolation, concurrent revision и очистку завершённого разбора
+- [x] Mark completed
 
 ### Task 12.5: Реализовать постраничный разбор партии и PGN
 

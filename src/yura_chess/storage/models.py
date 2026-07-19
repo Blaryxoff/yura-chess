@@ -189,6 +189,29 @@ class AnalysisCheckpointRow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class GameReviewRow(Base):
+    """Where one owner has got to while reviewing one finished game.
+
+    The game id is the primary key, so a second review of the same game is
+    impossible and a repeated start finds the cursor it left behind. The cascade
+    removes the review together with the game it walks.
+    """
+
+    __tablename__ = "game_reviews"
+
+    game_id: Mapped[str] = mapped_column(CHAR(36), ForeignKey("games.id", ondelete="CASCADE"), primary_key=True)
+    owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), index=True)
+    section: Mapped[str] = mapped_column(
+        Enum("summary", "turning_point", "mistakes", "moves", name="game_review_section"),
+        server_default="summary",
+    )
+    ply: Mapped[int] = mapped_column(Integer, server_default="0")
+    page: Mapped[int] = mapped_column(Integer, server_default="0")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), index=True)
+
+
 class RequestReplayRow(Base):
     """Idempotency record keyed by the Alice request triple."""
 

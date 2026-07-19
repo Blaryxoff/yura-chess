@@ -23,6 +23,7 @@ _TABLES = (
     "player_preferences",
     "request_replays",
     "analysis_checkpoints",
+    "game_reviews",
     "pending_engine_turns",
     "game_moves",
     "games",
