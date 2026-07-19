@@ -12,8 +12,8 @@ license = { text = "MIT" }
 authors = [{ name = "Blaryx" }]
 dependencies = [
   "alembic>=1.16.0,<2.0.0",
-  "fastapi>=0.128.0,<0.129.0",
-  "pillow>=11.0.0,<12.0.0",
+  "fastapi>=0.139.2,<0.140.0",
+  "pillow>=12.3.0,<13.0.0",
   "pydantic-settings>=2.10.0,<3.0.0",
   "pymysql>=1.1.0,<2.0.0",
   "python-chess>=1.999,<2.0",
@@ -24,8 +24,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "httpx>=0.28.0,<1.0.0",
+  "httpx2>=2.7.0,<3.0.0",
   "mypy>=1.17.0,<2.0.0",
-  "pytest>=8.4.0,<9.0.0",
+  "pytest>=9.1.1,<10.0.0",
   "ruff>=0.12.0,<1.0.0",
 ]
 

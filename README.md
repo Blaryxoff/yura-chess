@@ -56,14 +56,13 @@ The shell runner uses the same command router, game service, speech composer,
 MariaDB state, and Stockfish pool as the Alice webhook:
 
 ```bash
-uv run yura-chess-shell --show-fen
+uv run yura-chess-shell --show-board --show-fen --orientation player
 ```
 
 Run a command sequence without an interactive prompt:
 
 ```bash
 uv run yura-chess-shell \
-  --command "начать игру" \
   --command "пешка е два е четыре" \
   --command "что на е четыре" \
   --command "какая позиция"
@@ -72,6 +71,16 @@ uv run yura-chess-shell \
 `--script path/to/commands.txt` reads one command per line and ignores blank
 lines and comments beginning with `#`. The runner requires the same
 `YURA_CHESS_DATABASE_URL` and `YURA_CHESS_IDENTITY_SALT` environment variables
-as the web application.
+as the web application. `--show-board` prints a coordinate-labelled Unicode
+board after every game response; `--show-fen` adds the canonical FEN.
+`--orientation player` follows the selected game color; `white` and `black`
+force a side for debugging. Every shell process starts with the same empty
+new-session request Alice sends, so a persistent `--profile` can test saved-game
+resume and the last-two-moves reminder.
 
 The planned production webhook is `https://chess.waxim.ru/alice/webhook`.
+
+Product copy for the Yandex Dialogs listing is in
+[`docs/yandex-skill-description.md`](docs/yandex-skill-description.md). The
+post-release voice-puzzle milestone is outlined in
+[`docs/product/puzzles-roadmap.md`](docs/product/puzzles-roadmap.md).
