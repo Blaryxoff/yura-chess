@@ -6,7 +6,7 @@ import chess
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from yura_chess.application.command_router import TrainingQuestion, TrainingRequest
+from yura_chess.application.command_router import CommandKind, TrainingQuestion, TrainingRequest, route
 from yura_chess.application.conversation import ConversationService, ConversationState
 from yura_chess.application.game_service import RequestContext
 from yura_chess.application.training_service import TrainingService
@@ -151,6 +151,23 @@ async def test_candidates_name_at_most_three_moves_and_change_nothing(
     assert (after.moves, after.revision, after.pending_engine_turn) == (game.moves, game.revision, None)
 
 
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("что будет если я сыграю конь эф три", "конь эф три"),
+        ("что будет, если я пойду пешка е два е четыре", "пешка е два е четыре"),
+        ("стоит ли играть конь эф три", "конь эф три"),
+    ],
+)
+def test_a_preview_question_keeps_only_the_move_it_asks_about(utterance: str, expected: str) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.TRAINING
+    assert routed.training is not None
+    assert routed.training.question is TrainingQuestion.PREVIEW
+    assert routed.training.move_text == expected
+
+
 async def test_preview_analyses_a_suggested_move_without_playing_it(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
@@ -252,6 +269,14 @@ async def test_a_training_move_is_valued_before_the_engine_answers(
         checkpoint = AnalysisRepository(session).find(game_id, OWNER, 0)
     assert checkpoint is not None
     assert checkpoint.centipawn_loss == 200
+
+    # The same delivery again values the move once, with the same verdict.
+    await conversation.handle(OWNER, "пешка а два а три", context(1), state)
+
+    with session_scope(session_factory) as session:
+        stored = AnalysisRepository(session).list_for_game(game_id, OWNER)
+    assert [entry.centipawn_loss for entry in stored] == [200]
+    assert load(session_factory, game_id).moves[0] == "a2a3"
 
 
 async def test_where_i_went_wrong_reports_the_last_significant_loss(
