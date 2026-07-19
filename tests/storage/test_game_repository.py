@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from yura_chess.domain.game import (
     START_FEN,
     EngineSettings,
+    GameMode,
     GameStatus,
     InvalidMoveHistoryError,
     MoveActor,
@@ -20,6 +21,7 @@ from yura_chess.domain.game import (
 from yura_chess.storage.game_repository import (
     GameNotFoundError,
     GameRepository,
+    InvalidHintStageError,
     PendingTurnConflictError,
     ReplayFingerprintConflictError,
     RevisionConflictError,
@@ -457,3 +459,172 @@ def test_row_lock_blocks_the_second_writer_until_the_first_commits(
     assert len(outcome) == 1
     assert isinstance(outcome[0], RevisionConflictError), outcome[0]
     assert repository.load(game_id, OWNER).moves == ("e2e4",)
+
+
+def test_new_game_defaults_to_an_honest_game_without_a_hint(
+    repository: GameRepository,
+    session: Session,
+) -> None:
+    state = repository.create_game(OWNER, PlayerColor.WHITE)
+    session.commit()
+
+    reloaded = repository.load(state.id, OWNER)
+
+    assert state.mode is GameMode.GAME
+    assert state.hint_stage == 0
+    assert reloaded.mode is GameMode.GAME
+    assert reloaded.hint_stage == 0
+
+
+def test_requested_training_mode_survives_reload(repository: GameRepository, session: Session) -> None:
+    state = repository.create_game(OWNER, PlayerColor.WHITE, mode=GameMode.TRAINING)
+    session.commit()
+
+    assert repository.load(state.id, OWNER).mode is GameMode.TRAINING
+
+
+def test_mode_switch_keeps_the_position_and_the_hint(repository: GameRepository, session: Session) -> None:
+    game_id = _new_game(repository, session)
+    moved = repository.append_moves(game_id, OWNER, expected_revision=1, moves=("e2e4",))
+    hinted = repository.set_hint_stage(game_id, OWNER, expected_revision=moved.revision, stage=2)
+
+    switched = repository.set_mode(game_id, OWNER, expected_revision=hinted.revision, mode=GameMode.TRAINING)
+    session.commit()
+
+    assert switched.mode is GameMode.TRAINING
+    assert switched.hint_stage == 2
+    assert switched.moves == ("e2e4",)
+    assert switched.revision == hinted.revision + 1
+
+
+def test_hint_stage_is_set_by_value_and_survives_reload(repository: GameRepository, session: Session) -> None:
+    game_id = _new_game(repository, session)
+
+    first = repository.set_hint_stage(game_id, OWNER, expected_revision=1, stage=1)
+    session.commit()
+    repeated = repository.set_hint_stage(game_id, OWNER, expected_revision=first.revision, stage=1)
+    session.commit()
+
+    assert first.hint_stage == 1
+    assert repeated.hint_stage == 1
+    assert repository.load(game_id, OWNER).hint_stage == 1
+
+
+@pytest.mark.parametrize("stage", [-1, 5])
+def test_hint_stage_outside_the_documented_steps_is_rejected(
+    repository: GameRepository,
+    session: Session,
+    stage: int,
+) -> None:
+    game_id = _new_game(repository, session)
+
+    with pytest.raises(InvalidHintStageError):
+        repository.set_hint_stage(game_id, OWNER, expected_revision=1, stage=stage)
+
+
+def test_appending_moves_resets_the_hint(repository: GameRepository, session: Session) -> None:
+    game_id = _new_game(repository, session)
+    hinted = repository.set_hint_stage(game_id, OWNER, expected_revision=1, stage=3)
+
+    moved = repository.append_moves(game_id, OWNER, expected_revision=hinted.revision, moves=("e2e4",))
+    session.commit()
+
+    assert moved.hint_stage == 0
+
+
+def test_both_halves_of_an_engine_turn_reset_the_hint(repository: GameRepository, session: Session) -> None:
+    game_id = _new_game(repository, session)
+    hinted = repository.set_hint_stage(game_id, OWNER, expected_revision=1, stage=4)
+
+    played = repository.begin_engine_turn(
+        game_id,
+        OWNER,
+        expected_revision=hinted.revision,
+        player_move_uci="e2e4",
+        token="7f1c0d1e-0000-4000-8000-000000000009",
+    )
+    session.commit()
+    rehinted = repository.set_hint_stage(game_id, OWNER, expected_revision=played.revision, stage=2)
+    settled = repository.finish_engine_turn(
+        game_id,
+        OWNER,
+        expected_revision=rehinted.revision,
+        token="7f1c0d1e-0000-4000-8000-000000000009",
+        engine_move_uci="e7e5",
+    )
+    session.commit()
+
+    assert played.hint_stage == 0
+    assert settled.hint_stage == 0
+
+
+def test_truncating_history_resets_the_hint(repository: GameRepository, session: Session) -> None:
+    game_id = _new_game(repository, session)
+    moved = repository.append_moves(game_id, OWNER, expected_revision=1, moves=("e2e4", "e7e5"))
+    hinted = repository.set_hint_stage(game_id, OWNER, expected_revision=moved.revision, stage=1)
+
+    truncated = repository.truncate_moves(game_id, OWNER, expected_revision=hinted.revision, keep_plies=1)
+    session.commit()
+
+    assert truncated.hint_stage == 0
+
+
+def test_pending_turn_bookkeeping_leaves_the_hint_alone(repository: GameRepository, session: Session) -> None:
+    game_id = _new_game(repository, session)
+    hinted = repository.set_hint_stage(game_id, OWNER, expected_revision=1, stage=3)
+
+    pending = repository.set_pending_engine_turn(
+        game_id,
+        OWNER,
+        expected_revision=hinted.revision,
+        token="7f1c0d1e-0000-4000-8000-000000000010",
+        player_move_uci="e2e4",
+    )
+    cleared = repository.clear_pending_engine_turn(game_id, OWNER, expected_revision=pending.revision)
+    session.commit()
+
+    assert pending.hint_stage == 3
+    assert cleared.hint_stage == 3
+
+
+def test_another_owner_cannot_change_mode_or_hint(repository: GameRepository, session: Session) -> None:
+    game_id = _new_game(repository, session)
+    session.commit()
+
+    with pytest.raises(GameNotFoundError):
+        repository.set_mode(game_id, OTHER_OWNER, expected_revision=1, mode=GameMode.TRAINING)
+    with pytest.raises(GameNotFoundError):
+        repository.set_hint_stage(game_id, OTHER_OWNER, expected_revision=1, stage=1)
+
+    assert repository.load(game_id, OWNER).mode is GameMode.GAME
+    assert repository.load(game_id, OWNER).hint_stage == 0
+
+
+def test_stale_revision_is_rejected_for_mode_and_hint(repository: GameRepository, session: Session) -> None:
+    game_id = _new_game(repository, session)
+    repository.append_moves(game_id, OWNER, expected_revision=1, moves=("e2e4",))
+    session.commit()
+
+    with pytest.raises(RevisionConflictError):
+        repository.set_mode(game_id, OWNER, expected_revision=1, mode=GameMode.TRAINING)
+    session.rollback()
+    with pytest.raises(RevisionConflictError):
+        repository.set_hint_stage(game_id, OWNER, expected_revision=1, stage=1)
+
+
+def test_migrated_games_table_carries_mode_and_hint_defaults(database_engine: Engine) -> None:
+    with database_engine.connect() as connection:
+        columns = {
+            row[0]: (row[1], row[2])
+            for row in connection.execute(
+                text(
+                    "SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'games'"
+                )
+            ).all()
+        }
+
+    assert columns["mode"][0] == "enum('game','training')"
+    assert columns["mode"][1].strip("'") == "game"
+    assert columns["hint_stage"][0].startswith("smallint")
+    assert columns["hint_stage"][1].strip("'") == "0"

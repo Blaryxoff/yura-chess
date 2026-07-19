@@ -15,8 +15,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from yura_chess.domain.game import (
+    MAX_HINT_STAGE,
     START_FEN,
     EngineSettings,
+    GameMode,
     GameState,
     GameStatus,
     MoveActor,
@@ -51,6 +53,10 @@ class PendingTurnMismatchError(RuntimeError):
     """The engine turn being finished is not the one the game is waiting for."""
 
 
+class InvalidHintStageError(ValueError):
+    """The requested hint stage is outside the four documented steps."""
+
+
 def _to_state(row: GameRow) -> GameState:
     pending = row.pending_engine_turn
     return GameState(
@@ -68,6 +74,8 @@ def _to_state(row: GameRow) -> GameState:
         pending_engine_turn=(
             PendingEngineTurn(token=pending.token, player_move_uci=pending.player_move_uci) if pending else None
         ),
+        mode=GameMode(row.mode),
+        hint_stage=row.hint_stage,
     )
 
 
@@ -83,7 +91,14 @@ class GameRepository:
         player_color: PlayerColor,
         engine: EngineSettings | None = None,
         initial_fen: str = START_FEN,
+        mode: GameMode = GameMode.GAME,
     ) -> GameState:
+        """Create an honest game unless the caller explicitly asks for training.
+
+        The default is deliberately `GAME` rather than the owner's stored default
+        mode: only the start of a genuinely new game may consult preferences, and
+        that decision belongs to the caller, not to this layer.
+        """
         engine = engine or EngineSettings()
         row = GameRow(
             id=str(uuid.uuid4()),
@@ -94,6 +109,8 @@ class GameRepository:
             revision=1,
             engine_skill_level=engine.skill_level,
             engine_move_time_ms=engine.move_time_ms,
+            mode=mode.value,
+            hint_stage=0,
         )
         self._session.add(row)
         self._session.flush()
@@ -163,6 +180,7 @@ class GameRepository:
             row.moves.append(self._move_row(row, ply, uci, actor))
         if status is not None:
             row.status = status.value
+        row.hint_stage = 0
         return self._bump_revision(row)
 
     def truncate_moves(
@@ -181,6 +199,7 @@ class GameRepository:
             (move.created_at for move in row.moves if move.actor == MoveActor.PLAYER.value),
             default=None,
         )
+        row.hint_stage = 0
         return self._bump_revision(row)
 
     def begin_engine_turn(
@@ -201,6 +220,7 @@ class GameRepository:
             token=token,
             player_move_uci=player_move_uci,
         )
+        row.hint_stage = 0
         return self._bump_revision(row)
 
     def finish_engine_turn(
@@ -228,6 +248,37 @@ class GameRepository:
         row.moves.append(self._move_row(row, len(row.moves), engine_move_uci, MoveActor.ENGINE))
         if status is not None:
             row.status = status.value
+        row.hint_stage = 0
+        return self._bump_revision(row)
+
+    def set_mode(
+        self,
+        game_id: str,
+        owner_key: str,
+        expected_revision: int,
+        mode: GameMode,
+    ) -> GameState:
+        """Switch coaching on or off; the position and its hint stage are untouched."""
+        row = self._load_row(game_id, owner_key, expected_revision)
+        row.mode = mode.value
+        return self._bump_revision(row)
+
+    def set_hint_stage(
+        self,
+        game_id: str,
+        owner_key: str,
+        expected_revision: int,
+        stage: int,
+    ) -> GameState:
+        """Record which hint the player has reached in the current position.
+
+        The stage is absolute rather than an increment, so a re-applied request
+        that asks for the stage the game already holds leaves it unchanged.
+        """
+        if not 0 <= stage <= MAX_HINT_STAGE:
+            raise InvalidHintStageError(f"hint stage {stage} is outside 0..{MAX_HINT_STAGE}")
+        row = self._load_row(game_id, owner_key, expected_revision)
+        row.hint_stage = stage
         return self._bump_revision(row)
 
     def set_pending_engine_turn(

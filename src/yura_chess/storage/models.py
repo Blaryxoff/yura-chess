@@ -43,6 +43,8 @@ class GameRow(Base):
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     engine_skill_level: Mapped[int] = mapped_column(SmallInteger)
     engine_move_time_ms: Mapped[int] = mapped_column(Integer)
+    mode: Mapped[str] = mapped_column(Enum("game", "training", name="game_mode"), server_default="game")
+    hint_stage: Mapped[int] = mapped_column(SmallInteger, server_default="0")
     last_player_move_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

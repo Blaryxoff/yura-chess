@@ -123,12 +123,12 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Create `migrations/versions/0008_training_mode.py`; Modify `src/yura_chess/domain/game.py`, `src/yura_chess/storage/models.py`, `src/yura_chess/storage/game_repository.py`, `tests/storage/test_game_repository.py`
 
-- [ ] Добавить режим `game`/`training` и ступень подсказки активной позиции
-- [ ] По умолчанию создавать честную обычную партию; default mode брать из preferences только при начале новой игры
-- [ ] Обновлять режим и подсказку с revision/owner проверками
-- [ ] Сбрасывать подсказку после изменения позиции и сохранять её при replay того же запроса
-- [ ] Проверить миграцию, reload, cross-user isolation и concurrent revision conflict
-- [ ] Mark completed
+- [x] Добавить режим `game`/`training` и ступень подсказки активной позиции
+- [x] По умолчанию создавать честную обычную партию; default mode брать из preferences только при начале новой игры (storage: честный `GAME` по умолчанию + инъекция режима вызывающим; чтение preferences при старте новой игры — Task 10)
+- [x] Обновлять режим и подсказку с revision/owner проверками
+- [x] Сбрасывать подсказку после изменения позиции и сохранять её при replay того же запроса (storage доказывает сброс и идемпотентность set_hint_stage по значению; request replay проверяется в Task 10/E2E)
+- [x] Проверить миграцию, reload, cross-user isolation и concurrent revision conflict
+- [x] Mark completed
 
 ### Task 9: Добавить хранилище контрольных точек анализа
 

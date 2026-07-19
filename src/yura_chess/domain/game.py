@@ -34,6 +34,17 @@ class MoveActor(StrEnum):
     ENGINE = "engine"
 
 
+class GameMode(StrEnum):
+    """GAME is an honest game; TRAINING additionally allows engine coaching."""
+
+    GAME = "game"
+    TRAINING = "training"
+
+
+# Four escalating hints per position; 0 means nothing has been asked for yet.
+MAX_HINT_STAGE = 4
+
+
 class InvalidMoveHistoryError(ValueError):
     """A stored UCI history cannot be replayed from its starting FEN."""
 
@@ -66,6 +77,9 @@ class GameState:
     updated_at: datetime
     last_player_move_at: datetime | None = None
     pending_engine_turn: PendingEngineTurn | None = None
+    mode: GameMode = GameMode.GAME
+    # Belongs to the position, not to the game: any move resets it to zero.
+    hint_stage: int = 0
 
     def board(self) -> chess.Board:
         """Rebuild the position by replaying the whole UCI history."""
