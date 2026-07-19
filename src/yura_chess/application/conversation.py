@@ -467,7 +467,11 @@ class ConversationService:
             if final_state.moves and final_state.moves[-1] == result.engine_move:
                 board_before_engine.pop()
         speech = compose_turn(result, board_before_engine, preferences.notation_style)
-        if preferences.detail_level is DetailLevel.DETAILED and _player_to_move(result):
+        if (
+            preferences.detail_level is DetailLevel.DETAILED
+            and _player_to_move(result)
+            and "ваш ход" not in speech.text.lower()
+        ):
             speech = Speech.of(f"{speech.text} Сейчас ваш ход.")
         return ConversationReply(
             speech,
