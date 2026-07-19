@@ -73,4 +73,4 @@ services:
 networks:
   staging-db:
     external: true
-    name: ${STAGING_DB_NETWORK:-staging_default}
+    name: ${STAGING_DB_NETWORK:-lemp-shared}

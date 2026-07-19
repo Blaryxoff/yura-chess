@@ -44,6 +44,10 @@ Staging shares a MariaDB server with other projects; it therefore gets its own
 database and its own user with rights on that database only. Production runs its
 own server so a staging incident cannot reach real games.
 
+The shared staging database and application join the existing external Docker
+network `lemp-shared`. Override `STAGING_DB_NETWORK` only if the Firebat network
+is deliberately renamed.
+
 ## Incus proxy-devices
 
 The application never listens on a host interface. Each container forwards its
