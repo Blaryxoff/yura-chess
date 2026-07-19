@@ -464,3 +464,82 @@ async def test_help_after_a_finished_game_says_the_game_is_over(
     reply = await conversation.handle(OWNER, "справка", context(4), resigned.state)
 
     assert "Партия закончена" in reply.speech.text
+
+
+@pytest.mark.parametrize(
+    ("utterance", "phrase"),
+    [
+        ("за кого я играю", "Вы играете белыми"),
+        ("какой сейчас ход", "-й ход"),
+        ("сколько ходов сыграно", "Сыграно"),
+        ("какие фигуры съедены", "снял"),
+        ("могу ли я рокироваться", "Короткая рокировка"),
+        ("кто дает шах", "шаха нет"),
+        ("что изменил последний ход", "Изменения:"),
+    ],
+)
+async def test_game_facts_are_answered_without_touching_the_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+    phrase: str,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    played = await conversation.handle(OWNER, "пешка е два е четыре", context(2), started.state)
+
+    reply = await conversation.handle(OWNER, utterance, context(3), played.state)
+
+    assert phrase in reply.speech.text
+    assert reply.turn is None
+    assert reply.state.revision == played.state.revision
+    with session_scope(session_factory) as session:
+        state = GameRepository(session).load(played.state.game_id or "", OWNER)
+    assert played.turn is not None
+    assert state.moves == (played.turn.player_move, played.turn.engine_move)
+    assert state.revision == played.state.revision
+    assert state.pending_engine_turn is None
+
+
+async def test_a_castling_question_is_never_played_as_a_castling_move(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    played = await conversation.handle(OWNER, "конь же один эф три", context(2), started.state)
+
+    reply = await conversation.handle(OWNER, "возможна ли рокировка", context(3), played.state)
+
+    assert reply.turn is None
+    assert "рокировка" in reply.speech.text
+    with session_scope(session_factory) as session:
+        state = GameRepository(session).load(played.state.game_id or "", OWNER)
+    assert len(state.moves) == 2
+
+
+async def test_a_game_fact_before_any_game_does_not_start_one(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, "за кого я играю", context(1))
+
+    assert "Партии еще нет" in reply.speech.text
+    assert reply.state.game_id is None
+    assert reply.turn is None
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).find_latest_active(OWNER) is None
+
+
+async def test_the_plain_check_question_still_reads_the_position(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    reply = await conversation.handle(OWNER, "есть ли шах", context(2), started.state)
+
+    assert reply.speech.text == "Сейчас шаха нет."

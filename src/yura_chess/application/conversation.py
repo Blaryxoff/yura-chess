@@ -21,6 +21,7 @@ from yura_chess.application.game_service import GameService, MoveSearch, Request
 from yura_chess.domain.game import EngineSettings, GameState, GameStatus, PlayerColor
 from yura_chess.domain.results import TurnResult, TurnStatus
 from yura_chess.presentation import help_speech
+from yura_chess.presentation.game_facts import answer_game_fact
 from yura_chess.presentation.help_speech import HelpAnswer, HelpMode, HelpState
 from yura_chess.presentation.move_speech import Speech
 from yura_chess.presentation.position_speech import answer_position_query, describe_recent_moves
@@ -214,6 +215,11 @@ class ConversationService:
             return self._help_reply(help_speech.answer_help(utterance, mode, state.help), next_state, game)
 
         if game is None:
+            if routed.kind is CommandKind.GAME_FACT:
+                return ConversationReply(
+                    Speech.of("Партии еще нет, поэтому рассказать о ней нечего. Скажите «новая игра»."),
+                    next_state,
+                )
             if routed.kind is CommandKind.LEVEL_QUERY:
                 level = self._settings.engine_skill_level
                 return ConversationReply(
@@ -259,6 +265,10 @@ class ConversationService:
                 ),
                 self._with_game(next_state, game),
             )
+        if routed.kind is CommandKind.GAME_FACT:
+            fact = answer_game_fact(utterance, board, game.player_color.to_chess())
+            if fact is not None:
+                return ConversationReply(fact.speech, self._with_game(next_state, game))
         if routed.kind is CommandKind.POSITION_QUERY:
             answer = answer_position_query(utterance, board, state.position_page)
             return ConversationReply(

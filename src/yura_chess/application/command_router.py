@@ -14,6 +14,7 @@ from enum import StrEnum
 
 import chess
 
+from yura_chess.presentation import game_facts
 from yura_chess.voice.illegal_move import Explanation, explain
 from yura_chess.voice.move_resolver import resolve
 from yura_chess.voice.normalizer import normalize
@@ -30,6 +31,8 @@ class CommandKind(StrEnum):
     CLAIM_DRAW = "claim_draw"
     UNDO = "undo"
     LEVEL_QUERY = "level_query"
+    # A question about the game itself: colour, move number, captures, castling.
+    GAME_FACT = "game_fact"
     POSITION_QUERY = "position_query"
     # «что ты услышала» — replays the previous normalised utterance.
     REPEAT_HEARD = "repeat_heard"
@@ -96,6 +99,9 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"на каком уровне|^уровень сложности$"
         ),
     ),
+    # Before the position query: «какие фигуры съедены» is a fact about the
+    # game, not the «какие фигуры» listing of the current board.
+    (CommandKind.GAME_FACT, game_facts.QUESTION_PATTERN),
     (
         CommandKind.POSITION_QUERY,
         re.compile(
