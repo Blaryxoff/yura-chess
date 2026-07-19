@@ -35,6 +35,7 @@ class CommandKind(StrEnum):
     REPEAT_HEARD = "repeat_heard"
     REPEAT_SLOW = "repeat_slow"
     HELP = "help"
+    HELP_EXIT = "help_exit"
     MOVE = "move"
     # A move was understood but is not legal in the current position.
     ILLEGAL_MOVE = "illegal_move"
@@ -72,11 +73,20 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         CommandKind.REPEAT_SLOW,
         re.compile(r"^повтори( еще раз)? медленн(о|ее)|^повтори (последнюю фразу|ответ)$"),
     ),
+    # Help is matched before the game commands so that «справка сначала» stays
+    # help navigation instead of starting a new game.
+    (CommandKind.HELP_EXIT, re.compile(r"(выйти|выход|закрой|закрыть|хватит|стоп)\w*( из)? справк")),
+    (
+        CommandKind.HELP,
+        re.compile(
+            r"помощь|что ты умеешь|справка|справку|как играть|"
+            r"какие команды|список команд|все команды|что можно сказать"
+        ),
+    ),
     (CommandKind.NEW_GAME, re.compile(r"нов(ая|ую) (игра|игру|партия|партию)|начн?ем заново|сначала|заново")),
     (CommandKind.RESIGN, re.compile(r"сдаюсь|сдаться|сдаемся|я проиграл")),
     (CommandKind.CLAIM_DRAW, re.compile(r"ничь(я|ю|ей)")),
     (CommandKind.UNDO, re.compile(r"отмен(и|ить|яю)|верни(?: последний)?(?: ход)?|^ход назад$|переходить")),
-    (CommandKind.HELP, re.compile(r"помощь|что ты умеешь|справка|как играть")),
     (CommandKind.START, re.compile(r"начать игру|начн?ем игру|давай играть|поехали|старт")),
     (CommandKind.CONTINUE, re.compile(r"продолж")),
     (

@@ -10,6 +10,7 @@ from yura_chess.application.command_router import CommandKind, PendingClarificat
 from yura_chess.application.conversation import ConversationService, ConversationState
 from yura_chess.application.game_service import RequestContext
 from yura_chess.domain.game import GameStatus, PlayerColor
+from yura_chess.presentation.help_speech import HelpState, HelpTopic
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
@@ -299,3 +300,167 @@ async def test_new_game_confirmation_preserves_requested_settings(
     with session_scope(session_factory) as session:
         game = GameRepository(session).load(confirmed.turn.game_id, OWNER)
     assert game.engine.skill_level == 12
+
+
+async def test_help_before_a_game_offers_topics_without_starting_anything(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, "справка", context(1))
+
+    assert "Партия еще не начата" in reply.speech.text
+    assert "Разделы справки" in reply.speech.text
+    assert reply.state.help == HelpState(topic=None, page=0)
+    assert reply.state.game_id is None
+    assert reply.turn is None
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected", "phrase"),
+    [
+        ("справка по ходам", HelpTopic.MOVES, "«пешка е два е четыре»"),
+        ("справка по позиции", HelpTopic.POSITION, "две горизонтали"),
+        ("справка про партию", HelpTopic.GAME, "уровень десять"),
+        ("справка про речь", HelpTopic.SPEECH, "Что ты услышала"),
+        ("все команды", HelpTopic.ALL, "Все команды."),
+    ],
+)
+async def test_every_help_section_can_be_asked_for_by_name(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+    expected: HelpTopic,
+    phrase: str,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, utterance, context(1))
+
+    assert reply.state.help == HelpState(topic=expected, page=0)
+    assert phrase in reply.speech.text
+
+
+async def test_help_navigation_walks_the_catalogue_forward_back_and_to_the_start(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    opened = await conversation.handle(OWNER, "все команды", context(1))
+    assert "Скажите «дальше»" in opened.speech.text
+
+    forward = await conversation.handle(OWNER, "дальше", context(2), opened.state)
+    assert forward.state.help == HelpState(topic=HelpTopic.ALL, page=1)
+
+    back = await conversation.handle(OWNER, "назад", context(3), forward.state)
+    assert back.state.help == HelpState(topic=HelpTopic.ALL, page=0)
+
+    restarted = await conversation.handle(OWNER, "дальше", context(4), back.state)
+    restarted = await conversation.handle(OWNER, "сначала", context(5), restarted.state)
+    assert restarted.state.help == HelpState(topic=HelpTopic.ALL, page=0)
+    assert restarted.speech.text == back.speech.text
+
+
+async def test_unknown_help_topic_lists_the_real_sections_and_keeps_help_open(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, "справка по настройкам", context(1))
+
+    assert "Такого раздела в справке нет" in reply.speech.text
+    assert "позиция" in reply.speech.text
+    assert reply.state.help == HelpState(topic=None, page=0)
+
+
+async def test_leaving_help_closes_it(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    opened = await conversation.handle(OWNER, "справка по ходам", context(1))
+
+    reply = await conversation.handle(OWNER, "закрой справку", context(2), opened.state)
+
+    assert "Закрываю справку" in reply.speech.text
+    assert reply.state.help is None
+
+
+async def test_help_inside_a_game_changes_neither_the_game_nor_the_revision(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    played = await conversation.handle(OWNER, "пешка е два е четыре", context(2), started.state)
+
+    helped = await conversation.handle(OWNER, "что ты умеешь", context(3), played.state)
+    paged = await conversation.handle(OWNER, "дальше", context(4), helped.state)
+
+    assert "Идет партия" in helped.speech.text
+    assert helped.turn is None and paged.turn is None
+    assert paged.state.revision == played.state.revision
+    with session_scope(session_factory) as session:
+        state = GameRepository(session).load(played.state.game_id or "", OWNER)
+    assert played.turn is not None
+    assert state.moves == (played.turn.player_move, played.turn.engine_move)
+    assert state.revision == played.state.revision
+    assert state.pending_engine_turn is None
+
+
+async def test_next_page_still_reads_the_board_when_help_is_closed(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    read = await conversation.handle(OWNER, "какая позиция", context(2), started.state)
+    more = await conversation.handle(OWNER, "дальше", context(3), read.state)
+
+    assert read.state.help is None
+    assert more.state.position_page == 1
+    assert "горизонталь" in more.speech.text
+
+
+async def test_a_section_named_alone_after_the_menu_opens_that_section(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    menu = await conversation.handle(OWNER, "справка", context(1))
+
+    reply = await conversation.handle(OWNER, "ходы", context(2), menu.state)
+
+    assert reply.state.help == HelpState(topic=HelpTopic.MOVES, page=0)
+    assert reply.state.game_id is None
+
+
+async def test_a_board_question_during_help_still_reads_the_board(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    menu = await conversation.handle(OWNER, "справка", context(2), started.state)
+
+    reply = await conversation.handle(OWNER, "какая позиция", context(3), menu.state)
+
+    assert reply.state.help is None
+    assert "горизонталь" in reply.speech.text
+
+
+async def test_help_after_a_finished_game_says_the_game_is_over(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    asked = await conversation.handle(OWNER, "сдаюсь", context(2), started.state)
+    resigned = await conversation.handle(OWNER, "да", context(3), asked.state)
+
+    reply = await conversation.handle(OWNER, "справка", context(4), resigned.state)
+
+    assert "Партия закончена" in reply.speech.text

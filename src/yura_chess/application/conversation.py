@@ -20,6 +20,8 @@ from yura_chess.application.command_router import (
 from yura_chess.application.game_service import GameService, MoveSearch, RequestContext
 from yura_chess.domain.game import EngineSettings, GameState, GameStatus, PlayerColor
 from yura_chess.domain.results import TurnResult, TurnStatus
+from yura_chess.presentation import help_speech
+from yura_chess.presentation.help_speech import HelpAnswer, HelpMode, HelpState
 from yura_chess.presentation.move_speech import Speech
 from yura_chess.presentation.position_speech import answer_position_query, describe_recent_moves
 from yura_chess.presentation.response_composer import compose_turn
@@ -66,13 +68,6 @@ _MONTHS = {
     11: "ноября",
     12: "декабря",
 }
-_HELP = (
-    "Можно сказать ход, например «пешка е два е четыре», спросить «что на е четыре», "
-    "«какая позиция», «чей ход», «какой был последний ход», «что делали черные четыре хода назад», "
-    "«есть ли шах», «продолжить последнюю партию», «что ты услышала», «повтори медленно», "
-    "«отмени ход», «предлагаю ничью», «сдаюсь» или "
-    "«новая игра черными уровень десять»."
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +79,8 @@ class ConversationState:
     clarification: PendingClarification | None = None
     pending_action: PendingAction | None = None
     position_page: int = 0
+    # Where the open help stopped reading; `None` while help is closed.
+    help: HelpState | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,7 +168,13 @@ class ConversationService:
 
         repeated = {CommandKind.REPEAT_HEARD, CommandKind.REPEAT_SLOW}
         next_heard = state.last_heard if routed.kind in repeated else routed.normalized.text
-        next_state = replace(state, last_heard=next_heard or state.last_heard, clarification=None, position_page=0)
+        next_state = replace(
+            state,
+            last_heard=next_heard or state.last_heard,
+            clarification=None,
+            position_page=0,
+            help=None,
+        )
 
         if state.pending_action is not None:
             confirmation = confirmation_answer(utterance)
@@ -198,9 +201,19 @@ class ConversationService:
                     result = await self._games.continue_game(owner_key, candidate.id, request)
                     return self._turn_reply(owner_key, result, next_state)
 
+        mode = _help_mode(game)
+        # Open help owns «дальше», «назад» and «сначала»: otherwise they would be
+        # read as board pagination or as a new game.
+        if state.help is not None:
+            navigated = help_speech.navigate(utterance, state.help, mode) or help_speech.bare_topic(utterance)
+            if navigated is not None:
+                return self._help_reply(navigated, next_state, game)
+        if routed.kind is CommandKind.HELP_EXIT:
+            return self._help_reply(help_speech.close(), next_state, game)
+        if routed.kind is CommandKind.HELP:
+            return self._help_reply(help_speech.answer_help(utterance, mode, state.help), next_state, game)
+
         if game is None:
-            if routed.kind is CommandKind.HELP:
-                return ConversationReply(Speech.of(_HELP), next_state)
             if routed.kind is CommandKind.LEVEL_QUERY:
                 level = self._settings.engine_skill_level
                 return ConversationReply(
@@ -230,8 +243,6 @@ class ConversationService:
                     pending_action=PendingAction(CommandKind.NEW_GAME, utterance[:255]),
                 ),
             )
-        if routed.kind is CommandKind.HELP:
-            return ConversationReply(Speech.of(_HELP), self._with_game(next_state, game))
         if routed.kind is CommandKind.REPEAT_SLOW:
             if state.last_reply is None:
                 return ConversationReply(Speech.of("Пока нечего повторять."), self._with_game(next_state, game))
@@ -400,6 +411,19 @@ class ConversationService:
         except LookupError:
             return None
 
+    def _help_reply(
+        self,
+        answer: HelpAnswer,
+        state: ConversationState,
+        game: GameState | None,
+    ) -> ConversationReply:
+        """Help only reads: the game, its revision and any pending turn stay as they are."""
+        help_state = replace(state, help=answer.state)
+        return ConversationReply(
+            answer.speech,
+            self._with_game(help_state, game) if game is not None else help_state,
+        )
+
     @staticmethod
     def _with_game(state: ConversationState, game: GameState) -> ConversationState:
         return replace(state, game_id=game.id, revision=game.revision)
@@ -435,6 +459,12 @@ class ConversationService:
                 candidate_count=len(resolution.candidates) if resolution is not None else 0,
                 legal_move_count=board.legal_moves.count() if board is not None else 0,
             )
+
+
+def _help_mode(game: GameState | None) -> HelpMode:
+    if game is None:
+        return HelpMode.NO_GAME
+    return HelpMode.GAME if game.status is GameStatus.ACTIVE else HelpMode.GAME_OVER
 
 
 def _date_phrase(value: datetime, timezone_name: str | None) -> str:

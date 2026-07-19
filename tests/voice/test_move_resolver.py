@@ -311,3 +311,29 @@ def test_normalisation_keeps_no_original_casing_or_punctuation() -> None:
     normalized = normalize("Пешка Е-два, на Е четыре!")
 
     assert normalized.text == "пешка е два на е четыре"
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("справка", CommandKind.HELP),
+        ("помощь", CommandKind.HELP),
+        ("справка по позиции", CommandKind.HELP),
+        ("все команды", CommandKind.HELP),
+        ("список команд", CommandKind.HELP),
+        ("как играть", CommandKind.HELP),
+        ("выйти из справки", CommandKind.HELP_EXIT),
+        ("закрой справку", CommandKind.HELP_EXIT),
+        ("хватит справки", CommandKind.HELP_EXIT),
+    ],
+)
+def test_help_commands_never_reach_move_resolution(utterance: str, expected: CommandKind) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is expected
+    assert routed.move is None
+    assert routed.resolution is None
+
+
+def test_help_navigation_is_matched_before_the_new_game_command() -> None:
+    assert route("справка сначала", chess.Board()).kind is CommandKind.HELP
