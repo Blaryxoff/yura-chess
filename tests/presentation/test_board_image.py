@@ -26,7 +26,7 @@ from yura_chess.adapters.alice.webhook import _attach_card
 from yura_chess.adapters.yandex_images import BoardImageCache, BoardImageService, YandexImageClient
 from yura_chess.domain.game import GameStatus, PlayerColor
 from yura_chess.domain.results import TurnResult, TurnStatus
-from yura_chess.presentation.board_image import BOARD_PIXELS, position_hash, render_png
+from yura_chess.presentation.board_image import BOARD_PIXELS, CARD_HEIGHT, CARD_WIDTH, position_hash, render_png
 from yura_chess.presentation.response_composer import compose_board_card, compose_turn
 from yura_chess.settings import Settings
 from yura_chess.storage.models import BoardImageCacheRow
@@ -64,7 +64,17 @@ class TestRendering:
 
         image = Image.open(BytesIO(png))
         assert image.format == "PNG"
-        assert image.size == (BOARD_PIXELS, BOARD_PIXELS)
+        assert image.size == (CARD_WIDTH, CARD_HEIGHT)
+
+    def test_full_board_fits_inside_the_yandex_card_safe_area(self) -> None:
+        horizontal_margin = (CARD_WIDTH - BOARD_PIXELS) // 2
+        vertical_margin = (CARD_HEIGHT - BOARD_PIXELS) // 2
+        yandex_card_ratio = 552 / 245
+        cropped_height = CARD_WIDTH / yandex_card_ratio
+        vertical_crop = (CARD_HEIGHT - cropped_height) / 2
+
+        assert horizontal_margin > 0
+        assert vertical_margin > vertical_crop
 
     def test_writes_nothing_to_disk(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.chdir(tmp_path)

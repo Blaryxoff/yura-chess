@@ -17,9 +17,12 @@ from PIL import Image, ImageDraw, ImageFont
 from yura_chess.domain.game import PlayerColor
 
 POSITION_HASH_LENGTH = 64
-SQUARE_PIXELS = 64
+RENDER_VERSION = 2
+SQUARE_PIXELS = 54
 BORDER_PIXELS = 20
 BOARD_PIXELS = SQUARE_PIXELS * 8 + BORDER_PIXELS * 2
+CARD_WIDTH = 1120
+CARD_HEIGHT = 500
 
 _LIGHT = (238, 219, 181)
 _DARK = (181, 136, 99)
@@ -44,15 +47,15 @@ _LETTERS = {
 
 def position_hash(board: chess.Board, orientation: PlayerColor, last_move_uci: str | None) -> str:
     """Stable identity of the rendered image, not of the game."""
-    source = f"{board.board_fen()}|{orientation.value}|{last_move_uci or ''}"
+    source = f"{RENDER_VERSION}|{board.board_fen()}|{orientation.value}|{last_move_uci or ''}"
     return sha256(source.encode("utf-8")).hexdigest()[:POSITION_HASH_LENGTH]
 
 
 def render_png(board: chess.Board, orientation: PlayerColor, last_move_uci: str | None = None) -> bytes:
     """Draw the board from the player's side of the table into a byte string."""
     highlighted = _highlighted_squares(last_move_uci)
-    image = Image.new("RGB", (BOARD_PIXELS, BOARD_PIXELS), _BORDER)
-    canvas = ImageDraw.Draw(image)
+    board_image = Image.new("RGB", (BOARD_PIXELS, BOARD_PIXELS), _BORDER)
+    canvas = ImageDraw.Draw(board_image)
     font = ImageFont.load_default(size=SQUARE_PIXELS // 2)
 
     for square in chess.SQUARES:
@@ -64,6 +67,8 @@ def render_png(board: chess.Board, orientation: PlayerColor, last_move_uci: str 
             _draw_piece(canvas, piece, left, top, font)
 
     _draw_coordinates(canvas, orientation)
+    image = Image.new("RGB", (CARD_WIDTH, CARD_HEIGHT), _BORDER)
+    image.paste(board_image, ((CARD_WIDTH - BOARD_PIXELS) // 2, (CARD_HEIGHT - BOARD_PIXELS) // 2))
     buffer = BytesIO()
     image.save(buffer, format="PNG", optimize=True)
     return buffer.getvalue()
