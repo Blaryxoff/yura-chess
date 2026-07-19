@@ -191,12 +191,12 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Create `scripts/import_lichess_puzzles.py`, `src/yura_chess/data/puzzles.jsonl`, `src/yura_chess/data/puzzles.meta.json`, `tests/fixtures/lichess_puzzles_sample.csv`, `tests/test_puzzle_import.py`
 
-- [ ] Реализовать детерминированный offline importer CC0 задач с allowlist тем и диапазонов рейтинга
-- [ ] Проверять FEN, решение, мат в один/два и короткие forced trees через `python-chess`
-- [ ] Сохранять source PuzzleId, rating, themes, source version и license metadata
-- [ ] Исключить runtime download и недетерминированный Stockfish-generated expected move
-- [ ] Проверить повторный импорт и идентичный output hash
-- [ ] Mark completed
+- [x] Реализовать детерминированный offline importer CC0 задач с allowlist тем и диапазонов рейтинга
+- [x] Проверять FEN, решение, мат в один/два и короткие forced trees через `python-chess`
+- [x] Сохранять source PuzzleId, rating, themes, source version и license metadata
+- [x] Исключить runtime download и недетерминированный Stockfish-generated expected move
+- [x] Проверить повторный импорт и идентичный output hash
+- [x] Mark completed
 
 ### Task 14: Добавить домен и хранилище задач
 

@@ -1,0 +1,47 @@
+{
+  "bucket_counts": {
+    "high": 96,
+    "low": 96,
+    "medium": 96
+  },
+  "columns": [
+    "id",
+    "fen",
+    "moves",
+    "rating",
+    "themes",
+    "bucket"
+  ],
+  "license": "CC0-1.0",
+  "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "max_solver_moves": 4,
+  "output_hash": "sha256:392552d728f2be3c49d22daa61d0f888c959996acff64f909d329567aaaa992a",
+  "puzzle_count": 288,
+  "rating_buckets": {
+    "high": [
+      1801,
+      2400
+    ],
+    "low": [
+      600,
+      1400
+    ],
+    "medium": [
+      1401,
+      1800
+    ]
+  },
+  "source_sha256": "sha256:fa6e67d0d492453ebc7acc6667213f97d1f08d3c86f9f5fae76be8005ddfc693",
+  "source_url": "https://database.lichess.org/lichess_db_puzzle.csv.zst",
+  "source_version": "2026-07",
+  "theme_allowlist": [
+    "mateIn1",
+    "mateIn2",
+    "fork",
+    "pin",
+    "skewer",
+    "hangingPiece",
+    "discoveredAttack",
+    "backRankMate"
+  ]
+}

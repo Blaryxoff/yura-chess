@@ -1,0 +1,12 @@
+PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
+AAaa01,6k1/5ppp/8/8/8/8/8/R5K1 b - - 0 1,g8h8 a1a8,900,75,95,1200,backRankMate mateIn1 short,https://lichess.org/example#1,
+BBbb02,6k1/p5pp/8/8/2Q5/8/8/4R1K1 b - - 0 1,g8f8 c4f4 f8g8 e1e8,1600,80,92,900,mateIn2 short,https://lichess.org/example#2,
+CCcc03,4k3/8/8/8/8/8/4P3/4K1N1 b - - 0 1,e8d8 g1f3,1200,90,88,400,fork short,https://lichess.org/example#3,
+DDdd04,4k3/8/8/8/8/8/4P3/4K1N1 b - - 0 1,e8f8 g1h3,2000,85,80,300,fork middlegame,https://lichess.org/example#4,
+EEee05,4k3/8/8/8/8/8/4P3/4K1N1 b - - 0 1,e8d7 g1f3,1500,85,84,500,pin short,https://lichess.org/example#5,
+FFff06,4k3/8/8/8/8/8/4P3/4K1N1 b - - 0 1,e8d8 e1d1,1500,85,84,500,endgame rookEndgame,https://lichess.org/example#6,
+GGgg07,6k1/5ppp/8/8/8/8/8/R5K1 b - - 0 1,g8h8 a1a8,3000,70,90,700,mateIn1 short,https://lichess.org/example#7,
+HHhh08,4k3/8/8/8/8/8/4P3/4K1N1 b - - 0 1,e8d8 a1a8,1300,85,84,500,fork short,https://lichess.org/example#8,
+IIii09,not-a-fen,e8d8 g1f3,1300,85,84,500,fork short,https://lichess.org/example#9,
+JJjj10,4k3/8/8/8/8/8/4P3/4K1N1 b - - 0 1,e8d8 g1f3,1300,85,84,500,mateIn1 short,https://lichess.org/example#10,
+KKkk11,4k3/8/8/8/8/8/4P3/4K1N1 b - - 0 1,e8d8 g1f3 d8c8,1300,85,84,500,fork short,https://lichess.org/example#11,
