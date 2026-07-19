@@ -248,6 +248,19 @@ class GameRepository:
         self._verify_replay(existing, request_fingerprint, owner_key)
         return True
 
+    def get_request_replay(
+        self,
+        skill_id: str,
+        session_id: str,
+        message_id: str,
+        request_fingerprint: str,
+        owner_key: str,
+    ) -> RequestReplayRow | None:
+        existing = self._find_replay(skill_id, session_id, message_id)
+        if existing is None:
+            return None
+        return self._verify_replay(existing, request_fingerprint, owner_key)
+
     def record_request(
         self,
         skill_id: str,
@@ -298,6 +311,17 @@ class GameRepository:
 
     def store_response(self, replay: RequestReplayRow, response_payload: str, game_id: str | None = None) -> None:
         replay.response_payload = response_payload
+        if game_id is not None:
+            replay.game_id = game_id
+        self._session.flush()
+
+    def store_alice_response(
+        self,
+        replay: RequestReplayRow,
+        response_payload: str,
+        game_id: str | None = None,
+    ) -> None:
+        replay.alice_response_payload = response_payload
         if game_id is not None:
             replay.game_id = game_id
         self._session.flush()

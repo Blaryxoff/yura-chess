@@ -65,11 +65,19 @@ def build_router() -> APIRouter:
         started = monotonic()
         try:
             async with asyncio.timeout(settings.webhook_deadline_seconds):
-                response, result = await _handle(payload, conversation, settings.identity_salt)
+                response, result, owner, context = await _handle(payload, conversation, settings.identity_salt)
                 # The answer is already complete; the card is added only if the
                 # rest of the budget can pay for it.
                 remaining = settings.webhook_deadline_seconds - (monotonic() - started)
-                return await _attach_card(response, result, payload.has_screen, images, remaining)
+                response = await _attach_card(response, result, payload.has_screen, images, remaining)
+                if owner is not None and context is not None:
+                    conversation.store_response(
+                        owner,
+                        context,
+                        response.model_dump_json(exclude_none=True),
+                        result.game_id if result is not None else _response_game_id(response),
+                    )
+                return response
         except TimeoutError:
             # Whatever was committed stays committed; the next request resumes it.
             logger.warning("alice request exceeded the webhook deadline", extra={"session": payload.session.session_id})
@@ -82,13 +90,18 @@ async def _handle(
     payload: AliceRequest,
     conversation: ConversationService,
     salt: SecretStr,
-) -> tuple[AliceResponse, TurnResult | None]:
+) -> tuple[AliceResponse, TurnResult | None, str | None, RequestContext | None]:
     try:
         owner = owner_key(salt, payload.user_id, payload.application_id)
     except UnidentifiedRequestError:
         # Without an identifier there is no owner, and without an owner no game
         # may be read or written.
-        return _plain(payload, "Не удалось определить пользователя. Попробуйте открыть навык ещё раз."), None
+        return (
+            _plain(payload, "Не удалось определить пользователя. Попробуйте открыть навык ещё раз."),
+            None,
+            None,
+            None,
+        )
 
     context = RequestContext(
         skill_id=payload.session.skill_id,
@@ -99,15 +112,26 @@ async def _handle(
         timezone=payload.meta.timezone,
     )
     try:
+        cached = conversation.cached_response(owner, context)
+        if cached is not None:
+            return AliceResponse.model_validate_json(cached), None, owner, context
         reply = await conversation.handle(owner, payload.request.command, context, _conversation_state(payload))
     except ReplayFingerprintConflictError:
         # Same replay key, different request: answer without touching the game.
-        return _plain(payload, "Не расслышала. Повторите, пожалуйста."), None
+        return _plain(payload, "Не расслышала. Повторите, пожалуйста."), None, None, None
     except LookupError:
         # A foreign or stale game_id must not reveal whether that game exists.
         reply = await conversation.handle(owner, "", context, ConversationState())
 
-    return _compose(payload, reply), reply.turn
+    return _compose(payload, reply), reply.turn, owner, context
+
+
+def _response_game_id(response: AliceResponse) -> str | None:
+    if response.user_state_update is not None:
+        return response.user_state_update.game_id
+    if response.session_state is not None:
+        return response.session_state.game_id
+    return None
 
 
 async def _attach_card(

@@ -115,10 +115,27 @@ class ConversationService:
         state: ConversationState | None = None,
     ) -> ConversationReply:
         prior_state = state or ConversationState()
-        reply = await self._handle(owner_key, utterance, request, prior_state)
+        replayed = await self._games.resume_request(owner_key, request)
+        reply = (
+            self._replayed_turn_reply(owner_key, utterance, replayed, prior_state)
+            if replayed is not None
+            else await self._handle(owner_key, utterance, request, prior_state)
+        )
         if route(utterance).kind is CommandKind.REPEAT_SLOW:
             return reply
         return replace(reply, state=replace(reply.state, last_reply=reply.speech.spoken()[:512]))
+
+    def cached_response(self, owner_key: str, request: RequestContext) -> str | None:
+        return self._games.cached_alice_response(owner_key, request)
+
+    def store_response(
+        self,
+        owner_key: str,
+        request: RequestContext,
+        response_payload: str,
+        game_id: str | None,
+    ) -> None:
+        self._games.store_alice_response(owner_key, request, response_payload, game_id)
 
     async def _handle(
         self,
@@ -318,6 +335,27 @@ class ConversationService:
             self._state_from_turn(state, result),
             result,
         )
+
+    def _replayed_turn_reply(
+        self,
+        owner_key: str,
+        utterance: str,
+        result: TurnResult,
+        state: ConversationState,
+    ) -> ConversationReply:
+        replay_state = replace(state, last_heard=utterance.strip() or state.last_heard)
+        reply = self._turn_reply(owner_key, result, replay_state)
+        if result.player_move is not None:
+            return replace(reply, speech=Speech.of(f"Ваш ход: {result.player_move}. {reply.speech.text}"))
+        if state.game_id != result.game_id:
+            side = "черными" if result.player_color is PlayerColor.BLACK else "белыми"
+            game = self._load(owner_key, result.game_id)
+            level = game.engine.skill_level if game is not None else self._settings.engine_skill_level
+            return replace(
+                reply,
+                speech=Speech.of(f"Новая партия. Вы играете {side}, уровень {level}. {reply.speech.text}"),
+            )
+        return reply
 
     @staticmethod
     def _resume_prompt(game: GameState, timezone_name: str | None) -> Speech:

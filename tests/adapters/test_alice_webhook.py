@@ -288,27 +288,104 @@ async def test_an_exact_redelivery_replays_the_stored_answer(
     session_factory: sessionmaker[Session],
     database_engine: Engine,
 ) -> None:
-    payload = alice_request(1, new=True)
+    engine = FakeEngine()
     async with build_client(session_factory) as client:
+        opened = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
+    payload = alice_request(
+        2,
+        command="пешка е два е четыре",
+        state=opened["user_state_update"],
+        session_state=opened.get("session_state"),
+    )
+    async with build_client(session_factory, engine) as client:
         first = (await client.post("/alice/webhook", json=payload)).json()
         second = (await client.post("/alice/webhook", json=payload)).json()
 
     assert first == second
     assert games_count(database_engine) == 1
+    assert engine.searches == 1
 
 
 async def test_a_reused_replay_key_with_another_command_is_rejected_without_changing_the_game(
     session_factory: sessionmaker[Session],
     database_engine: Engine,
 ) -> None:
-    async with build_client(session_factory) as client:
-        first = (await client.post("/alice/webhook", json=alice_request(1, new=True, command="играем"))).json()
-        conflict = await client.post("/alice/webhook", json=alice_request(1, new=True, command="сдаюсь"))
+    engine = FakeEngine()
+    async with build_client(session_factory, engine) as client:
+        opened = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
+        original = alice_request(
+            2,
+            command="пешка е два е четыре",
+            state=opened["user_state_update"],
+            session_state=opened.get("session_state"),
+        )
+        await client.post("/alice/webhook", json=original)
+        conflict_payload = alice_request(
+            2,
+            command="сдаюсь",
+            state=opened["user_state_update"],
+            session_state=opened.get("session_state"),
+        )
+        conflict = await client.post("/alice/webhook", json=conflict_payload)
 
     assert conflict.status_code == 200
+    assert conflict.json()["response"]["text"] == "Не расслышала. Повторите, пожалуйста."
     assert conflict.json().get("user_state_update") is None
     assert games_count(database_engine) == 1
-    assert first["user_state_update"]["revision"] == 1
+    assert engine.searches == 1
+
+
+async def test_a_conversation_only_answer_replays_after_the_board_changes(
+    session_factory: sessionmaker[Session],
+) -> None:
+    async with build_client(session_factory) as client:
+        opened = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
+        query = alice_request(
+            2,
+            command="что на эф три",
+            state=opened["user_state_update"],
+            session_state=opened.get("session_state"),
+        )
+        first = (await client.post("/alice/webhook", json=query)).json()
+        moved = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    3,
+                    command="пешка е два е четыре",
+                    state=opened["user_state_update"],
+                    session_state=first.get("session_state"),
+                ),
+            )
+        ).json()
+        replayed = (await client.post("/alice/webhook", json=query)).json()
+
+    assert moved["user_state_update"]["revision"] > opened["user_state_update"]["revision"]
+    assert replayed == first
+
+
+async def test_a_timed_out_move_retries_before_the_router_can_reinterpret_it(
+    session_factory: sessionmaker[Session],
+) -> None:
+    async with build_client(session_factory) as client:
+        opened = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
+    move = alice_request(
+        2,
+        command="пешка е два е четыре",
+        state=opened["user_state_update"],
+        session_state=opened.get("session_state"),
+    )
+
+    async with build_client(session_factory, FakeEngine(delay=1.0), deadline=0.05) as client:
+        timed_out = (await client.post("/alice/webhook", json=move)).json()
+    fast_engine = FakeEngine()
+    async with build_client(session_factory, fast_engine) as client:
+        resumed = (await client.post("/alice/webhook", json=move)).json()
+
+    assert timed_out.get("user_state_update") is None
+    assert "Ваш ход: e2e4" in resumed["response"]["text"]
+    assert resumed["user_state_update"]["revision"] == 3
+    assert fast_engine.searches == 1
 
 
 async def test_parallel_requests_for_one_game_leave_it_consistent(

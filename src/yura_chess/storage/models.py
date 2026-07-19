@@ -135,4 +135,5 @@ class RequestReplayRow(Base):
     owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH))
     game_id: Mapped[str | None] = mapped_column(CHAR(36), ForeignKey("games.id", ondelete="CASCADE"), nullable=True)
     response_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
+    alice_response_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)

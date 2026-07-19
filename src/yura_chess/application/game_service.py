@@ -137,6 +137,58 @@ class GameService:
                 owner_key,
             )
 
+    def cached_alice_response(self, owner_key: str, request: RequestContext) -> str | None:
+        with session_scope(self._session_factory) as session:
+            replay = GameRepository(session).get_request_replay(
+                request.skill_id,
+                request.session_id,
+                request.message_id,
+                request.fingerprint,
+                owner_key,
+            )
+            return replay.alice_response_payload if replay is not None else None
+
+    def store_alice_response(
+        self,
+        owner_key: str,
+        request: RequestContext,
+        response_payload: str,
+        game_id: str | None,
+    ) -> None:
+        with session_scope(self._session_factory) as session:
+            repository = GameRepository(session)
+            replay, _ = self._claim(repository, request, owner_key, game_id)
+            repository.store_alice_response(replay, response_payload, game_id)
+
+    async def resume_request(self, owner_key: str, request: RequestContext) -> TurnResult | None:
+        """Resume a claimed turn before state-dependent speech routing can reinterpret it."""
+        with session_scope(self._session_factory) as session:
+            repository = GameRepository(session)
+            replay = repository.get_request_replay(
+                request.skill_id,
+                request.session_id,
+                request.message_id,
+                request.fingerprint,
+                owner_key,
+            )
+            if replay is None or replay.alice_response_payload is not None:
+                return None
+            if replay.response_payload is not None:
+                return TurnResult.from_payload(replay.response_payload)
+            if replay.game_id is None:
+                return None
+            state = repository.load(replay.game_id, owner_key)
+            if not self._engine_to_move(state):
+                return self._finalize(repository, replay, TurnResult.from_state(state, TurnStatus.OK))
+            pending = state.pending_engine_turn
+        return await self._play_engine_move(
+            owner_key,
+            state,
+            pending.token if pending else None,
+            pending.player_move_uci if pending else None,
+            request,
+        )
+
     async def play_move(
         self,
         owner_key: str,
