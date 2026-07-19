@@ -94,6 +94,10 @@ Secrets that exist only on Firebat and never in git:
 - Application containers run as uid 10001, `read_only: true`, `cap_drop: ALL`,
   `no-new-privileges`, with only a small `tmpfs` on `/tmp`. Board images are
   rendered in memory and never written to disk.
+- Dialogs board images use a bounded TTL/LRU cache. Maintenance deletes the
+  remote Yandex resource before forgetting its MariaDB mapping, retries failed
+  deletions on the next pass, and blocks new uploads above the configured quota
+  threshold or hard cache ceiling. An evicted position is regenerated on demand.
 - CPU and memory limits and `restart: unless-stopped` are set per service.
 - Logs use the `json-file` driver capped at 10 MB × 5 files per service.
 - Health checks: the application polls `/health/ready` (database connection,

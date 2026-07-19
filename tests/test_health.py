@@ -1,11 +1,14 @@
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 from settings_fixtures import TEST_IDENTITY_SALT
 
-from yura_chess.main import create_app
+from yura_chess.main import _purge_retained_data, create_app
 from yura_chess.settings import Settings
 
 
@@ -53,6 +56,43 @@ def test_readiness_counts_ready_engine_workers_without_searching(offline_setting
 
     assert response.json()["components"]["engine"] == "ready: 2/2 workers"
     assert searches == 0
+
+
+def test_periodic_maintenance_includes_remote_board_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    @contextmanager
+    def fake_session_scope(session_factory: object) -> Iterator[object]:
+        yield object()
+
+    class TranscriptRepository:
+        def __init__(self, session: object) -> None:
+            return None
+
+        def purge_expired(self, now: object, retention_days: int) -> None:
+            calls.append("transcripts")
+
+    class GameRepository:
+        def __init__(self, session: object) -> None:
+            return None
+
+        def purge_request_replays(self, now: object, retention_days: int) -> None:
+            calls.append("replays")
+
+    monkeypatch.setattr("yura_chess.main.session_scope", fake_session_scope)
+    monkeypatch.setattr("yura_chess.main.TranscriptRepository", TranscriptRepository)
+    monkeypatch.setattr("yura_chess.main.GameRepository", GameRepository)
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            session_factory=object(),
+            settings=SimpleNamespace(asr_transcript_retention_days=30, request_replay_retention_days=7),
+            board_images=SimpleNamespace(maintain_cache=lambda: calls.append("images")),
+        )
+    )
+
+    _purge_retained_data(app)
+
+    assert calls == ["transcripts", "replays", "images"]
 
 
 def test_a_missing_stockfish_binary_does_not_block_startup(offline_settings: Settings) -> None:

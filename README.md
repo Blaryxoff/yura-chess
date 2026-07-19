@@ -8,7 +8,9 @@ Screen-capable devices additionally receive an updated board image.
 
 ## Status
 
-Architecture and MVP implementation are in progress. The active plans are:
+The MVP is implemented and deployed to production. The skill is being prepared
+for public Yandex moderation; voice puzzles remain a post-release milestone.
+The completed plans are:
 
 - [Product plan](docs/plans/product/20260718-yura-chess-mvp.md)
 - [Ralphex development plan](docs/plans/dev/20260718-yura-chess-mvp.md)
@@ -36,6 +38,16 @@ Health endpoints:
 
 - `GET /health/live` — process liveness, independent of the database
 - `GET /health/ready` — returns 503 until the database connection and schema check pass
+
+### Screen board lifecycle
+
+Board PNGs are rendered in memory and uploaded to Yandex Dialogs only for
+screen-capable requests. Identical positions reuse the same `image_id`. A
+quota-aware TTL/LRU maintenance pass deletes remote images before removing their
+MariaDB mappings, keeps a bounded 2,000-image working set with a 500-image burst,
+and stops new uploads at 80% of the account quota. If an evicted position is
+requested again, it is rendered and uploaded again. Any image API or cleanup
+failure falls back to the complete voice response and never breaks the game.
 
 ### Tests
 

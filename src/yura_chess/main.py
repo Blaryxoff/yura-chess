@@ -57,7 +57,7 @@ async def _maintenance_loop(app: FastAPI) -> None:
         try:
             await run_in_threadpool(_purge_retained_data, app)
         except Exception:  # noqa: BLE001 - maintenance failure must not stop games
-            logger.exception("retention maintenance failed")
+            logger.exception("maintenance failed")
         await asyncio.sleep(app.state.settings.maintenance_interval_seconds)
 
 
@@ -66,6 +66,7 @@ def _purge_retained_data(app: FastAPI) -> None:
     with session_scope(app.state.session_factory) as session:
         TranscriptRepository(session).purge_expired(now, app.state.settings.asr_transcript_retention_days)
         GameRepository(session).purge_request_replays(now, app.state.settings.request_replay_retention_days)
+    app.state.board_images.maintain_cache()
 
 
 def _database_component(app: FastAPI) -> str:

@@ -6,16 +6,20 @@ every failure of the image path still leaves a complete voice answer.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
+from threading import Event
 from time import sleep
+from urllib.error import HTTPError, URLError
+from urllib.request import Request
 
 import chess
 import pytest
 from PIL import Image
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from yura_chess.adapters.alice.models import AliceRequest, AliceResponse, BigImageCard, ResponseBody
 from yura_chess.adapters.alice.webhook import _attach_card
@@ -167,8 +171,19 @@ class _FakeSession:
     def delete(self, row: BoardImageCacheRow) -> None:
         self._store.pop(row.position_hash, None)
 
+    def query(self, _model: type[BoardImageCacheRow]) -> _FakeQuery:
+        return _FakeQuery(self._store)
+
     def flush(self) -> None:
         return None
+
+
+class _FakeQuery:
+    def __init__(self, store: dict[str, BoardImageCacheRow]) -> None:
+        self._store = store
+
+    def count(self) -> int:
+        return len(self._store)
 
 
 @pytest.mark.anyio
@@ -192,6 +207,30 @@ class TestBoardImageService:
 
         assert await service.image_id_for("hash-1", lambda: b"png", budget_seconds=3.0) is None
 
+    async def test_concurrent_cache_misses_do_not_create_duplicate_remote_images(self) -> None:
+        started = Event()
+        release = Event()
+        uploads = 0
+
+        def uploader(png: bytes) -> str:
+            nonlocal uploads
+            uploads += 1
+            if uploads == 1:
+                started.set()
+                release.wait(timeout=2)
+            return f"img-{uploads}"
+
+        service = BoardImageService(_FakeSessionFactory({}), _settings(), uploader=uploader)  # type: ignore[arg-type]
+        first = asyncio.create_task(service.image_id_for("hash-1", lambda: b"png", budget_seconds=3.0))
+        assert await asyncio.to_thread(started.wait, 1)
+
+        second = await service.image_id_for("hash-2", lambda: b"png", budget_seconds=3.0)
+        release.set()
+
+        assert await first == "img-1"
+        assert second is None
+        assert uploads == 1
+
     async def test_exhausted_budget_skips_the_upload_entirely(self) -> None:
         uploads: list[bytes] = []
         service = BoardImageService(
@@ -212,17 +251,19 @@ class TestBoardImageService:
 
         assert await service.image_id_for("hash-1", lambda: b"png", budget_seconds=3.0) is None
 
-    async def test_expired_entry_is_re_uploaded(self) -> None:
+    async def test_idle_entry_is_reused_until_background_cleanup(self) -> None:
         stale = BoardImageCacheRow(position_hash="hash-1", image_id="old")
         stale.created_at = datetime.now() - timedelta(days=90)
         stale.last_used_at = stale.created_at
+        uploads: list[bytes] = []
         service = BoardImageService(
             _FakeSessionFactory({"hash-1": stale}),  # type: ignore[arg-type]
             _settings(board_image_ttl_days=30),
-            uploader=lambda png: "img-new",
+            uploader=lambda png: uploads.append(png) or "img-new",  # type: ignore[func-returns-value]
         )
 
-        assert await service.image_id_for("hash-1", lambda: b"png", budget_seconds=3.0) == "img-new"
+        assert await service.image_id_for("hash-1", lambda: b"png", budget_seconds=3.0) == "old"
+        assert uploads == []
 
 
 @pytest.mark.anyio
@@ -279,7 +320,7 @@ class TestQuotaGuardedEviction:
             quota=lambda: None,
         )
 
-        assert service.evict_cache() == []
+        assert service.maintain_cache() == []
 
     def test_unconfigured_client_never_calls_the_api(self) -> None:
         client = YandexImageClient(_settings())
@@ -287,6 +328,121 @@ class TestQuotaGuardedEviction:
         assert not client.configured
         assert client.upload(b"png") is None
         assert client.quota() is None
+
+
+class _HttpResponse:
+    def __enter__(self) -> _HttpResponse:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+
+class TestYandexImageClient:
+    def test_delete_uses_the_skill_resource_and_encodes_the_image_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        requests: list[Request] = []
+
+        def urlopen(request: Request, timeout: float) -> _HttpResponse:
+            requests.append(request)
+            return _HttpResponse()
+
+        monkeypatch.setattr("yura_chess.adapters.yandex_images.urllib.request.urlopen", urlopen)
+        client = YandexImageClient(_settings(yandex_skill_id="skill-1", yandex_oauth_token="secret"))
+
+        assert client.delete("image/with space")
+        assert requests[0].get_method() == "DELETE"
+        assert requests[0].full_url.endswith("/skills/skill-1/images/image%2Fwith%20space")
+
+    @pytest.mark.parametrize("error", [HTTPError("url", 404, "missing", None, None), URLError("offline")])
+    def test_delete_treats_missing_as_success_and_network_failure_as_retryable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        error: HTTPError | URLError,
+    ) -> None:
+        def urlopen(request: Request, timeout: float) -> _HttpResponse:
+            raise error
+
+        monkeypatch.setattr("yura_chess.adapters.yandex_images.urllib.request.urlopen", urlopen)
+        client = YandexImageClient(_settings(yandex_skill_id="skill-1", yandex_oauth_token="secret"))
+
+        assert client.delete("image-1") is isinstance(error, HTTPError)
+
+
+def _seed_cached_image(
+    session_factory: sessionmaker[Session],
+    position_hash: str,
+    image_id: str,
+    last_used_at: datetime,
+) -> None:
+    with session_factory.begin() as session:
+        row = BoardImageCacheRow(position_hash=position_hash, image_id=image_id)
+        row.created_at = last_used_at
+        row.last_used_at = last_used_at
+        session.add(row)
+
+
+def _cached_image(session_factory: sessionmaker[Session], position_hash: str) -> BoardImageCacheRow | None:
+    with session_factory() as session:
+        return session.get(BoardImageCacheRow, position_hash)
+
+
+@pytest.mark.usefixtures("clean_image_cache")
+class TestSustainableImageLifecycle:
+    @pytest.mark.anyio
+    async def test_remote_eviction_then_revisit_regenerates_the_position(
+        self,
+        session_factory: sessionmaker[Session],
+    ) -> None:
+        position_hash = f"{1:064d}"
+        _seed_cached_image(session_factory, position_hash, "img-old", datetime.now() - timedelta(days=8))
+        deleted: list[str] = []
+        service = BoardImageService(
+            session_factory,
+            _settings(board_image_ttl_days=7),
+            uploader=lambda png: "img-new",
+            quota=lambda: (0, 100),
+            deleter=lambda image_id: deleted.append(image_id) or True,
+        )
+
+        assert service.maintain_cache() == ["img-old"]
+        assert deleted == ["img-old"]
+        assert _cached_image(session_factory, position_hash) is None
+        assert await service.image_id_for(position_hash, lambda: b"png", budget_seconds=3.0) == "img-new"
+        assert _cached_image(session_factory, position_hash).image_id == "img-new"  # type: ignore[union-attr]
+
+    def test_failed_remote_delete_keeps_the_mapping_for_retry(
+        self,
+        session_factory: sessionmaker[Session],
+    ) -> None:
+        position_hash = f"{2:064d}"
+        _seed_cached_image(session_factory, position_hash, "img-old", datetime.now() - timedelta(days=8))
+        service = BoardImageService(
+            session_factory,
+            _settings(board_image_ttl_days=7),
+            quota=lambda: (90, 100),
+            deleter=lambda image_id: False,
+        )
+
+        assert service.maintain_cache() == []
+        assert _cached_image(session_factory, position_hash).image_id == "img-old"  # type: ignore[union-attr]
+
+    @pytest.mark.anyio
+    async def test_hard_cache_ceiling_falls_back_without_uploading(
+        self,
+        session_factory: sessionmaker[Session],
+    ) -> None:
+        now = datetime.now()
+        _seed_cached_image(session_factory, f"{3:064d}", "img-3", now)
+        _seed_cached_image(session_factory, f"{4:064d}", "img-4", now)
+        uploads: list[bytes] = []
+        service = BoardImageService(
+            session_factory,
+            _settings(board_image_cache_limit=1, board_image_cache_burst=1),
+            uploader=lambda png: uploads.append(png) or "img-new",  # type: ignore[func-returns-value]
+        )
+
+        assert await service.image_id_for(f"{5:064d}", lambda: b"png", budget_seconds=3.0) is None
+        assert uploads == []
 
 
 @pytest.mark.usefixtures("clean_image_cache")
@@ -303,7 +459,10 @@ class TestCacheAgainstDatabase:
             session.add(row)
         session.flush()
 
-        freed = cache.evict(now)
+        candidates = cache.eviction_candidates(now, batch_size=10, grace_seconds=0, emergency=False)
 
-        assert set(freed) == {"img-0", "img-2"}
+        assert {candidate.image_id for candidate in candidates} == {"img-0", "img-2"}
+        assert all(session.get(BoardImageCacheRow, candidate.position_hash) is not None for candidate in candidates)
+        for candidate in candidates:
+            cache.forget(candidate)
         assert cache.get(f"{1:064d}", now) == "img-1"

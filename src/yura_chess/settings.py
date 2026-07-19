@@ -44,12 +44,16 @@ class Settings(BaseSettings):
     yandex_oauth_token: SecretStr | None = None
     # Whatever is left of the 4.5 s budget after speech; an upload never gets more.
     image_upload_timeout_seconds: float = Field(default=1.0, gt=0.0, le=2.0)
-    board_image_ttl_days: int = Field(default=30, ge=1)
-    board_image_cache_limit: int = Field(default=5000, ge=1)
+    board_image_ttl_days: int = Field(default=7, ge=1)
+    board_image_cache_limit: int = Field(default=2000, ge=1)
+    board_image_cache_burst: int = Field(default=500, ge=0)
+    board_image_cleanup_batch_size: int = Field(default=50, ge=1)
+    board_image_cleanup_grace_seconds: int = Field(default=300, ge=0)
+    board_image_quota_stop_ratio: float = Field(default=0.8, gt=0.0, lt=1.0)
     asr_transcript_retention_days: int = Field(default=30, ge=1)
     asr_transcript_text_limit: int = Field(default=255, ge=16, le=255)
     request_replay_retention_days: int = Field(default=7, ge=1)
-    maintenance_interval_seconds: int = Field(default=86400, ge=60)
+    maintenance_interval_seconds: int = Field(default=60, ge=60)
 
 
 @lru_cache
