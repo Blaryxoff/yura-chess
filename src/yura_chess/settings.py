@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # The Alice webhook budget is 4.5 s; a search may never eat more than three of them.
     engine_move_deadline_seconds: float = Field(default=3.0, gt=0.0, le=3.0)
     engine_move_time_seconds: float = Field(default=1.0, gt=0.0)
+    # Analysis is asked for on top of a normal answer, so it gets a shorter deadline than a move.
+    engine_analysis_deadline_seconds: float = Field(default=1.5, gt=0.0, le=2.0)
+    engine_analysis_time_seconds: float = Field(default=0.5, gt=0.0)
+    engine_analysis_candidates: int = Field(default=3, ge=1, le=5)
     engine_restart_delay_seconds: float = Field(default=1.0, gt=0.0)
     # Below this the skill asks instead of moving: a misheard move is worse than a question.
     voice_move_confidence_threshold: float = Field(default=0.7, gt=0.0, le=1.0)

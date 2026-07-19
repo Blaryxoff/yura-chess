@@ -11,15 +11,19 @@ import asyncio
 import logging
 import threading
 from collections.abc import Callable
-from typing import Protocol
+from functools import partial
+from typing import Protocol, TypeVar
 
 import chess
 import chess.engine
 from starlette.concurrency import run_in_threadpool
 
+from yura_chess.domain.analysis import PositionAnalysis, analysis_from_info
 from yura_chess.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 # The engine's own search limit is the real deadline; this only bounds the wait
 # for a thread that ignored it, and such a thread makes its worker unusable.
@@ -38,6 +42,8 @@ class EngineProcess(Protocol):
     """One UCI process. Every method blocks and runs off the event loop."""
 
     def best_move(self, board: chess.Board, search_time: float) -> str: ...
+
+    def analyse(self, board: chess.Board, search_time: float, multipv: int) -> PositionAnalysis: ...
 
     def close(self) -> None: ...
 
@@ -64,6 +70,12 @@ class StockfishProcess:
         if result.move is None:
             raise EngineSearchTimeoutError("engine returned no move")
         return result.move.uci()
+
+    def analyse(self, board: chess.Board, search_time: float, multipv: int) -> PositionAnalysis:
+        # The skill level stays as configured: an analysis must never change how
+        # the same worker plays its next move.
+        infos = self._engine.analyse(board, chess.engine.Limit(time=search_time), multipv=multipv)
+        return analysis_from_info(board, list(infos) if isinstance(infos, list) else [infos])
 
     def close(self) -> None:
         self._engine.close()
@@ -97,13 +109,21 @@ class _Worker:
 
     def run(self, board: chess.Board, search_time: float, skill_level: int | None) -> str:
         with self._lock:
-            process = self._process
-            if process is None:
-                raise EngineUnavailableError(f"worker {self.index} is not ready")
+            process = self._ready()
             configure = getattr(process, "set_skill_level", None)
             if skill_level is not None and configure is not None:
                 configure(skill_level)
             return process.best_move(board, search_time)
+
+    def analyse(self, board: chess.Board, search_time: float, multipv: int) -> PositionAnalysis:
+        with self._lock:
+            return self._ready().analyse(board, search_time, multipv)
+
+    def _ready(self) -> EngineProcess:
+        process = self._process
+        if process is None:
+            raise EngineUnavailableError(f"worker {self.index} is not ready")
+        return process
 
     def detach(self) -> EngineProcess | None:
         """Take the process out of rotation without waiting for a search still holding the lock."""
@@ -167,14 +187,32 @@ class StockfishPool:
         limit = min(search_time if search_time is not None else self._settings.engine_move_time_seconds, deadline)
         worker = await self._acquire()
         position = board.copy(stack=False)
+        return await self._guarded(worker, deadline, partial(worker.run, position, limit, skill_level))
+
+    async def analyse(
+        self,
+        board: chess.Board,
+        search_time: float | None = None,
+        candidates: int | None = None,
+    ) -> PositionAnalysis:
+        """Value a copy of the position without touching the game or the worker's skill level."""
+        deadline = self._settings.engine_analysis_deadline_seconds
+        limit = min(search_time if search_time is not None else self._settings.engine_analysis_time_seconds, deadline)
+        multipv = candidates if candidates is not None else self._settings.engine_analysis_candidates
+        worker = await self._acquire()
+        position = board.copy(stack=False)
+        return await self._guarded(worker, deadline, partial(worker.analyse, position, limit, multipv))
+
+    async def _guarded(self, worker: _Worker, deadline: float, call: Callable[[], _T]) -> _T:
+        """Await one blocking worker call; any failure takes the worker out of rotation."""
         try:
-            uci = await asyncio.wait_for(
-                run_in_threadpool(worker.run, position, limit, skill_level),
+            result = await asyncio.wait_for(
+                run_in_threadpool(call),
                 timeout=deadline + _DEADLINE_GRACE_SECONDS,
             )
         except TimeoutError:
             self._damage(worker)
-            raise EngineSearchTimeoutError(f"no move within {deadline} s") from None
+            raise EngineSearchTimeoutError(f"no result within {deadline} s") from None
         except asyncio.CancelledError:
             # The caller's deadline cancelled the await, but the search thread
             # keeps running and keeps the worker's lock, so the worker may not
@@ -190,7 +228,7 @@ class StockfishPool:
             self._damage(worker)
             raise
         self._idle.put_nowait(worker)
-        return uci
+        return result
 
     async def _acquire(self) -> _Worker:
         if not self._running:

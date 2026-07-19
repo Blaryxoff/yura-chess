@@ -112,12 +112,12 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Create `src/yura_chess/domain/analysis.py`, `tests/engine/test_analysis.py`; Modify `src/yura_chess/engine/stockfish.py`, `src/yura_chess/settings.py`, `tests/engine/test_stockfish.py`
 
-- [ ] Добавить типизированный результат: score, mate distance, principal variation и упорядоченные candidates
-- [ ] Реализовать анализ на копии позиции через существующий bounded pool вне event loop и DB-транзакций
-- [ ] Добавить отдельный короткий deadline и контролируемые busy/timeout ошибки
-- [ ] Сохранить совместимость обычного `best_move` и восстановление повреждённого worker
-- [ ] Покрыть score perspective, mate, top-N, saturation, timeout и cancellation
-- [ ] Mark completed
+- [x] Добавить типизированный результат: score, mate distance, principal variation и упорядоченные candidates
+- [x] Реализовать анализ на копии позиции через существующий bounded pool вне event loop и DB-транзакций
+- [x] Добавить отдельный короткий deadline и контролируемые busy/timeout ошибки
+- [x] Сохранить совместимость обычного `best_move` и восстановление повреждённого worker
+- [x] Покрыть score perspective, mate, top-N, saturation, timeout и cancellation
+- [x] Mark completed
 
 ### Task 8: Сохранить режим партии и состояние подсказки
 

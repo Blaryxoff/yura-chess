@@ -8,6 +8,8 @@ import chess.engine
 import pytest
 from settings_fixtures import TEST_IDENTITY_SALT, UNREACHABLE_DATABASE_URL
 
+from yura_chess.domain.analysis import PositionAnalysis
+from yura_chess.domain.game import PlayerColor
 from yura_chess.engine.stockfish import (
     EngineProcess,
     EngineSearchTimeoutError,
@@ -50,6 +52,10 @@ class FakeProcess:
         if self.registry.failure is not None:
             raise self.registry.failure
         return next(iter(board.legal_moves)).uci()
+
+    def analyse(self, board: chess.Board, search_time: float, multipv: int) -> PositionAnalysis:
+        self.registry.searches.append(search_time)
+        return PositionAnalysis(fen=board.fen(), side_to_move=PlayerColor.WHITE, depth=1)
 
     def close(self) -> None:
         self.closed = True
