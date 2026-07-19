@@ -134,12 +134,12 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Create `migrations/versions/0009_analysis_checkpoints.py`, `src/yura_chess/storage/analysis_repository.py`, `tests/storage/test_analysis_repository.py`; Modify `src/yura_chess/storage/models.py`
 
-- [ ] Хранить компактный checkpoint с game, ply, position hash, оценкой до/после хода, потерей с точки зрения пользователя и engine settings
-- [ ] Зафиксировать единые пороги: 50 сантипешек для неточности, 100 для ошибки и 200 для грубой ошибки; потерю или допуск форсированного мата считать грубой ошибкой
-- [ ] Реализовать owner-scoped idempotent upsert/read и каскадное удаление с партией
-- [ ] Не считать отсутствие checkpoint ошибкой: повторный read-only анализ остаётся допустимым
-- [ ] Проверить reload, retention, concurrent upsert и отсутствие cross-user чтения
-- [ ] Mark completed
+- [x] Хранить компактный checkpoint с game, ply, position hash, оценкой до/после хода, потерей с точки зрения пользователя и engine settings
+- [x] Зафиксировать единые пороги: 50 сантипешек для неточности, 100 для ошибки и 200 для грубой ошибки; потерю или допуск форсированного мата считать грубой ошибкой (пороги и `classify_loss` живут в `domain/analysis.py`; качество не хранится столбцом, а выводится из потери)
+- [x] Реализовать owner-scoped idempotent upsert/read и каскадное удаление с партией
+- [x] Не считать отсутствие checkpoint ошибкой: повторный read-only анализ остаётся допустимым
+- [x] Проверить reload, retention, concurrent upsert и отсутствие cross-user чтения
+- [x] Mark completed
 
 ### Task 10: Реализовать тренировочные вопросы и предупреждения
 

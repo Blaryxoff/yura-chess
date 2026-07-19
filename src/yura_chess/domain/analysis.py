@@ -9,6 +9,8 @@ when they are spoken.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
+from hashlib import sha256
 from typing import Any
 
 import chess
@@ -19,6 +21,13 @@ from yura_chess.domain.game import PlayerColor
 # A mate outranks any material advantage; the distance only orders mates.
 MATE_CENTIPAWNS = 10_000
 _MAX_MATE_DISTANCE = 99
+
+# The single thresholds of the whole skill, in centipawns lost by the player.
+INACCURACY_CENTIPAWNS = 50
+MISTAKE_CENTIPAWNS = 100
+BLUNDER_CENTIPAWNS = 200
+
+POSITION_HASH_LENGTH = 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +101,78 @@ class PositionAnalysis:
         if score is None:
             return None
         return score if color is self.side_to_move else score.inverted()
+
+
+class MoveQuality(StrEnum):
+    """How much a played move cost its player, by the fixed skill thresholds."""
+
+    GOOD = "good"
+    INACCURACY = "inaccuracy"
+    MISTAKE = "mistake"
+    BLUNDER = "blunder"
+
+
+def classify_loss(centipawn_loss: int) -> MoveQuality:
+    """Name a loss the player suffered; the thresholds include their boundary.
+
+    Losing or allowing a forced mate needs no special case: a mate saturates far
+    above `BLUNDER_CENTIPAWNS`, so turning one into a normal position — or a
+    normal position into one — always exceeds the blunder threshold, while a mate
+    merely postponed stays a good move.
+    """
+    if centipawn_loss >= BLUNDER_CENTIPAWNS:
+        return MoveQuality.BLUNDER
+    if centipawn_loss >= MISTAKE_CENTIPAWNS:
+        return MoveQuality.MISTAKE
+    if centipawn_loss >= INACCURACY_CENTIPAWNS:
+        return MoveQuality.INACCURACY
+    return MoveQuality.GOOD
+
+
+def position_hash(fen: str) -> str:
+    """Identify the position a checkpoint values, independent of how it is drawn."""
+    return sha256(fen.encode("utf-8")).hexdigest()[:POSITION_HASH_LENGTH]
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisEngineSettings:
+    """What the search that produced a checkpoint was allowed to do.
+
+    Kept with the checkpoint so a later review can decide whether the stored
+    verdict is good enough to reuse or has to be recomputed.
+    """
+
+    depth: int
+    search_time_ms: int
+    skill_level: int
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisCheckpoint:
+    """One valued player move of a game.
+
+    `position_hash` covers the position *before* the move, the one `score_before`
+    values. Both scores are seen by the player who moved, so a positive
+    `centipawn_loss` always means that player lost value.
+    """
+
+    game_id: str
+    owner_key: str
+    ply: int
+    position_hash: str
+    score_before: Score
+    score_after: Score
+    centipawn_loss: int
+    engine: AnalysisEngineSettings
+
+    @property
+    def quality(self) -> MoveQuality:
+        return classify_loss(self.centipawn_loss)
+
+
+def centipawn_loss(score_before: Score, score_after: Score) -> int:
+    """How much the moving player lost, both scores seen from their side."""
+    return score_before.as_centipawns() - score_after.as_centipawns()
 
 
 def score_from_engine(score: chess.engine.Score) -> Score:

@@ -22,6 +22,7 @@ _TABLES = (
     "asr_transcripts",
     "player_preferences",
     "request_replays",
+    "analysis_checkpoints",
     "pending_engine_turns",
     "game_moves",
     "games",

@@ -160,6 +160,35 @@ class PlayerPreferencesRow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class AnalysisCheckpointRow(Base):
+    """One valued player move, keyed by the game and the ply it follows.
+
+    The composite primary key makes a repeated request rewrite the same row
+    instead of adding another one, and the cascade removes the whole valuation
+    with its game. The quality of a move is not stored: it is derived from
+    `centipawn_loss` and the fixed thresholds in `yura_chess.domain.analysis`,
+    which a column could only drift from.
+    """
+
+    __tablename__ = "analysis_checkpoints"
+
+    game_id: Mapped[str] = mapped_column(CHAR(36), ForeignKey("games.id", ondelete="CASCADE"), primary_key=True)
+    ply: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), index=True)
+    position_hash: Mapped[str] = mapped_column(CHAR(POSITION_HASH_LENGTH))
+    # Each score is either centipawns or a mate distance, never both.
+    score_before_centipawns: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    score_before_mate_in: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    score_after_centipawns: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    score_after_mate_in: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    centipawn_loss: Mapped[int] = mapped_column(Integer)
+    engine_depth: Mapped[int] = mapped_column(SmallInteger)
+    engine_search_time_ms: Mapped[int] = mapped_column(Integer)
+    engine_skill_level: Mapped[int] = mapped_column(SmallInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class RequestReplayRow(Base):
     """Idempotency record keyed by the Alice request triple."""
 
