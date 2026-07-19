@@ -13,6 +13,7 @@ from yura_chess.application.conversation import (
     ConversationState,
 )
 from yura_chess.application.game_service import RequestContext
+from yura_chess.domain.analysis import MoveCandidate, PositionAnalysis, Score
 from yura_chess.domain.game import GameStatus, PlayerColor
 from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle
 from yura_chess.presentation.help_speech import HelpState, HelpTopic
@@ -38,6 +39,22 @@ class FakeEngine:
     ) -> str:
         self.skill_levels.append(skill_level)
         return next(iter(board.legal_moves)).uci()
+
+    async def analyse(
+        self,
+        board: chess.Board,
+        search_time: float | None = None,
+        candidates: int | None = None,
+    ) -> PositionAnalysis:
+        moves = [move.uci() for move in board.legal_moves][: candidates or 3]
+        return PositionAnalysis(
+            fen=board.fen(),
+            side_to_move=PlayerColor.WHITE if board.turn == chess.WHITE else PlayerColor.BLACK,
+            depth=8,
+            candidates=tuple(
+                MoveCandidate(move=move, score=Score(centipawns=0), principal_variation=(move,)) for move in moves
+            ),
+        )
 
 
 def context(message_id: int, *, new: bool = False, timezone: str | None = None) -> RequestContext:

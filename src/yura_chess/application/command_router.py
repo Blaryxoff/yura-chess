@@ -50,6 +50,8 @@ class CommandKind(StrEnum):
     PREFERENCE = "preference"
     # A new game that inherits colour and level from the previous one.
     REMATCH = "rematch"
+    # A coaching question, or switching the trainer on or off.
+    TRAINING = "training"
     MOVE = "move"
     # A move was understood but is not legal in the current position.
     ILLEGAL_MOVE = "illegal_move"
@@ -95,6 +97,31 @@ class PreferenceChange:
         )
 
 
+class TrainingQuestion(StrEnum):
+    """What the trainer was asked; only `ENABLE` also works in an honest game."""
+
+    ENABLE = "enable"
+    DISABLE = "disable"
+    # The verbal category; the number is a separate question by design.
+    EVALUATION = "evaluation"
+    EVALUATION_NUMBER = "evaluation_number"
+    WHY_MOVE = "why_move"
+    THREAT = "threat"
+    CANDIDATES = "candidates"
+    # «что будет, если я сыграю коня эф три» — analysed, never applied.
+    PREVIEW = "preview"
+    HINT = "hint"
+    WHERE_WRONG = "where_wrong"
+    KEEP_MOVE = "keep_move"
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingRequest:
+    question: TrainingQuestion
+    # The move phrase of a `PREVIEW`, still in the words the player used.
+    move_text: str | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class RematchRequest:
     color: RematchColor = RematchColor.SAME
@@ -118,6 +145,8 @@ class RoutedCommand:
     preference: PreferenceChange | None = None
     # How the next game differs from the previous one; set only for `REMATCH`.
     rematch: RematchRequest | None = None
+    # Which coaching question was asked; set only for `TRAINING`.
+    training: TrainingRequest | None = None
 
 
 _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
@@ -139,7 +168,7 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (CommandKind.NEW_GAME, re.compile(r"нов(ая|ую) (игра|игру|партия|партию)|начн?ем заново|сначала|заново")),
     (CommandKind.RESIGN, re.compile(r"сдаюсь|сдаться|сдаемся|я проиграл")),
     (CommandKind.CLAIM_DRAW, re.compile(r"ничь(я|ю|ей)")),
-    (CommandKind.UNDO, re.compile(r"отмен(и|ить|яю)|верни(?: последний)?(?: ход)?|^ход назад$|переходить")),
+    (CommandKind.UNDO, re.compile(r"отмен(и|ить|яю)|верн(и|уть)(?: последний)?(?: ход)?|^ход назад$|переходить")),
     (CommandKind.START, re.compile(r"начать игру|начн?ем игру|давай играть|поехали|старт")),
     (CommandKind.CONTINUE, re.compile(r"продолж")),
     (
@@ -211,6 +240,40 @@ _PREFERENCE_PATTERNS: tuple[tuple[PreferenceChange, re.Pattern[str]], ...] = (
     ),
 )
 
+# Coaching phrases are read before the control table: «где я ошибся» and «как
+# оценивается позиция» would otherwise be heard as position questions.
+_TRAINING_PATTERNS: tuple[tuple[TrainingQuestion, re.Pattern[str]], ...] = (
+    (
+        TrainingQuestion.ENABLE,
+        re.compile(r"(включи|запусти|давай)\w*( режим)? тренер|режим тренера|будь тренером|тренируй"),
+    ),
+    (
+        TrainingQuestion.DISABLE,
+        re.compile(r"(выключи|отключи|убери)\w*( режим)? тренер|без подсказок|играй честно"),
+    ),
+    (TrainingQuestion.KEEP_MOVE, re.compile(r"оставить мой ход|оставь мой ход|оставляю ход")),
+    (TrainingQuestion.WHERE_WRONG, re.compile(r"где я ошиб|в чем моя ошибка|где была ошибка")),
+    # Before the plain evaluation: the number is asked for separately.
+    (
+        TrainingQuestion.EVALUATION_NUMBER,
+        re.compile(r"оценк\w* числ|назови оценку|сколько (сейчас )?оценка|числовая оценка"),
+    ),
+    (
+        TrainingQuestion.EVALUATION,
+        re.compile(r"как оценива|оцени позици|какая оценка|кто (сейчас )?лучше стоит|у кого (сейчас )?лучше"),
+    ),
+    (TrainingQuestion.WHY_MOVE, re.compile(r"почему ты (так )?(сходила|пошла|ходила)|зачем ты (так )?(сходила|пошла)")),
+    (TrainingQuestion.THREAT, re.compile(r"чем ты угрожа|какая угроза|есть ли угроза|что ты задумала")),
+    (TrainingQuestion.PREVIEW, re.compile(r"что будет,? если|что если я|стоит ли (мне )?(играть|ходить)")),
+    (TrainingQuestion.CANDIDATES, re.compile(r"хорошие ходы|какие ходы|что мне сыграть|как мне (лучше )?сыграть")),
+    (TrainingQuestion.HINT, re.compile(r"подсказ|дай совет|посоветуй|помоги с ходом")),
+)
+
+# What is left of a preview question once the framing words are dropped.
+_PREVIEW_PREFIX = re.compile(
+    r"^.*?(?:если (?:я )?(?:сыграю|пойду|походу|сделаю ход)?|стоит ли (?:мне )?(?:играть|ходить))\s*"
+)
+
 _REMATCH = re.compile(r"реванш|еще (одну )?(партию|игру)|сыграем еще|сыграем сложнее|сложнее|потруднее|усложни")
 _REMATCH_SWAP = re.compile(r"друг(им|ой) цвет|смен(и|им|ить) цвет|поменя\w* цвет|другой стороной")
 _REMATCH_HARDER = re.compile(r"сложнее|потруднее|усложни|уровень выше|посильнее|потяжелее")
@@ -247,6 +310,9 @@ def route(
     rematch = parse_rematch(normalized.text)
     if rematch is not None:
         return RoutedCommand(CommandKind.REMATCH, normalized, rematch=rematch, clarification=None)
+    training = parse_training(normalized.text)
+    if training is not None:
+        return RoutedCommand(CommandKind.TRAINING, normalized, training=training, clarification=None)
 
     for kind, pattern in _CONTROL_PATTERNS:
         if pattern.search(normalized.text):
@@ -271,6 +337,17 @@ def parse_preference(text: str) -> PreferenceChange | None:
     for change, pattern in _PREFERENCE_PATTERNS:
         if pattern.search(text):
             return change
+    return None
+
+
+def parse_training(text: str) -> TrainingRequest | None:
+    """Read a coaching question, or return `None` when the phrase is not one."""
+    for question, pattern in _TRAINING_PATTERNS:
+        if pattern.search(text):
+            if question is not TrainingQuestion.PREVIEW:
+                return TrainingRequest(question)
+            # The move itself is resolved later, against the real position.
+            return TrainingRequest(question, move_text=_PREVIEW_PREFIX.sub("", text).strip() or None)
     return None
 
 

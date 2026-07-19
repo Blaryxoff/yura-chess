@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from typing import Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import chess
@@ -21,7 +22,8 @@ from yura_chess.application.command_router import (
     route,
 )
 from yura_chess.application.game_service import GameService, MoveSearch, RequestContext
-from yura_chess.domain.game import EngineSettings, GameState, GameStatus, PlayerColor
+from yura_chess.application.training_service import PositionSearch, TrainingService
+from yura_chess.domain.game import EngineSettings, GameMode, GameState, GameStatus, PlayerColor
 from yura_chess.domain.preferences import (
     BoardOrientation,
     DetailLevel,
@@ -118,12 +120,17 @@ class ConversationReply:
     preferences: PlayerPreferences | None = None
 
 
+class ChessEngine(MoveSearch, PositionSearch, Protocol):
+    """Both engine capabilities the conversation needs; `StockfishPool` has them."""
+
+
 class ConversationService:
     """Interpret one utterance and produce the complete voice-first response."""
 
-    def __init__(self, session_factory: sessionmaker[Session], engine: MoveSearch, settings: Settings) -> None:
+    def __init__(self, session_factory: sessionmaker[Session], engine: ChessEngine, settings: Settings) -> None:
         self._session_factory = session_factory
-        self._games = GameService(session_factory, engine)
+        self._training = TrainingService(session_factory, engine, settings)
+        self._games = GameService(session_factory, engine, observer=self._training)
         self._settings = settings
 
     async def handle(
@@ -278,6 +285,15 @@ class ConversationService:
                 )
             return await self._rematch(owner_key, base, request, routed.rematch, next_state, preferences)
 
+        if routed.kind is CommandKind.TRAINING and routed.training is not None:
+            if game is None:
+                return ConversationReply(
+                    Speech.of("Партии еще нет, тренировать нечего. Скажите «новая игра»."),
+                    next_state,
+                )
+            speech = await self._training.answer(owner_key, game, routed.training, request)
+            return ConversationReply(speech, self._with_game(next_state, self._reload(owner_key, game)))
+
         if game is None:
             if routed.kind is CommandKind.GAME_FACT:
                 return ConversationReply(
@@ -384,7 +400,7 @@ class ConversationService:
             reply = self._turn_reply(owner_key, result, next_state, preferences)
             if result.player_move is not None:
                 reply = replace(reply, speech=Speech.of(f"Ваш ход: {result.player_move}. {reply.speech.text}"))
-            return reply
+            return self._with_training_warning(owner_key, reply)
 
         return ConversationReply(
             Speech.of("Не поняла команду." + _hint(preferences, "Скажите ход или попросите помощь.")),
@@ -415,6 +431,8 @@ class ConversationService:
                 skill_level=level,
                 move_time_ms=round(self._settings.engine_move_time_seconds * 1000),
             ),
+            # Only a genuinely new game may take the mode from the preferences.
+            mode=preferences.default_mode,
         )
         side = "черными" if player_color is PlayerColor.BLACK else "белыми"
         reply = self._turn_reply(owner_key, result, state, preferences)
@@ -517,6 +535,18 @@ class ConversationService:
         else:
             history = f"Последние два хода: {describe_recent_moves(board, 2).text}"
         return Speech.of(f"{opening} {history} Продолжить?")
+
+    def _reload(self, owner_key: str, game: GameState) -> GameState:
+        """Re-read a game a coaching answer may have re-moded or hinted."""
+        return self._load(owner_key, game.id) or game
+
+    def _with_training_warning(self, owner_key: str, reply: ConversationReply) -> ConversationReply:
+        """Warn about a costly training move; the move itself always stands."""
+        game = self._load(owner_key, reply.state.game_id)
+        warning = self._training.warning(owner_key, game) if game is not None else None
+        if warning is None:
+            return reply
+        return replace(reply, speech=Speech.of(f"{reply.speech.text} {warning.text}"))
 
     def _load(self, owner_key: str, game_id: str | None) -> GameState | None:
         if game_id is None:
@@ -637,7 +667,9 @@ def _preference_confirmation(change: PreferenceChange) -> str:
 def _help_mode(game: GameState | None) -> HelpMode:
     if game is None:
         return HelpMode.NO_GAME
-    return HelpMode.GAME if game.status is GameStatus.ACTIVE else HelpMode.GAME_OVER
+    if game.status is not GameStatus.ACTIVE:
+        return HelpMode.GAME_OVER
+    return HelpMode.TRAINING if game.mode is GameMode.TRAINING else HelpMode.GAME
 
 
 def _date_phrase(value: datetime, timezone_name: str | None) -> str:
