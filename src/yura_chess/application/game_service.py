@@ -55,6 +55,8 @@ class RequestContext:
     session_id: str
     message_id: str
     fingerprint: str
+    is_new_session: bool = False
+    timezone: str | None = None
 
 
 class GameService:
@@ -118,6 +120,22 @@ class GameService:
         """Load the current owner-scoped state without claiming or mutating a request."""
         with session_scope(self._session_factory) as session:
             return GameRepository(session).load(game_id, owner_key)
+
+    def find_latest_active_game(self, owner_key: str) -> GameState | None:
+        """Find the unfinished game most recently advanced by this player."""
+        with session_scope(self._session_factory) as session:
+            return GameRepository(session).find_latest_active(owner_key)
+
+    def request_was_seen(self, owner_key: str, request: RequestContext) -> bool:
+        """Check a replay key before conversation-only behavior can bypass it."""
+        with session_scope(self._session_factory) as session:
+            return GameRepository(session).request_was_seen(
+                request.skill_id,
+                request.session_id,
+                request.message_id,
+                request.fingerprint,
+                owner_key,
+            )
 
     async def play_move(
         self,

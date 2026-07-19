@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import chess
 from sqlalchemy.orm import Session, sessionmaker
@@ -16,10 +18,10 @@ from yura_chess.application.command_router import (
     route,
 )
 from yura_chess.application.game_service import GameService, MoveSearch, RequestContext
-from yura_chess.domain.game import EngineSettings, GameState, PlayerColor
+from yura_chess.domain.game import EngineSettings, GameState, GameStatus, PlayerColor
 from yura_chess.domain.results import TurnResult, TurnStatus
 from yura_chess.presentation.move_speech import Speech
-from yura_chess.presentation.position_speech import answer_position_query
+from yura_chess.presentation.position_speech import answer_position_query, describe_recent_moves
 from yura_chess.presentation.response_composer import compose_turn
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
@@ -50,10 +52,25 @@ _LEVEL_WORDS = {
     "двадцать": 20,
 }
 _LEVEL = re.compile(rf"\b(?:уровень|сложность)\s*(?P<value>\d{{1,2}}|{'|'.join(_LEVEL_WORDS)})\b")
+_MONTHS = {
+    1: "января",
+    2: "февраля",
+    3: "марта",
+    4: "апреля",
+    5: "мая",
+    6: "июня",
+    7: "июля",
+    8: "августа",
+    9: "сентября",
+    10: "октября",
+    11: "ноября",
+    12: "декабря",
+}
 _HELP = (
     "Можно сказать ход, например «пешка е два е четыре», спросить «что на е четыре», "
-    "«какая позиция», «чей ход», «какой был последний ход», «есть ли шах», «что ты услышала», "
-    "«повтори медленно», «отмени ход», «предлагаю ничью», «сдаюсь» или "
+    "«какая позиция», «чей ход», «какой был последний ход», «что делали черные четыре хода назад», "
+    "«есть ли шах», «продолжить последнюю партию», «что ты услышала», «повтори медленно», "
+    "«отмени ход», «предлагаю ничью», «сдаюсь» или "
     "«новая игра черными уровень десять»."
 )
 
@@ -115,6 +132,16 @@ class ConversationService:
         if state.game_id is not None and game is None:
             state = ConversationState(last_heard=state.last_heard)
 
+        if request.is_new_session and not utterance.strip() and not self._games.request_was_seen(owner_key, request):
+            candidate = game if game is not None and game.status is GameStatus.ACTIVE else None
+            candidate = candidate or self._games.find_latest_active_game(owner_key)
+            if candidate is not None:
+                prompt_state = replace(
+                    self._with_game(state, candidate),
+                    pending_action=PendingAction(CommandKind.CONTINUE, ""),
+                )
+                return ConversationReply(self._resume_prompt(candidate, request.timezone), prompt_state)
+
         board = game.board() if game is not None else None
         routed = route(
             utterance,
@@ -137,16 +164,32 @@ class ConversationService:
             next_state = replace(next_state, pending_action=None)
             if not confirmation:
                 cancelled_state = self._with_game(next_state, game) if game else next_state
+                if confirmed.kind is CommandKind.CONTINUE:
+                    return ConversationReply(
+                        Speech.of("Хорошо. Скажите «новая игра», если хотите начать другую."),
+                        cancelled_state,
+                    )
                 return ConversationReply(Speech.of("Хорошо, отменяю."), cancelled_state)
             if confirmed.kind is CommandKind.NEW_GAME:
                 return await self._start(owner_key, confirmed.utterance, request, next_state)
             if confirmed.kind is CommandKind.RESIGN and game is not None:
                 result = await self._games.resign(owner_key, game.id, request)
                 return self._turn_reply(owner_key, result, next_state)
+            if confirmed.kind is CommandKind.CONTINUE:
+                candidate = game or self._games.find_latest_active_game(owner_key)
+                if candidate is not None:
+                    result = await self._games.continue_game(owner_key, candidate.id, request)
+                    return self._turn_reply(owner_key, result, next_state)
 
         if game is None:
             if routed.kind is CommandKind.HELP:
                 return ConversationReply(Speech.of(_HELP), next_state)
+            if routed.kind is CommandKind.CONTINUE:
+                candidate = self._games.find_latest_active_game(owner_key)
+                if candidate is None:
+                    return ConversationReply(Speech.of("Незаконченных партий нет. Скажите «новая игра»."), next_state)
+                result = await self._games.continue_game(owner_key, candidate.id, request)
+                return self._turn_reply(owner_key, result, next_state)
             return await self._start(owner_key, utterance, request, next_state)
 
         assert board is not None
@@ -276,6 +319,23 @@ class ConversationService:
             result,
         )
 
+    @staticmethod
+    def _resume_prompt(game: GameState, timezone_name: str | None) -> Speech:
+        if game.last_player_move_at is None:
+            opening = "У вас есть незаконченная партия, в которой вы еще не сделали ход."
+        else:
+            played = _date_phrase(game.last_player_move_at, timezone_name)
+            opening = f"У вас есть незаконченная партия, в которую вы последний раз играли {played}."
+
+        board = game.board()
+        if not board.move_stack:
+            history = "Ходов еще не было."
+        elif len(board.move_stack) == 1:
+            history = f"Последний ход: {describe_recent_moves(board, 1).text}"
+        else:
+            history = f"Последние два хода: {describe_recent_moves(board, 2).text}"
+        return Speech.of(f"{opening} {history} Продолжить?")
+
     def _load(self, owner_key: str, game_id: str | None) -> GameState | None:
         if game_id is None:
             return None
@@ -319,3 +379,18 @@ class ConversationService:
                 candidate_count=len(resolution.candidates) if resolution is not None else 0,
                 legal_move_count=board.legal_moves.count() if board is not None else 0,
             )
+
+
+def _date_phrase(value: datetime, timezone_name: str | None) -> str:
+    try:
+        timezone = ZoneInfo(timezone_name) if timezone_name else UTC
+    except ZoneInfoNotFoundError:
+        timezone = UTC
+    instant = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    local_date = instant.astimezone(timezone).date()
+    today = datetime.now(timezone).date()
+    if local_date == today:
+        return "сегодня"
+    if local_date == today - timedelta(days=1):
+        return "вчера"
+    return f"{local_date.day} {_MONTHS[local_date.month]}"

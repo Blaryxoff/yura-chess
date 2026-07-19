@@ -130,6 +130,49 @@ async def test_a_sequence_of_requests_stays_on_the_same_game(
     assert games_count(database_engine) == 1
 
 
+async def test_a_new_session_recovers_and_confirms_the_latest_unfinished_game(
+    session_factory: sessionmaker[Session],
+    database_engine: Engine,
+) -> None:
+    async with build_client(session_factory) as client:
+        opened = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
+        moved = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    2,
+                    command="пешка е два е четыре",
+                    state=opened["user_state_update"],
+                    session_state=opened.get("session_state"),
+                ),
+            )
+        ).json()
+        prompted = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(1, session_id="session-2", new=True),
+            )
+        ).json()
+        resumed = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    2,
+                    session_id="session-2",
+                    command="да",
+                    session_state=prompted["session_state"],
+                ),
+            )
+        ).json()
+
+    assert "Продолжить?" in prompted["response"]["text"]
+    assert "Последние два хода" in prompted["response"]["text"]
+    assert prompted["session_state"]["pending_action"]["kind"] == "continue"
+    assert prompted["session_state"]["game_id"] == moved["user_state_update"]["game_id"]
+    assert resumed["user_state_update"]["game_id"] == moved["user_state_update"]["game_id"]
+    assert games_count(database_engine) == 1
+
+
 async def test_a_spoken_move_uses_the_real_router_and_response_composer(
     session_factory: sessionmaker[Session],
 ) -> None:

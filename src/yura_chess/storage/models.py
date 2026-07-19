@@ -9,6 +9,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     SmallInteger,
     String,
@@ -31,6 +32,7 @@ class Base(DeclarativeBase):
 
 class GameRow(Base):
     __tablename__ = "games"
+    __table_args__ = (Index("ix_games_owner_status_last_player_move", "owner_key", "status", "last_player_move_at"),)
 
     id: Mapped[str] = mapped_column(CHAR(36), primary_key=True)
     owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), index=True)
@@ -40,6 +42,7 @@ class GameRow(Base):
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     engine_skill_level: Mapped[int] = mapped_column(SmallInteger)
     engine_move_time_ms: Mapped[int] = mapped_column(Integer)
+    last_player_move_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -62,6 +65,8 @@ class GameMoveRow(Base):
     game_id: Mapped[str] = mapped_column(CHAR(36), ForeignKey("games.id", ondelete="CASCADE"), primary_key=True)
     ply: Mapped[int] = mapped_column(Integer, primary_key=True)
     uci: Mapped[str] = mapped_column(String(5))
+    actor: Mapped[str] = mapped_column(String(6))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     game: Mapped[GameRow] = relationship(back_populates="moves")
 

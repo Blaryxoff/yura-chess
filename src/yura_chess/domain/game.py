@@ -7,6 +7,7 @@ replaying the moves from the starting FEN, never by loading a stored snapshot.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import datetime
 from enum import StrEnum
 
 import chess
@@ -26,6 +27,11 @@ class PlayerColor(StrEnum):
 
     def to_chess(self) -> chess.Color:
         return chess.WHITE if self is PlayerColor.WHITE else chess.BLACK
+
+
+class MoveActor(StrEnum):
+    PLAYER = "player"
+    ENGINE = "engine"
 
 
 class InvalidMoveHistoryError(ValueError):
@@ -56,6 +62,9 @@ class GameState:
     moves: tuple[str, ...]
     revision: int
     engine: EngineSettings
+    created_at: datetime
+    updated_at: datetime
+    last_player_move_at: datetime | None = None
     pending_engine_turn: PendingEngineTurn | None = None
 
     def board(self) -> chess.Board:

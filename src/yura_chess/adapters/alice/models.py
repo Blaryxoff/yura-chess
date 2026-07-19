@@ -110,13 +110,15 @@ class ClarificationState(_AliceModel):
 
 
 class PendingActionState(_AliceModel):
-    kind: Literal["new_game", "resign"]
+    kind: Literal["new_game", "resign", "continue"]
     utterance: str = Field(max_length=255)
 
 
 class ConversationSessionState(_AliceModel):
     """Short-lived dialog state; the canonical game remains server-side."""
 
+    game_id: str | None = None
+    revision: int | None = None
     last_heard: str | None = Field(default=None, max_length=255)
     last_reply: str | None = Field(default=None, max_length=512)
     clarification: ClarificationState | None = None

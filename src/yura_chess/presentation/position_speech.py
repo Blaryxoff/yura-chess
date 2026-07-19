@@ -59,6 +59,44 @@ _BLACK_WORD = re.compile(r"^черн")
 _NEXT_PAGE = re.compile(r"\b(дальше|далее|еще|дальнейш)")
 _SLOWLY = re.compile(r"медленн|по буквам|по слогам|повтори координат")
 _LAST_MOVE = re.compile(r"последн(ий|его) ход|как (ты|я) походил")
+_NUMBER_WORDS = {
+    "один": 1,
+    "два": 2,
+    "три": 3,
+    "четыре": 4,
+    "пять": 5,
+    "шесть": 6,
+    "семь": 7,
+    "восемь": 8,
+    "девять": 9,
+    "десять": 10,
+    "одиннадцать": 11,
+    "двенадцать": 12,
+    "тринадцать": 13,
+    "четырнадцать": 14,
+    "пятнадцать": 15,
+    "шестнадцать": 16,
+    "семнадцать": 17,
+    "восемнадцать": 18,
+    "девятнадцать": 19,
+    "двадцать": 20,
+}
+_ORDINALS = {
+    1: "Первый",
+    2: "Второй",
+    3: "Третий",
+    4: "Четвертый",
+    5: "Пятый",
+    6: "Шестой",
+    7: "Седьмой",
+    8: "Восьмой",
+    9: "Девятый",
+    10: "Десятый",
+}
+_HISTORY_AGO = re.compile(
+    rf"\b(?P<count>\d+|{'|'.join(sorted(_NUMBER_WORDS, key=len, reverse=True))})\s+"
+    r"(?:ход(?:а|ов)?|раз(?:а)?)\s+назад\b"
+)
 _TURN = re.compile(r"чей ход|кто ходит|кому ходить|моя очередь")
 _CHECK = re.compile(r"есть ли шах|кто под шахом|шах сейчас")
 
@@ -72,6 +110,7 @@ class PositionQuery(StrEnum):
     WHOLE_BOARD = "whole_board"
     SLOW_SQUARE = "slow_square"
     LAST_MOVE = "last_move"
+    HISTORY = "history"
     TURN = "turn"
     CHECK = "check"
 
@@ -92,7 +131,12 @@ def answer_position_query(utterance: str, board: chess.Board, page: int = 0) -> 
     colour = _colour(normalized)
     piece_type = _piece_type(normalized)
 
+    history_count = _history_count(normalized.text)
+    if history_count is not None:
+        return PositionAnswer(PositionQuery.HISTORY, describe_historical_move(board, history_count, colour))
     if _LAST_MOVE.search(normalized.text):
+        if colour is not None:
+            return PositionAnswer(PositionQuery.HISTORY, describe_historical_move(board, 1, colour))
         return PositionAnswer(PositionQuery.LAST_MOVE, describe_last_move(board))
     if _TURN.search(normalized.text):
         side = "белых" if board.turn == chess.WHITE else "черных"
@@ -122,6 +166,33 @@ def describe_last_move(board: chess.Board) -> Speech:
     before = board.copy(stack=True)
     move = before.pop()
     return Speech.of(f"Последний ход: {describe_move(before, move).text}")
+
+
+def describe_historical_move(board: chess.Board, count: int, colour: chess.Color | None = None) -> Speech:
+    """Describe the Nth previous ply, optionally counting only one colour."""
+    history = _move_history(board)
+    if colour is not None:
+        history = [item for item in history if item[2] == colour]
+    if count < 1 or count > len(history):
+        side = f" у {COLOUR_GENITIVE[colour]}" if colour is not None else ""
+        return Speech.of(f"Не могу найти такой ход: в партии{side} было только {len(history)} ходов.")
+
+    before, move, _ = history[-count]
+    ordinal = _ORDINALS.get(count, f"Предыдущий ход номер {count}")
+    side = f" {COLOUR_GENITIVE[colour]}" if colour is not None else " в партии"
+    return Speech.of(f"{ordinal} предыдущий ход{side}: {describe_move(before, move).text}")
+
+
+def describe_recent_moves(board: chess.Board, count: int = 2) -> Speech:
+    """Read the last individual actions in chronological order."""
+    history = _move_history(board)
+    if not history:
+        return Speech.of("Ходов еще не было.")
+    parts = [
+        f"{COLOUR_PLURAL[colour].capitalize()} — {describe_move(before, move).text}"
+        for before, move, colour in history[-count:]
+    ]
+    return Speech.of(" ".join(parts))
 
 
 def describe_square(board: chess.Board, square: str) -> Speech:
@@ -215,3 +286,25 @@ def _colour(normalized: Normalized) -> chess.Color | None:
         if _BLACK_WORD.match(word):
             return chess.BLACK
     return None
+
+
+def _history_count(text: str) -> int | None:
+    match = _HISTORY_AGO.search(text)
+    if match is None:
+        return None
+    value = match.group("count")
+    return int(value) if value.isdigit() else _NUMBER_WORDS[value]
+
+
+def _move_history(board: chess.Board) -> list[tuple[chess.Board, chess.Move, chess.Color]]:
+    moves = tuple(board.move_stack)
+    replay = board.copy(stack=True)
+    while replay.move_stack:
+        replay.pop()
+    history = []
+    for move in moves:
+        before = replay.copy(stack=False)
+        colour = replay.turn
+        replay.push(move)
+        history.append((before, move, colour))
+    return history

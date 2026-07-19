@@ -6,7 +6,7 @@ import chess
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from yura_chess.application.command_router import PendingClarification
+from yura_chess.application.command_router import CommandKind, PendingClarification
 from yura_chess.application.conversation import ConversationService, ConversationState
 from yura_chess.application.game_service import RequestContext
 from yura_chess.domain.game import GameStatus, PlayerColor
@@ -33,9 +33,9 @@ class FakeEngine:
         return next(iter(board.legal_moves)).uci()
 
 
-def context(message_id: int) -> RequestContext:
+def context(message_id: int, *, new: bool = False, timezone: str | None = None) -> RequestContext:
     value = str(message_id)
-    return RequestContext("shell", "conversation", value, value.ljust(64, "0"))
+    return RequestContext("shell", "conversation", value, value.ljust(64, "0"), new, timezone)
 
 
 def subject(session_factory: sessionmaker[Session], settings: Settings) -> ConversationService:
@@ -148,6 +148,46 @@ async def test_new_game_accepts_black_and_engine_level(
     assert game.engine.skill_level == 12
     assert engine.skill_levels == [12]
     assert game.moves
+
+
+async def test_new_session_offers_the_latest_unfinished_game_and_last_two_moves(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        game = repository.create_game(OWNER, PlayerColor.WHITE)
+        game = repository.append_moves(game.id, OWNER, game.revision, ("e2e4", "e7e5"))
+
+    conversation = subject(session_factory, offline_settings)
+    prompt = await conversation.handle(OWNER, "", context(1, new=True, timezone="Europe/Moscow"))
+
+    assert prompt.turn is None
+    assert prompt.state.game_id == game.id
+    assert prompt.state.pending_action is not None
+    assert prompt.state.pending_action.kind is CommandKind.CONTINUE
+    assert "Последние два хода" in prompt.speech.text
+    assert "пешка e2 e4" in prompt.speech.text
+    assert "пешка e7 e5" in prompt.speech.text
+
+    resumed = await conversation.handle(OWNER, "да", context(2), prompt.state)
+
+    assert resumed.turn is not None
+    assert resumed.turn.game_id == game.id
+
+
+async def test_unplayed_game_is_not_described_as_played_today(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).create_game(OWNER, PlayerColor.WHITE)
+
+    prompt = await subject(session_factory, offline_settings).handle(OWNER, "", context(1, new=True))
+
+    assert prompt.state.game_id == game.id
+    assert "еще не сделали ход" in prompt.speech.text
+    assert "сегодня" not in prompt.speech.text
 
 
 @pytest.mark.parametrize(

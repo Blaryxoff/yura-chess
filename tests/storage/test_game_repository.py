@@ -14,6 +14,7 @@ from yura_chess.domain.game import (
     EngineSettings,
     GameStatus,
     InvalidMoveHistoryError,
+    MoveActor,
     PlayerColor,
 )
 from yura_chess.storage.game_repository import (
@@ -23,7 +24,7 @@ from yura_chess.storage.game_repository import (
     ReplayFingerprintConflictError,
     RevisionConflictError,
 )
-from yura_chess.storage.models import RequestReplayRow
+from yura_chess.storage.models import GameMoveRow, GameRow, RequestReplayRow
 
 OWNER = "a" * 64
 OTHER_OWNER = "b" * 64
@@ -94,6 +95,83 @@ def test_moves_keep_their_order_across_appends(repository: GameRepository, sessi
         revision = state.revision
 
     assert repository.load(game_id, OWNER).moves == ("d2d4", "d7d5", "c2c4", "e7e6")
+
+
+def test_only_player_moves_advance_the_last_played_time(repository: GameRepository, session: Session) -> None:
+    game_id = _new_game(repository, session)
+
+    player = repository.begin_engine_turn(
+        game_id,
+        OWNER,
+        expected_revision=1,
+        player_move_uci="e2e4",
+        token="7f1c0d1e-0000-4000-8000-000000000001",
+    )
+    session.commit()
+    played_at = player.last_player_move_at
+
+    settled = repository.finish_engine_turn(
+        game_id,
+        OWNER,
+        expected_revision=player.revision,
+        token="7f1c0d1e-0000-4000-8000-000000000001",
+        engine_move_uci="e7e5",
+    )
+    session.commit()
+
+    moves = session.scalars(select(GameMoveRow).where(GameMoveRow.game_id == game_id).order_by(GameMoveRow.ply)).all()
+    assert played_at is not None
+    assert settled.last_player_move_at == played_at
+    assert [move.actor for move in moves] == [MoveActor.PLAYER.value, MoveActor.ENGINE.value]
+    assert all(move.created_at is not None for move in moves)
+
+
+def test_latest_active_game_is_selected_by_player_move_not_creation(
+    repository: GameRepository,
+    session: Session,
+) -> None:
+    older = repository.create_game(OWNER, PlayerColor.WHITE)
+    newer = repository.create_game(OWNER, PlayerColor.WHITE)
+    repository.create_game(OWNER, PlayerColor.WHITE)
+    finished = repository.create_game(OWNER, PlayerColor.WHITE)
+    other = repository.create_game(OTHER_OWNER, PlayerColor.WHITE)
+
+    rows = {row.id: row for row in session.scalars(select(GameRow)).all()}
+    rows[older.id].last_player_move_at = datetime(2026, 7, 17, 12)
+    rows[newer.id].last_player_move_at = datetime(2026, 7, 18, 12)
+    rows[finished.id].last_player_move_at = datetime(2026, 7, 19, 12)
+    rows[finished.id].status = GameStatus.FINISHED.value
+    rows[other.id].last_player_move_at = datetime(2026, 7, 20, 12)
+    session.commit()
+
+    latest = repository.find_latest_active(OWNER)
+
+    assert latest is not None
+    assert latest.id == newer.id
+
+
+def test_truncating_history_restores_the_previous_player_move_time(
+    repository: GameRepository,
+    session: Session,
+) -> None:
+    game_id = _new_game(repository, session)
+    state = repository.append_moves(game_id, OWNER, expected_revision=1, moves=("e2e4", "e7e5", "g1f3", "b8c6"))
+    session.flush()
+    moves = session.scalars(select(GameMoveRow).where(GameMoveRow.game_id == game_id).order_by(GameMoveRow.ply)).all()
+    first_move = datetime(2026, 7, 17, 12)
+    second_move = datetime(2026, 7, 18, 12)
+    moves[0].created_at = first_move
+    moves[2].created_at = second_move
+    game_row = session.get(GameRow, game_id)
+    assert game_row is not None
+    game_row.last_player_move_at = second_move
+    session.flush()
+
+    truncated = repository.truncate_moves(game_id, OWNER, expected_revision=state.revision, keep_plies=2)
+    session.commit()
+
+    assert truncated.moves == ("e2e4", "e7e5")
+    assert truncated.last_player_move_at == first_move
 
 
 def test_corrupted_history_is_rejected_on_replay(repository: GameRepository, session: Session) -> None:

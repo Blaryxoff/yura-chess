@@ -174,6 +174,31 @@ def test_last_move_turn_and_check_can_be_asked_by_voice() -> None:
     assert check.speech.text == "Шах черному королю."
 
 
+def test_previous_moves_can_be_selected_by_distance_and_colour() -> None:
+    board = chess.Board()
+    for move in ("e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6", "b5a4", "g8f6"):
+        board.push_uci(move)
+
+    fourth_black = answer_position_query("что сделали черные четыре хода назад", board)
+    fourth_overall = answer_position_query("что было четыре хода назад", board)
+    last_black = answer_position_query("какой был последний ход черных", board)
+
+    assert fourth_black.query is PositionQuery.HISTORY
+    assert "пешка e7 e5" in fourth_black.speech.text
+    assert "слон f1 b5" in fourth_overall.speech.text
+    assert "конь g8 f6" in last_black.speech.text
+
+
+def test_history_query_reports_when_the_game_is_too_short() -> None:
+    board = chess.Board()
+    board.push_uci("e2e4")
+
+    answer = answer_position_query("что сделали черные два хода назад", board)
+
+    assert answer.query is PositionQuery.HISTORY
+    assert answer.speech.text == "Не могу найти такой ход: в партии у черных было только 0 ходов."
+
+
 def test_engine_move_answer_is_complete_without_any_screen_information() -> None:
     board = chess.Board()
     speech = compose_turn(_result(TurnStatus.OK, engine_move="e2e4"), board)

@@ -7,8 +7,9 @@ by `game_id` alone, so a foreign or forged Alice state cannot reveal or touch it
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
+import chess
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -18,6 +19,7 @@ from yura_chess.domain.game import (
     EngineSettings,
     GameState,
     GameStatus,
+    MoveActor,
     PendingEngineTurn,
     PlayerColor,
 )
@@ -60,6 +62,9 @@ def _to_state(row: GameRow) -> GameState:
         moves=tuple(move.uci for move in row.moves),
         revision=row.revision,
         engine=EngineSettings(skill_level=row.engine_skill_level, move_time_ms=row.engine_move_time_ms),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        last_player_move_at=row.last_player_move_at,
         pending_engine_turn=(
             PendingEngineTurn(token=pending.token, player_move_uci=pending.player_move_uci) if pending else None
         ),
@@ -104,6 +109,25 @@ class GameRepository:
         except GameNotFoundError:
             return None
 
+    def find_latest_active(self, owner_key: str) -> GameState | None:
+        """Return the most recently played unfinished game for this owner.
+
+        A game with no player move is ordered after every game the player
+        actually moved in, even when that empty game was created later.
+        """
+        statement = (
+            select(GameRow)
+            .where(GameRow.owner_key == owner_key, GameRow.status == GameStatus.ACTIVE.value)
+            .order_by(
+                GameRow.last_player_move_at.is_(None),
+                GameRow.last_player_move_at.desc(),
+                GameRow.created_at.desc(),
+            )
+            .limit(1)
+        )
+        row = self._session.scalars(statement).one_or_none()
+        return _to_state(row) if row is not None else None
+
     def append_moves(
         self,
         game_id: str,
@@ -115,7 +139,9 @@ class GameRepository:
         row = self._load_row(game_id, owner_key, expected_revision)
         next_ply = len(row.moves)
         for offset, uci in enumerate(moves):
-            row.moves.append(GameMoveRow(game_id=row.id, ply=next_ply + offset, uci=uci))
+            ply = next_ply + offset
+            actor = self._actor_for_ply(row, ply)
+            row.moves.append(self._move_row(row, ply, uci, actor))
         if status is not None:
             row.status = status.value
         return self._bump_revision(row)
@@ -132,6 +158,10 @@ class GameRepository:
         if row.pending_engine_turn is not None:
             raise PendingTurnConflictError(f"game {game_id} has a pending engine turn")
         del row.moves[keep_plies:]
+        row.last_player_move_at = max(
+            (move.created_at for move in row.moves if move.actor == MoveActor.PLAYER.value),
+            default=None,
+        )
         return self._bump_revision(row)
 
     def begin_engine_turn(
@@ -146,7 +176,7 @@ class GameRepository:
         row = self._load_row(game_id, owner_key, expected_revision)
         if row.pending_engine_turn is not None:
             raise PendingTurnConflictError(f"game {game_id} already has a pending engine turn")
-        row.moves.append(GameMoveRow(game_id=row.id, ply=len(row.moves), uci=player_move_uci))
+        row.moves.append(self._move_row(row, len(row.moves), player_move_uci, MoveActor.PLAYER))
         row.pending_engine_turn = PendingEngineTurnRow(
             game_id=row.id,
             token=token,
@@ -176,7 +206,7 @@ class GameRepository:
         elif pending is None or pending.token != token:
             raise PendingTurnMismatchError(f"game {game_id} is not waiting for engine turn {token}")
         row.pending_engine_turn = None
-        row.moves.append(GameMoveRow(game_id=row.id, ply=len(row.moves), uci=engine_move_uci))
+        row.moves.append(self._move_row(row, len(row.moves), engine_move_uci, MoveActor.ENGINE))
         if status is not None:
             row.status = status.value
         return self._bump_revision(row)
@@ -203,6 +233,20 @@ class GameRepository:
         row = self._load_row(game_id, owner_key, expected_revision)
         row.pending_engine_turn = None
         return self._bump_revision(row)
+
+    def request_was_seen(
+        self,
+        skill_id: str,
+        session_id: str,
+        message_id: str,
+        request_fingerprint: str,
+        owner_key: str,
+    ) -> bool:
+        existing = self._find_replay(skill_id, session_id, message_id)
+        if existing is None:
+            return False
+        self._verify_replay(existing, request_fingerprint, owner_key)
+        return True
 
     def record_request(
         self,
@@ -303,3 +347,22 @@ class GameRepository:
         row.revision += 1
         self._session.flush()
         return _to_state(row)
+
+    @staticmethod
+    def _actor_for_ply(row: GameRow, ply: int) -> MoveActor:
+        starting_turn = chess.Board(row.initial_fen).turn
+        moving_side = starting_turn if ply % 2 == 0 else not starting_turn
+        return MoveActor.PLAYER if moving_side == PlayerColor(row.player_color).to_chess() else MoveActor.ENGINE
+
+    @staticmethod
+    def _move_row(row: GameRow, ply: int, uci: str, actor: MoveActor) -> GameMoveRow:
+        moved_at = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+        if actor is MoveActor.PLAYER:
+            row.last_player_move_at = moved_at
+        return GameMoveRow(
+            game_id=row.id,
+            ply=ply,
+            uci=uci,
+            actor=actor.value,
+            created_at=moved_at,
+        )

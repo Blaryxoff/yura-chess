@@ -14,6 +14,7 @@ import json
 import logging
 from hashlib import sha256
 from time import monotonic
+from typing import Literal
 
 from fastapi import APIRouter
 from fastapi import Request as HttpRequest
@@ -94,6 +95,8 @@ async def _handle(
         session_id=payload.session.session_id,
         message_id=str(payload.session.message_id),
         fingerprint=_fingerprint(payload),
+        is_new_session=payload.session.new,
+        timezone=payload.meta.timezone,
     )
     try:
         reply = await conversation.handle(owner, payload.request.command, context, _conversation_state(payload))
@@ -136,7 +139,7 @@ async def _attach_card(
 
 def _claimed_game_id(payload: AliceRequest) -> str | None:
     """The game the client claims to own; ownership itself is checked in the service."""
-    game_id = payload.state.user.get("game_id")
+    game_id = payload.state.user.get("game_id") or payload.state.session.get("game_id")
     return game_id if isinstance(game_id, str) and game_id else None
 
 
@@ -206,7 +209,9 @@ def _conversation_state(payload: AliceRequest) -> ConversationState:
     if isinstance(pending_action_raw, dict):
         kind = pending_action_raw.get("kind")
         utterance = pending_action_raw.get("utterance")
-        if kind in {CommandKind.NEW_GAME.value, CommandKind.RESIGN.value} and isinstance(utterance, str):
+        if kind in {CommandKind.NEW_GAME.value, CommandKind.RESIGN.value, CommandKind.CONTINUE.value} and isinstance(
+            utterance, str
+        ):
             pending_action = PendingAction(CommandKind(kind), utterance[:255])
     last_reply_raw = raw.get("last_reply")
     page = raw.get("position_page", 0)
@@ -227,15 +232,22 @@ def _session_state_update(state: ConversationState) -> ConversationSessionState:
         if state.clarification is not None
         else None
     )
-    pending_action = (
-        PendingActionState(
-            kind="new_game" if state.pending_action.kind is CommandKind.NEW_GAME else "resign",
+    pending_action = None
+    if state.pending_action is not None:
+        pending_kind: Literal["new_game", "resign", "continue"]
+        if state.pending_action.kind is CommandKind.NEW_GAME:
+            pending_kind = "new_game"
+        elif state.pending_action.kind is CommandKind.RESIGN:
+            pending_kind = "resign"
+        else:
+            pending_kind = "continue"
+        pending_action = PendingActionState(
+            kind=pending_kind,
             utterance=state.pending_action.utterance[:255],
         )
-        if state.pending_action is not None
-        else None
-    )
     return ConversationSessionState(
+        game_id=state.game_id,
+        revision=state.revision,
         last_heard=state.last_heard[:255] if state.last_heard else None,
         last_reply=state.last_reply[:512] if state.last_reply else None,
         clarification=clarification,
