@@ -4,6 +4,7 @@ import asyncio
 import threading
 
 import chess
+import chess.engine
 import pytest
 from settings_fixtures import TEST_IDENTITY_SALT, UNREACHABLE_DATABASE_URL
 
@@ -170,6 +171,47 @@ async def test_a_dead_process_is_replaced_and_the_error_surfaces() -> None:
         assert pool.ready_workers == 1
         assert await pool.best_move(chess.Board())
     finally:
+        await pool.stop()
+
+
+async def test_a_crashed_process_surfaces_as_the_error_callers_handle() -> None:
+    registry = FakeRegistry()
+    registry.failure = chess.engine.EngineTerminatedError("engine process died")
+    pool = StockfishPool(engine_settings(engine_pool_size=1), registry)
+    await pool.start()
+
+    try:
+        with pytest.raises(EngineUnavailableError):
+            await pool.best_move(chess.Board())
+    finally:
+        registry.failure = None
+        await pool.stop()
+
+
+async def test_a_cancelled_search_does_not_leak_the_worker() -> None:
+    registry = FakeRegistry()
+    registry.block = threading.Event()
+    pool = StockfishPool(engine_settings(engine_pool_size=1), registry)
+    await pool.start()
+
+    try:
+        search = asyncio.ensure_future(pool.best_move(chess.Board()))
+        await asyncio.sleep(0.05)
+        search.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await search
+        registry.block.set()
+        registry.block = None
+        for _ in range(200):
+            if pool.ready_workers == 1:
+                break
+            await asyncio.sleep(0.01)
+        assert pool.ready_workers == 1
+        assert await pool.best_move(chess.Board())
+    finally:
+        if registry.block is not None:
+            registry.block.set()
+        registry.block = None
         await pool.stop()
 
 

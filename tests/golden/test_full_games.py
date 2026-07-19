@@ -85,7 +85,12 @@ class ScriptedEngine:
         self.seed = seed
         self.searches = 0
 
-    async def best_move(self, board: chess.Board, search_time: float | None = None) -> str:
+    async def best_move(
+        self,
+        board: chess.Board,
+        search_time: float | None = None,
+        skill_level: int | None = None,
+    ) -> str:
         self.searches += 1
         return pick_move(board, self.seed).uci()
 

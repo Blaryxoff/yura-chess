@@ -1,0 +1,321 @@
+"""Voice conversation orchestration shared by Alice and the local shell."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, replace
+
+import chess
+from sqlalchemy.orm import Session, sessionmaker
+
+from yura_chess.application.command_router import (
+    CommandKind,
+    PendingClarification,
+    RoutedCommand,
+    confirmation_answer,
+    route,
+)
+from yura_chess.application.game_service import GameService, MoveSearch, RequestContext
+from yura_chess.domain.game import EngineSettings, GameState, PlayerColor
+from yura_chess.domain.results import TurnResult, TurnStatus
+from yura_chess.presentation.move_speech import Speech
+from yura_chess.presentation.position_speech import answer_position_query
+from yura_chess.presentation.response_composer import compose_turn
+from yura_chess.settings import Settings
+from yura_chess.storage.database import session_scope
+from yura_chess.storage.transcript_repository import TranscriptRepository
+
+_BLACK = re.compile(r"\bчерн")
+_LEVEL_WORDS = {
+    "ноль": 0,
+    "один": 1,
+    "два": 2,
+    "три": 3,
+    "четыре": 4,
+    "пять": 5,
+    "шесть": 6,
+    "семь": 7,
+    "восемь": 8,
+    "девять": 9,
+    "десять": 10,
+    "одиннадцать": 11,
+    "двенадцать": 12,
+    "тринадцать": 13,
+    "четырнадцать": 14,
+    "пятнадцать": 15,
+    "шестнадцать": 16,
+    "семнадцать": 17,
+    "восемнадцать": 18,
+    "девятнадцать": 19,
+    "двадцать": 20,
+}
+_LEVEL = re.compile(rf"\b(?:уровень|сложность)\s*(?P<value>\d{{1,2}}|{'|'.join(_LEVEL_WORDS)})\b")
+_HELP = (
+    "Можно сказать ход, например «пешка е два е четыре», спросить «что на е четыре», "
+    "«какая позиция», «чей ход», «какой был последний ход», «есть ли шах», «что ты услышала», "
+    "«повтори медленно», «отмени ход», «предлагаю ничью», «сдаюсь» или "
+    "«новая игра черными уровень десять»."
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationState:
+    game_id: str | None = None
+    revision: int | None = None
+    last_heard: str | None = None
+    last_reply: str | None = None
+    clarification: PendingClarification | None = None
+    pending_action: PendingAction | None = None
+    position_page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class PendingAction:
+    kind: CommandKind
+    utterance: str
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationReply:
+    speech: Speech
+    state: ConversationState
+    turn: TurnResult | None = None
+
+
+class ConversationService:
+    """Interpret one utterance and produce the complete voice-first response."""
+
+    def __init__(self, session_factory: sessionmaker[Session], engine: MoveSearch, settings: Settings) -> None:
+        self._session_factory = session_factory
+        self._games = GameService(session_factory, engine)
+        self._settings = settings
+
+    async def handle(
+        self,
+        owner_key: str,
+        utterance: str,
+        request: RequestContext,
+        state: ConversationState | None = None,
+    ) -> ConversationReply:
+        prior_state = state or ConversationState()
+        reply = await self._handle(owner_key, utterance, request, prior_state)
+        if route(utterance).kind is CommandKind.REPEAT_SLOW:
+            return reply
+        return replace(reply, state=replace(reply.state, last_reply=reply.speech.spoken()[:512]))
+
+    async def _handle(
+        self,
+        owner_key: str,
+        utterance: str,
+        request: RequestContext,
+        state: ConversationState,
+    ) -> ConversationReply:
+        state = state or ConversationState()
+        game = self._load(owner_key, state.game_id)
+        if state.game_id is not None and game is None:
+            state = ConversationState(last_heard=state.last_heard)
+
+        board = game.board() if game is not None else None
+        routed = route(
+            utterance,
+            board,
+            pending=state.clarification,
+            last_heard=state.last_heard,
+            confidence_threshold=self._settings.voice_move_confidence_threshold,
+        )
+        self._record(owner_key, routed, board)
+
+        repeated = {CommandKind.REPEAT_HEARD, CommandKind.REPEAT_SLOW}
+        next_heard = state.last_heard if routed.kind in repeated else routed.normalized.text
+        next_state = replace(state, last_heard=next_heard or state.last_heard, clarification=None, position_page=0)
+
+        if state.pending_action is not None:
+            confirmation = confirmation_answer(utterance)
+            if confirmation is None:
+                return ConversationReply(Speech.of("Скажите «да» или «нет»."), next_state)
+            confirmed = state.pending_action
+            next_state = replace(next_state, pending_action=None)
+            if not confirmation:
+                cancelled_state = self._with_game(next_state, game) if game else next_state
+                return ConversationReply(Speech.of("Хорошо, отменяю."), cancelled_state)
+            if confirmed.kind is CommandKind.NEW_GAME:
+                return await self._start(owner_key, confirmed.utterance, request, next_state)
+            if confirmed.kind is CommandKind.RESIGN and game is not None:
+                result = await self._games.resign(owner_key, game.id, request)
+                return self._turn_reply(owner_key, result, next_state)
+
+        if game is None:
+            if routed.kind is CommandKind.HELP:
+                return ConversationReply(Speech.of(_HELP), next_state)
+            return await self._start(owner_key, utterance, request, next_state)
+
+        assert board is not None
+        if not utterance.strip():
+            result = await self._games.continue_game(owner_key, game.id, request)
+            return self._turn_reply(owner_key, result, next_state)
+        if routed.kind in {CommandKind.START, CommandKind.NEW_GAME}:
+            return ConversationReply(
+                Speech.of("Начать новую партию и закончить текущую? Скажите «да» или «нет»."),
+                replace(
+                    self._with_game(next_state, game),
+                    pending_action=PendingAction(CommandKind.NEW_GAME, utterance[:255]),
+                ),
+            )
+        if routed.kind is CommandKind.HELP:
+            return ConversationReply(Speech.of(_HELP), self._with_game(next_state, game))
+        if routed.kind is CommandKind.REPEAT_SLOW:
+            if state.last_reply is None:
+                return ConversationReply(Speech.of("Пока нечего повторять."), self._with_game(next_state, game))
+            return ConversationReply(self._slow_repeat(state.last_reply), self._with_game(next_state, game))
+        if routed.kind is CommandKind.REPEAT_HEARD:
+            heard = routed.heard or "пока ничего"
+            return ConversationReply(Speech.of(f"Я услышала: {heard}."), self._with_game(next_state, game))
+        if routed.kind is CommandKind.POSITION_QUERY:
+            answer = answer_position_query(utterance, board, state.position_page)
+            return ConversationReply(
+                answer.speech,
+                replace(self._with_game(next_state, game), position_page=answer.page),
+            )
+        if routed.kind is CommandKind.CANCEL_CLARIFY:
+            return ConversationReply(
+                Speech.of("Хорошо, ход не делаю. Назовите другой ход."),
+                self._with_game(next_state, game),
+            )
+        if routed.kind is CommandKind.CLARIFY:
+            pending = routed.clarification or state.clarification
+            return ConversationReply(
+                self._clarification_speech(pending),
+                replace(self._with_game(next_state, game), clarification=pending),
+            )
+        if routed.kind is CommandKind.ILLEGAL_MOVE:
+            text = routed.explanation.text if routed.explanation is not None else "Так пойти нельзя."
+            return ConversationReply(Speech.of(text), self._with_game(next_state, game))
+
+        if routed.kind is CommandKind.RESIGN:
+            return ConversationReply(
+                Speech.of("Вы действительно сдаетесь? Скажите «да» или «нет»."),
+                replace(
+                    self._with_game(next_state, game),
+                    pending_action=PendingAction(CommandKind.RESIGN, utterance[:255]),
+                ),
+            )
+        if routed.kind is CommandKind.CLAIM_DRAW:
+            result = await self._games.claim_draw(owner_key, game.id, request)
+            return self._turn_reply(owner_key, result, next_state)
+        if routed.kind is CommandKind.UNDO:
+            result = await self._games.undo_turn(owner_key, game.id, request)
+            speech = (
+                Speech.of("Последний полный ход отменен. Ваш ход.")
+                if result.status is TurnStatus.OK
+                else compose_turn(result)
+            )
+            return ConversationReply(speech, self._state_from_turn(next_state, result), result)
+        if routed.kind is CommandKind.CONTINUE:
+            result = await self._games.continue_game(owner_key, game.id, request)
+            return self._turn_reply(owner_key, result, next_state)
+        if routed.kind is CommandKind.MOVE and routed.move is not None:
+            if game.pending_engine_turn is not None:
+                result = await self._games.continue_game(owner_key, game.id, request)
+                reply = self._turn_reply(owner_key, result, next_state)
+                return replace(
+                    reply,
+                    speech=Speech.of(reply.speech.text + " Теперь повторите новый ход."),
+                )
+            result = await self._games.play_move(owner_key, game.id, routed.move, request)
+            reply = self._turn_reply(owner_key, result, next_state)
+            if result.player_move is not None:
+                reply = replace(reply, speech=Speech.of(f"Ваш ход: {result.player_move}. {reply.speech.text}"))
+            return reply
+
+        return ConversationReply(
+            Speech.of("Не поняла команду. Скажите ход или попросите помощь."),
+            self._with_game(next_state, game),
+        )
+
+    async def _start(
+        self,
+        owner_key: str,
+        utterance: str,
+        request: RequestContext,
+        state: ConversationState,
+    ) -> ConversationReply:
+        player_color = PlayerColor.BLACK if _BLACK.search(utterance.lower()) else PlayerColor.WHITE
+        level_match = _LEVEL.search(utterance.lower())
+        level_value = level_match.group("value") if level_match else None
+        level = (
+            max(0, min(int(level_value), 20))
+            if level_value is not None and level_value.isdigit()
+            else _LEVEL_WORDS.get(level_value or "", self._settings.engine_skill_level)
+        )
+        result = await self._games.start_game(
+            owner_key,
+            request,
+            player_color=player_color,
+            engine=EngineSettings(
+                skill_level=level,
+                move_time_ms=round(self._settings.engine_move_time_seconds * 1000),
+            ),
+        )
+        side = "черными" if player_color is PlayerColor.BLACK else "белыми"
+        reply = self._turn_reply(owner_key, result, state)
+        return replace(
+            reply,
+            speech=Speech.of(f"Новая партия. Вы играете {side}, уровень {level}. {reply.speech.text}"),
+        )
+
+    def _turn_reply(self, owner_key: str, result: TurnResult, state: ConversationState) -> ConversationReply:
+        final_state = self._load(owner_key, result.game_id)
+        board_before_engine: chess.Board | None = None
+        if result.engine_move is not None and final_state is not None:
+            board_before_engine = final_state.board()
+            if final_state.moves and final_state.moves[-1] == result.engine_move:
+                board_before_engine.pop()
+        return ConversationReply(
+            compose_turn(result, board_before_engine),
+            self._state_from_turn(state, result),
+            result,
+        )
+
+    def _load(self, owner_key: str, game_id: str | None) -> GameState | None:
+        if game_id is None:
+            return None
+        try:
+            return self._games.load_game(owner_key, game_id)
+        except LookupError:
+            return None
+
+    @staticmethod
+    def _with_game(state: ConversationState, game: GameState) -> ConversationState:
+        return replace(state, game_id=game.id, revision=game.revision)
+
+    @staticmethod
+    def _state_from_turn(state: ConversationState, result: TurnResult) -> ConversationState:
+        return replace(state, game_id=result.game_id, revision=result.revision, clarification=None)
+
+    @staticmethod
+    def _clarification_speech(pending: PendingClarification | None) -> Speech:
+        if pending is None:
+            return Speech.of("Уточните ход.")
+        if len(pending.candidates) == 1:
+            return Speech.of(f"Я услышала «{pending.heard}». Подтвердите ход {pending.candidates[0]}.")
+        choices = ", или ".join(pending.candidates[:6])
+        return Speech.of(f"Ход неоднозначен. Уточните: {choices}.")
+
+    @staticmethod
+    def _slow_repeat(text: str) -> Speech:
+        words = [word for word in text.split() if word not in {"—", "-"}]
+        return Speech(text=f"Повторяю: {text}", tts="Повторяю медленно. " + ", ".join(words))
+
+    def _record(self, owner_key: str, routed: RoutedCommand, board: chess.Board | None) -> None:
+        if not routed.normalized.text:
+            return
+        resolution = routed.resolution
+        with session_scope(self._session_factory) as session:
+            TranscriptRepository(session, self._settings.asr_transcript_text_limit).record(
+                owner_key,
+                routed.normalized.text,
+                resolution.status if resolution is not None else routed.kind,
+                confidence=resolution.confidence if resolution is not None else 0.0,
+                candidate_count=len(resolution.candidates) if resolution is not None else 0,
+                legal_move_count=board.legal_moves.count() if board is not None else 0,
+            )

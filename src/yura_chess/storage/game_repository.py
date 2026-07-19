@@ -7,6 +7,7 @@ by `game_id` alone, so a foreign or forged Alice state cannot reveal or touch it
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -244,6 +245,13 @@ class GameRepository:
             return self._verify_replay(concurrent, request_fingerprint, owner_key), False
         return row, True
 
+    def purge_request_replays(self, now: datetime, retention_days: int) -> int:
+        """Delete replay responses after their retry value has expired."""
+        cutoff = now - timedelta(days=retention_days)
+        removed = self._session.query(RequestReplayRow).filter(RequestReplayRow.created_at < cutoff).delete()
+        self._session.flush()
+        return removed
+
     def store_response(self, replay: RequestReplayRow, response_payload: str, game_id: str | None = None) -> None:
         replay.response_payload = response_payload
         if game_id is not None:
@@ -279,7 +287,11 @@ class GameRepository:
         if expected_revision is not None:
             # A locking read serialises concurrent writers on the same game: the
             # second one waits, then sees the bumped revision and is rejected.
-            statement = statement.with_for_update()
+            # `populate_existing` makes that independent of the identity map: a
+            # caller that still holds this row would otherwise be handed back the
+            # revision and `moves` it read before taking the lock, and the guard
+            # would compare a stale value against itself.
+            statement = statement.with_for_update().execution_options(populate_existing=True)
         row = self._session.scalars(statement).one_or_none()
         if row is None:
             raise GameNotFoundError(f"game {game_id} is not available for this owner")

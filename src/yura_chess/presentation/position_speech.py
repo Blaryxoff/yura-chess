@@ -24,6 +24,7 @@ from yura_chess.presentation.move_speech import (
     PIECE_NAMES,
     PIECE_NAMES_PLURAL,
     Speech,
+    describe_move,
     spell_slowly,
 )
 from yura_chess.voice.normalizer import normalize
@@ -57,6 +58,9 @@ _WHITE_WORD = re.compile(r"^бел")
 _BLACK_WORD = re.compile(r"^черн")
 _NEXT_PAGE = re.compile(r"\b(дальше|далее|еще|дальнейш)")
 _SLOWLY = re.compile(r"медленн|по буквам|по слогам|повтори координат")
+_LAST_MOVE = re.compile(r"последн(ий|его) ход|как (ты|я) походил")
+_TURN = re.compile(r"чей ход|кто ходит|кому ходить|моя очередь")
+_CHECK = re.compile(r"есть ли шах|кто под шахом|шах сейчас")
 
 _CONTINUATION = " Скажите «дальше», чтобы продолжить."
 
@@ -67,6 +71,9 @@ class PositionQuery(StrEnum):
     SIDE = "side"
     WHOLE_BOARD = "whole_board"
     SLOW_SQUARE = "slow_square"
+    LAST_MOVE = "last_move"
+    TURN = "turn"
+    CHECK = "check"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +92,16 @@ def answer_position_query(utterance: str, board: chess.Board, page: int = 0) -> 
     colour = _colour(normalized)
     piece_type = _piece_type(normalized)
 
+    if _LAST_MOVE.search(normalized.text):
+        return PositionAnswer(PositionQuery.LAST_MOVE, describe_last_move(board))
+    if _TURN.search(normalized.text):
+        side = "белых" if board.turn == chess.WHITE else "черных"
+        return PositionAnswer(PositionQuery.TURN, Speech.of(f"Сейчас ход {side}."))
+    if _CHECK.search(normalized.text):
+        if not board.is_check():
+            return PositionAnswer(PositionQuery.CHECK, Speech.of("Сейчас шаха нет."))
+        side = "белому" if board.turn == chess.WHITE else "черному"
+        return PositionAnswer(PositionQuery.CHECK, Speech.of(f"Шах {side} королю."))
     if square is not None and _SLOWLY.search(normalized.text):
         return PositionAnswer(PositionQuery.SLOW_SQUARE, spell_slowly(square))
     if square is not None and piece_type is None:
@@ -97,6 +114,14 @@ def answer_position_query(utterance: str, board: chess.Board, page: int = 0) -> 
     if _NEXT_PAGE.search(normalized.text):
         page += 1
     return read_board(board, page)
+
+
+def describe_last_move(board: chess.Board) -> Speech:
+    if not board.move_stack:
+        return Speech.of("Ходов еще не было.")
+    before = board.copy(stack=True)
+    move = before.pop()
+    return Speech.of(f"Последний ход: {describe_move(before, move).text}")
 
 
 def describe_square(board: chess.Board, square: str) -> Speech:

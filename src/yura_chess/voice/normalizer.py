@@ -12,6 +12,9 @@ import re
 
 from yura_chess.voice.types import Normalized, Signature, Token, TokenKind
 
+MAX_UTTERANCE_LENGTH = 512
+MAX_UNKNOWN_WORDS = 32
+
 _PIECES: dict[str, str] = {
     "пешка": "P",
     "пешку": "P",
@@ -114,7 +117,20 @@ _FILES_WEAK: dict[str, str] = {
     "ж": "g",
     "же": "g",
     "х": "h",
+    # Yandex ASR returns coordinates in Latin as often as in Cyrillic.
+    "a": "a",
+    "b": "b",
+    "c": "c",
+    "d": "d",
+    "e": "e",
+    "f": "f",
+    "g": "g",
+    "h": "h",
 }
+
+# These spell ordinary Russian function words so often that treating them as a
+# source-file hint without a following rank risks playing the wrong move.
+_FUNCTION_WORD_FILES = frozenset({"а", "с", "е", "и"})
 
 _CAPTURES = frozenset(
     {"бьет", "бей", "бьем", "берет", "бери", "взять", "взял", "бьют", "съесть", "съел", "руби", "рубит"}
@@ -160,13 +176,18 @@ _FILLER = frozenset(
 )
 
 _CASTLE = re.compile(r"рокировк")
-_CASTLE_LONG = re.compile(r"длинн|больш|ферзев")
-_WORD = re.compile(r"[а-яa-z0-9]+")
+# Matched per word rather than across the utterance: the bare "больш" stem also
+# opens "большое спасибо", and a stray match castles to the side nobody asked for.
+# Only the feminine forms agree with "рокировка".
+_CASTLE_LONG = re.compile(r"^(?:длинн|ферзев)|^больш(?:ая|ую|ой)$")
+# Letters and digits are separate runs, so ASR output glued as "е4" or "e4" still
+# tokenises into a file and a rank instead of one unrecognised word.
+_WORD = re.compile(r"[а-я]+|[a-z]+|[0-9]+")
 
 
 def normalize(text: str) -> Normalized:
     """Reduce an utterance to lowercase words and a move signature."""
-    lowered = text.lower().replace("ё", "е").replace("-", " ")
+    lowered = text[:MAX_UTTERANCE_LENGTH].lower().replace("ё", "е").replace("-", " ")
     words = tuple(_WORD.findall(lowered))
     signature, unknown = _tokenize(words, lowered)
     return Normalized(text=" ".join(words), words=words, signature=signature, unknown_words=unknown)
@@ -174,7 +195,10 @@ def normalize(text: str) -> Normalized:
 
 def _tokenize(words: tuple[str, ...], lowered: str) -> tuple[Signature, tuple[str, ...]]:
     if _CASTLE.search(lowered):
-        kind = TokenKind.CASTLE_LONG if _CASTLE_LONG.search(lowered) else TokenKind.CASTLE_SHORT
+        long_side = any(
+            _CASTLE_LONG.match(word) and (index == 0 or words[index - 1] != "не") for index, word in enumerate(words)
+        )
+        kind = TokenKind.CASTLE_LONG if long_side else TokenKind.CASTLE_SHORT
         return (Token(kind),), ()
 
     tokens: list[Token] = []
@@ -189,7 +213,10 @@ def _tokenize(words: tuple[str, ...], lowered: str) -> tuple[Signature, tuple[st
             tokens.append(Token(TokenKind.FILE, _FILES_STRICT[word]))
         elif word in _FILES_WEAK:
             # A bare "с" or "а" is a preposition; followed by a rank it is a file.
-            if index + 1 < len(words) and words[index + 1] in _RANKS:
+            following = words[index + 1] if index + 1 < len(words) else None
+            followed_by_rank = following in _RANKS
+            followed_by_file = following in _FILES_STRICT or following in _FILES_WEAK
+            if followed_by_rank or (followed_by_file and word not in _FUNCTION_WORD_FILES):
                 tokens.append(Token(TokenKind.FILE, _FILES_WEAK[word]))
             # Otherwise it is the preposition or conjunction it also spells;
             # dropping it silently keeps confidence intact.
@@ -198,7 +225,8 @@ def _tokenize(words: tuple[str, ...], lowered: str) -> tuple[Signature, tuple[st
         elif word in _PROMOTIONS:
             promotion_announced = True
         elif word not in _FILLER:
-            unknown.append(word)
+            if len(unknown) < MAX_UNKNOWN_WORDS:
+                unknown.append(word)
 
     merged = _merge_squares(tokens)
     return _mark_promotion(merged, promotion_announced), tuple(unknown)
@@ -224,5 +252,7 @@ def _mark_promotion(tokens: list[Token], announced: bool) -> Signature:
     if not tokens or tokens[-1].kind is not TokenKind.PIECE:
         return tuple(tokens)
     if not announced and not any(token.kind is TokenKind.SQUARE for token in tokens[:-1]):
+        return tuple(tokens)
+    if tokens[-1].value not in {"Q", "R", "B", "N"}:
         return tuple(tokens)
     return (*tokens[:-1], Token(TokenKind.PROMOTION, tokens[-1].value.lower()))

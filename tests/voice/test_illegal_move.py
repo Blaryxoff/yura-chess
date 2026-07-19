@@ -148,6 +148,13 @@ def test_diagonal_pawn_move_without_a_capture_mentions_en_passant() -> None:
     assert "на проходе" in explanation.text
 
 
+def test_a_claimed_capture_on_a_quiet_move_says_the_square_is_empty() -> None:
+    explanation = _explain("слон це один бьет аш шесть", "4k3/8/8/8/8/8/8/2B1K3 w - - 0 1")
+
+    assert explanation.reason is IllegalReason.NO_CAPTURE
+    assert "брать некого" in explanation.text
+
+
 def test_pawn_geometry_beyond_its_reach() -> None:
     board = chess.Board(PAWN_FEN)
 
@@ -265,3 +272,9 @@ def test_an_utterance_without_move_tokens_stays_unknown() -> None:
 
     assert routed.kind is CommandKind.UNKNOWN
     assert routed.explanation is None
+
+
+def test_a_piece_cannot_move_to_its_own_square() -> None:
+    explanation = explain(RecognizedMove(piece="P", destination="e2"), chess.Board())
+
+    assert explanation.reason is IllegalReason.UNCLEAR

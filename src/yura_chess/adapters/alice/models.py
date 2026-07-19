@@ -6,7 +6,7 @@ time, and a skill that fails validation on them stops answering users.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -104,7 +104,28 @@ class GameStateUpdate(_AliceModel):
     revision: int
 
 
+class ClarificationState(_AliceModel):
+    heard: str = Field(max_length=255)
+    candidates: list[str] = Field(default_factory=list, max_length=16)
+
+
+class PendingActionState(_AliceModel):
+    kind: Literal["new_game", "resign"]
+    utterance: str = Field(max_length=255)
+
+
+class ConversationSessionState(_AliceModel):
+    """Short-lived dialog state; the canonical game remains server-side."""
+
+    last_heard: str | None = Field(default=None, max_length=255)
+    last_reply: str | None = Field(default=None, max_length=512)
+    clarification: ClarificationState | None = None
+    pending_action: PendingActionState | None = None
+    position_page: int = Field(default=0, ge=0, le=3)
+
+
 class AliceResponse(_AliceModel):
     response: ResponseBody
     user_state_update: GameStateUpdate | None = None
+    session_state: ConversationSessionState | None = None
     version: str

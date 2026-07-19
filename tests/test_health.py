@@ -63,16 +63,42 @@ def test_a_missing_stockfish_binary_does_not_block_startup(offline_settings: Set
     assert response.json()["components"]["engine"] == "degraded: 0/2 workers"
 
 
-def test_readiness_is_green_against_a_migrated_database() -> None:
+class _StubProcess:
+    """Stands in for a live Stockfish so readiness does not need a host binary."""
+
+    def best_move(self, board: object, search_time: float) -> str:
+        return "e2e4"
+
+    def close(self) -> None:
+        return None
+
+
+def _migrated_settings() -> Settings:
     dsn = os.environ.get("YURA_CHESS_TEST_DATABASE_URL")
     if not dsn:
         pytest.skip("YURA_CHESS_TEST_DATABASE_URL is not set; readiness needs a migrated MariaDB")
+    return Settings(environment="test", database_url=dsn, identity_salt=TEST_IDENTITY_SALT)  # type: ignore[arg-type]
 
-    settings = Settings(environment="test", database_url=dsn, identity_salt=TEST_IDENTITY_SALT)  # type: ignore[arg-type]
-    with TestClient(create_app(settings)) as client:
+
+def test_readiness_is_green_against_a_migrated_database() -> None:
+    app = create_app(_migrated_settings())
+    app.state.engine_process_factory = _StubProcess
+    with TestClient(app) as client:
         response = client.get("/health/ready")
 
     assert response.status_code == 200
     components = response.json()["components"]
     assert components["http"] == "ready"
     assert components["database"] == "ready"
+    assert components["engine"].startswith("ready")
+
+
+def test_readiness_fails_when_the_database_is_up_but_no_engine_worker_is() -> None:
+    settings = _migrated_settings().model_copy(update={"stockfish_path": Path("/nonexistent/stockfish")})
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 503
+    components = response.json()["components"]
+    assert components["database"] == "ready"
+    assert components["engine"] == "degraded: 0/2 workers"

@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     board_image_cache_limit: int = Field(default=5000, ge=1)
     asr_transcript_retention_days: int = Field(default=30, ge=1)
     asr_transcript_text_limit: int = Field(default=255, ge=16, le=255)
+    request_replay_retention_days: int = Field(default=7, ge=1)
+    maintenance_interval_seconds: int = Field(default=86400, ge=60)
 
 
 @lru_cache

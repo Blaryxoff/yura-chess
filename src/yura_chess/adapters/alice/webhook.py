@@ -12,8 +12,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable
-from enum import StrEnum
 from hashlib import sha256
 from time import monotonic
 
@@ -29,13 +27,18 @@ from yura_chess.adapters.alice.models import (
     AliceRequest,
     AliceResponse,
     BigImageCard,
+    ClarificationState,
+    ConversationSessionState,
     GameStateUpdate,
+    PendingActionState,
     ResponseBody,
 )
 from yura_chess.adapters.yandex_images import BoardImageService
-from yura_chess.application.game_service import GameService, RequestContext
+from yura_chess.application.command_router import CommandKind, PendingClarification
+from yura_chess.application.conversation import ConversationReply, ConversationService, ConversationState, PendingAction
+from yura_chess.application.game_service import RequestContext
 from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key
-from yura_chess.domain.results import TurnResult, TurnStatus
+from yura_chess.domain.results import TurnResult
 from yura_chess.presentation.response_composer import compose_board_card
 from yura_chess.storage.game_repository import ReplayFingerprintConflictError
 from yura_chess.storage.models import FINGERPRINT_LENGTH
@@ -46,36 +49,22 @@ logger = logging.getLogger(__name__)
 CARD_DEADLINE_MARGIN_SECONDS = 0.2
 
 
-class Intent(StrEnum):
-    """The commands this adapter can dispatch on its own.
-
-    Move recognition arrives with the command router; until then every request
-    either opens a game or asks the current one to report itself.
-    """
-
-    START = "start"
-    CONTINUE = "continue"
-
-
-Interpreter = Callable[[AliceRequest, bool], Intent]
-
-
-def default_interpreter(request: AliceRequest, has_game: bool) -> Intent:
-    return Intent.CONTINUE if has_game else Intent.START
-
-
-def build_router(interpreter: Interpreter = default_interpreter) -> APIRouter:
+def build_router() -> APIRouter:
     router = APIRouter(tags=["alice"])
 
     @router.post("/alice/webhook", response_model=AliceResponse, response_model_exclude_none=True)
     async def webhook(payload: AliceRequest, http_request: HttpRequest) -> AliceResponse:
         settings = http_request.app.state.settings
-        service = GameService(http_request.app.state.session_factory, http_request.app.state.engine_pool)
+        conversation = ConversationService(
+            http_request.app.state.session_factory,
+            http_request.app.state.engine_pool,
+            settings,
+        )
         images: BoardImageService | None = getattr(http_request.app.state, "board_images", None)
         started = monotonic()
         try:
             async with asyncio.timeout(settings.webhook_deadline_seconds):
-                response, result = await _handle(payload, service, settings.identity_salt, interpreter)
+                response, result = await _handle(payload, conversation, settings.identity_salt)
                 # The answer is already complete; the card is added only if the
                 # rest of the budget can pay for it.
                 remaining = settings.webhook_deadline_seconds - (monotonic() - started)
@@ -90,9 +79,8 @@ def build_router(interpreter: Interpreter = default_interpreter) -> APIRouter:
 
 async def _handle(
     payload: AliceRequest,
-    service: GameService,
+    conversation: ConversationService,
     salt: SecretStr,
-    interpreter: Interpreter,
 ) -> tuple[AliceResponse, TurnResult | None]:
     try:
         owner = owner_key(salt, payload.user_id, payload.application_id)
@@ -107,21 +95,16 @@ async def _handle(
         message_id=str(payload.session.message_id),
         fingerprint=_fingerprint(payload),
     )
-    game_id = _claimed_game_id(payload)
-
     try:
-        if game_id is None or interpreter(payload, True) is Intent.START:
-            result = await service.start_game(owner, context)
-        else:
-            result = await service.continue_game(owner, game_id, context)
+        reply = await conversation.handle(owner, payload.request.command, context, _conversation_state(payload))
     except ReplayFingerprintConflictError:
         # Same replay key, different request: answer without touching the game.
         return _plain(payload, "Не расслышала. Повторите, пожалуйста."), None
     except LookupError:
         # A foreign or stale game_id must not reveal whether that game exists.
-        result = await service.start_game(owner, context)
+        reply = await conversation.handle(owner, "", context, ConversationState())
 
-    return _compose(payload, result), result
+    return _compose(payload, reply), reply.turn
 
 
 async def _attach_card(
@@ -177,8 +160,8 @@ def _fingerprint(payload: AliceRequest) -> str:
     return sha256(significant.encode("utf-8")).hexdigest()[:FINGERPRINT_LENGTH]
 
 
-def _compose(payload: AliceRequest, result: TurnResult) -> AliceResponse:
-    text, pronunciation = _speak(result)
+def _compose(payload: AliceRequest, reply: ConversationReply) -> AliceResponse:
+    text, pronunciation = reply.speech.text, reply.speech.tts
     return AliceResponse(
         response=ResponseBody(
             text=_clip(text, TEXT_LIMIT),
@@ -186,7 +169,8 @@ def _compose(payload: AliceRequest, result: TurnResult) -> AliceResponse:
             tts=_clip(pronunciation, TTS_LIMIT) if pronunciation is not None and pronunciation != text else None,
             end_session=False,
         ),
-        user_state_update=_state_update(result),
+        user_state_update=_state_update(reply.turn),
+        session_state=_session_state_update(reply.state),
         version=payload.version,
     )
 
@@ -199,22 +183,65 @@ def _plain(payload: AliceRequest, text: str) -> AliceResponse:
     )
 
 
-def _state_update(result: TurnResult) -> GameStateUpdate | None:
+def _state_update(result: TurnResult | None) -> GameStateUpdate | None:
+    if result is None:
+        return None
     update = GameStateUpdate(game_id=result.game_id, revision=result.revision)
     if len(update.model_dump_json().encode("utf-8")) > STATE_LIMIT_BYTES:
         return None
     return update
 
 
-def _speak(result: TurnResult) -> tuple[str, str | None]:
-    """Placeholder wording; the speech layer replaces it with real phrasing."""
-    if result.status is TurnStatus.ENGINE_UNAVAILABLE:
-        return "Я ещё думаю над ответом. Скажите «продолжаем».", None
-    if result.status is TurnStatus.GAME_OVER:
-        return "Партия окончена.", None
-    if result.engine_move:
-        return f"Мой ход: {result.engine_move}.", f"Мой ход: {' '.join(result.engine_move)}."
-    return "Ваш ход.", None
+def _conversation_state(payload: AliceRequest) -> ConversationState:
+    raw = payload.state.session
+    clarification_raw = raw.get("clarification")
+    clarification = None
+    if isinstance(clarification_raw, dict):
+        heard = clarification_raw.get("heard")
+        candidates = clarification_raw.get("candidates", [])
+        if isinstance(heard, str) and isinstance(candidates, list):
+            clarification = PendingClarification(heard[:255], tuple(str(item) for item in candidates[:16]))
+    pending_action_raw = raw.get("pending_action")
+    pending_action = None
+    if isinstance(pending_action_raw, dict):
+        kind = pending_action_raw.get("kind")
+        utterance = pending_action_raw.get("utterance")
+        if kind in {CommandKind.NEW_GAME.value, CommandKind.RESIGN.value} and isinstance(utterance, str):
+            pending_action = PendingAction(CommandKind(kind), utterance[:255])
+    last_reply_raw = raw.get("last_reply")
+    page = raw.get("position_page", 0)
+    return ConversationState(
+        game_id=_claimed_game_id(payload),
+        revision=raw.get("revision") if isinstance(raw.get("revision"), int) else None,
+        last_heard=raw.get("last_heard") if isinstance(raw.get("last_heard"), str) else None,
+        last_reply=last_reply_raw[:512] if isinstance(last_reply_raw, str) else None,
+        clarification=clarification,
+        pending_action=pending_action,
+        position_page=page if isinstance(page, int) and 0 <= page <= 3 else 0,
+    )
+
+
+def _session_state_update(state: ConversationState) -> ConversationSessionState:
+    clarification = (
+        ClarificationState(heard=state.clarification.heard[:255], candidates=list(state.clarification.candidates[:16]))
+        if state.clarification is not None
+        else None
+    )
+    pending_action = (
+        PendingActionState(
+            kind="new_game" if state.pending_action.kind is CommandKind.NEW_GAME else "resign",
+            utterance=state.pending_action.utterance[:255],
+        )
+        if state.pending_action is not None
+        else None
+    )
+    return ConversationSessionState(
+        last_heard=state.last_heard[:255] if state.last_heard else None,
+        last_reply=state.last_reply[:512] if state.last_reply else None,
+        clarification=clarification,
+        pending_action=pending_action,
+        position_page=state.position_page,
+    )
 
 
 def _clip(text: str, limit: int) -> str:

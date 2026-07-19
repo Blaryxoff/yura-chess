@@ -32,6 +32,10 @@ CAPTURE_FEN = "4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1"
         ("конем на эф три", "g1f3"),
         ("конь жэ один эф три", "g1f3"),
         ("пешка дэ два дэ четыре", "d2d4"),
+        # ASR returns coordinates glued to the digit, in Cyrillic or in Latin.
+        ("е2 е4", "e2e4"),
+        ("e2 e4", "e2e4"),
+        ("d2d4", "d2d4"),
     ],
 )
 def test_resolves_opening_moves(utterance: str, expected: str) -> None:
@@ -85,6 +89,15 @@ def test_naming_the_source_file_disambiguates_the_knights() -> None:
     assert resolution.move == "b1d2"
 
 
+def test_a_weak_source_file_before_the_destination_disambiguates_safely() -> None:
+    board = chess.Board(TWO_KNIGHTS_FEN)
+
+    resolution = resolve(normalize("конь ф дэ два"), board)
+
+    assert resolution.status is ResolutionStatus.RESOLVED
+    assert resolution.move == "f3d2"
+
+
 def test_two_rooks_on_one_square_stay_ambiguous() -> None:
     board = chess.Board(TWO_ROOKS_FEN)
 
@@ -101,6 +114,10 @@ def test_two_rooks_on_one_square_stay_ambiguous() -> None:
         ("короткая рокировка", "e1g1"),
         ("длинная рокировка", "e1c1"),
         ("рокировка в длинную сторону", "e1c1"),
+        ("большая рокировка", "e1c1"),
+        # A polite aside must not castle to the other side.
+        ("рокировка, большое спасибо", "e1g1"),
+        ("рокировка не длинная", "e1g1"),
     ],
 )
 def test_resolves_castling(utterance: str, expected: str) -> None:
@@ -131,6 +148,14 @@ def test_promotion_piece_is_taken_from_the_utterance() -> None:
     assert resolution.recognized.promotion == "q"
 
 
+def test_a_king_or_pawn_is_not_accepted_as_a_promotion_piece() -> None:
+    king = normalize("пешка а семь а восемь королем")
+    pawn = normalize("пешка а семь а восемь пешкой")
+
+    assert all(token.kind.name != "PROMOTION" for token in king.signature)
+    assert all(token.kind.name != "PROMOTION" for token in pawn.signature)
+
+
 def test_a_claimed_capture_must_be_a_real_capture() -> None:
     board = chess.Board(CAPTURE_FEN)
 
@@ -150,6 +175,14 @@ def test_unmatched_utterance_keeps_the_recognised_parts() -> None:
     assert resolution.recognized.piece == "N"
     assert resolution.recognized.source == "e2"
     assert resolution.recognized.destination == "e5"
+
+
+def test_three_spoken_squares_are_not_reinterpreted_by_dropping_the_middle_one() -> None:
+    resolution = resolve(normalize("е два е три е четыре"), chess.Board())
+
+    assert resolution.status is ResolutionStatus.UNMATCHED
+    assert resolution.recognized.source is None
+    assert resolution.recognized.destination is None
 
 
 def test_utterance_without_move_tokens_is_unmatched() -> None:
@@ -174,7 +207,11 @@ def test_utterance_without_move_tokens_is_unmatched() -> None:
         ("что ты умеешь", CommandKind.HELP),
         ("какая позиция", CommandKind.POSITION_QUERY),
         ("где стоит мой король", CommandKind.POSITION_QUERY),
+        ("какой был последний ход", CommandKind.POSITION_QUERY),
+        ("чей ход", CommandKind.POSITION_QUERY),
+        ("есть ли шах сейчас", CommandKind.POSITION_QUERY),
         ("что ты услышала", CommandKind.REPEAT_HEARD),
+        ("повтори медленно", CommandKind.REPEAT_SLOW),
     ],
 )
 def test_control_commands_are_separated_before_move_resolution(utterance: str, expected: CommandKind) -> None:

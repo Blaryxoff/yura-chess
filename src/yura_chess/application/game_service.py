@@ -39,7 +39,12 @@ from yura_chess.storage.models import RequestReplayRow
 class MoveSearch(Protocol):
     """The engine capability this service needs; `StockfishPool` satisfies it."""
 
-    async def best_move(self, board: chess.Board, search_time: float | None = None) -> str: ...
+    async def best_move(
+        self,
+        board: chess.Board,
+        search_time: float | None = None,
+        skill_level: int | None = None,
+    ) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +113,11 @@ class GameService:
             player_move=pending.player_move_uci if pending else None,
             request=request,
         )
+
+    def load_game(self, owner_key: str, game_id: str) -> GameState:
+        """Load the current owner-scoped state without claiming or mutating a request."""
+        with session_scope(self._session_factory) as session:
+            return GameRepository(session).load(game_id, owner_key)
 
     async def play_move(
         self,
@@ -192,6 +202,8 @@ class GameService:
             end = claimable_draw(state.board())
             if end is None:
                 return self._finalize(repository, replay, TurnResult.from_state(state, TurnStatus.DRAW_NOT_CLAIMABLE))
+            if state.pending_engine_turn is not None:
+                state = repository.clear_pending_engine_turn(game_id, owner_key, state.revision)
             state = repository.append_moves(game_id, owner_key, state.revision, (), status=GameStatus.FINISHED)
             result = TurnResult.from_state(state, TurnStatus.GAME_OVER, outcome=GameOutcome(end))
             return self._finalize(repository, replay, result)
@@ -234,7 +246,11 @@ class GameService:
     ) -> TurnResult:
         """Search with no transaction open, then settle the turn in transaction B."""
         try:
-            engine_move = await self._engine.best_move(state.board(), state.engine.move_time_ms / 1000)
+            engine_move = await self._engine.best_move(
+                state.board(),
+                state.engine.move_time_ms / 1000,
+                skill_level=state.engine.skill_level,
+            )
         except (EngineUnavailableError, EngineSearchTimeoutError) as error:
             # The debt stays recorded and no response is stored, so the next
             # request searches again instead of repeating the player's move.
@@ -254,8 +270,15 @@ class GameService:
             current = repository.load(state.id, owner_key)
             if current.revision != state.revision:
                 # Another writer moved the game on; report what is true now
-                # instead of applying a reply computed for a stale position.
-                return TurnResult.from_state(current, TurnStatus.OK, player_move=player_move)
+                # instead of applying a reply computed for a stale position. The
+                # replay still has to be finalized or the same delivery searches
+                # again and can produce a different answer.
+                result = TurnResult.from_state(
+                    current,
+                    TurnStatus.OK if current.status is GameStatus.ACTIVE else TurnStatus.GAME_ALREADY_FINISHED,
+                    player_move=player_move,
+                )
+                return self._finalize(repository, replay, result)
 
             board = current.board()
             board.push(chess.Move.from_uci(engine_move))

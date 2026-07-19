@@ -38,7 +38,12 @@ class FakeEngine:
         self.error = error
         self.searches: list[str] = []
 
-    async def best_move(self, board: chess.Board, search_time: float | None = None) -> str:
+    async def best_move(
+        self,
+        board: chess.Board,
+        search_time: float | None = None,
+        skill_level: int | None = None,
+    ) -> str:
         if self.error is not None:
             raise self.error
         self.searches.append(board.fen())
@@ -223,7 +228,12 @@ async def test_a_turn_settled_mid_search_is_not_applied_twice(session_factory: s
             self._rival_move = rival_move
             self.game_id: str | None = None
 
-        async def best_move(self, board: chess.Board, search_time: float | None = None) -> str:
+        async def best_move(
+            self,
+            board: chess.Board,
+            search_time: float | None = None,
+            skill_level: int | None = None,
+        ) -> str:
             assert self.game_id is not None
             with session_scope(self._session_factory) as session:
                 repository = GameRepository(session)
@@ -231,7 +241,7 @@ async def test_a_turn_settled_mid_search_is_not_applied_twice(session_factory: s
                 pending = state.pending_engine_turn
                 assert pending is not None
                 repository.finish_engine_turn(self.game_id, OWNER, state.revision, pending.token, self._rival_move)
-            return await super().best_move(board, search_time)
+            return await super().best_move(board, search_time, skill_level)
 
     engine = RacingEngine(session_factory, "e7e5")
     subject = service(session_factory, engine)
@@ -239,8 +249,10 @@ async def test_a_turn_settled_mid_search_is_not_applied_twice(session_factory: s
     engine.game_id = game_id
 
     result = await subject.play_move(OWNER, game_id, "e2e4", request("m2"))
+    replay = await subject.play_move(OWNER, game_id, "e2e4", request("m2"))
 
     assert result.status is TurnStatus.OK
+    assert replay.replayed is True
     assert load(session_factory, game_id).moves == ("e2e4", "e7e5")
 
 
@@ -315,6 +327,21 @@ async def test_threefold_repetition_is_a_draw_only_on_demand(session_factory: se
     assert result.outcome is not None
     assert result.outcome.end is GameEnd.THREEFOLD_REPETITION
     assert load(session_factory, game_id).status is GameStatus.FINISHED
+
+
+async def test_claiming_a_draw_drops_a_pending_engine_turn(session_factory: sessionmaker[Session]) -> None:
+    game_id = seed_game(session_factory, moves=KNIGHT_SHUFFLE)
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        state = repository.load(game_id, OWNER)
+        repository.begin_engine_turn(game_id, OWNER, state.revision, "g1f3", "pending")
+
+    result = await service(session_factory, FakeEngine()).claim_draw(OWNER, game_id, request("m1"))
+
+    state = load(session_factory, game_id)
+    assert result.status is TurnStatus.GAME_OVER
+    assert state.status is GameStatus.FINISHED
+    assert state.pending_engine_turn is None
 
 
 async def test_a_draw_that_cannot_be_claimed_leaves_the_game_running(

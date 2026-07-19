@@ -72,6 +72,8 @@ def recognize(signature: Signature) -> RecognizedMove:
     ranks = [token.value for token in signature if token.kind is TokenKind.RANK]
     pieces = [token.value for token in signature if token.kind is TokenKind.PIECE]
     promotions = [token.value for token in signature if token.kind is TokenKind.PROMOTION]
+    if len(squares) > 2:
+        squares = []
     return RecognizedMove(
         piece=pieces[0] if pieces else None,
         source=squares[0] if len(squares) > 1 else None,

@@ -32,6 +32,7 @@ class CommandKind(StrEnum):
     POSITION_QUERY = "position_query"
     # «что ты услышала» — replays the previous normalised utterance.
     REPEAT_HEARD = "repeat_heard"
+    REPEAT_SLOW = "repeat_slow"
     HELP = "help"
     MOVE = "move"
     # A move was understood but is not legal in the current position.
@@ -66,6 +67,10 @@ class RoutedCommand:
 
 _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (CommandKind.REPEAT_HEARD, re.compile(r"что (ты )?(услышал|поняла|понял|разобрал)|что я сказал")),
+    (
+        CommandKind.REPEAT_SLOW,
+        re.compile(r"^повтори( еще раз)? медленн(о|ее)|^повтори (последнюю фразу|ответ)$"),
+    ),
     (CommandKind.NEW_GAME, re.compile(r"нов(ая|ую) (игра|игру|партия|партию)|начн?ем заново|сначала|заново")),
     (CommandKind.RESIGN, re.compile(r"сдаюсь|сдаться|сдаемся|я проиграл")),
     (CommandKind.CLAIM_DRAW, re.compile(r"ничь(я|ю|ей)")),
@@ -75,12 +80,26 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (CommandKind.CONTINUE, re.compile(r"продолж")),
     (
         CommandKind.POSITION_QUERY,
-        re.compile(r"кака(я|ю) позици|позици(я|ю)|где сто|где мой|что на|покажи доску|какие фигуры|прочитай"),
+        re.compile(
+            r"кака(я|ю) позици|позици(я|ю)|где сто|где мой|что на|покажи доску|какие фигуры|прочитай|"
+            r"чей ход|кто ходит|кому ходить|моя очередь|есть ли шах|кто под шахом|шах сейчас|"
+            r"последн(ий|его) ход|как (ты|я) походил|^(дальше|далее)$"
+        ),
     ),
 )
 
 _AFFIRM = re.compile(r"^(да|ага|верно|точно|правильно|подтверждаю)$")
 _DECLINE = re.compile(r"^(нет|не|отмена|неверно|неправильно)$")
+
+
+def confirmation_answer(utterance: str) -> bool | None:
+    """Return a bare yes/no answer, or ``None`` for any other utterance."""
+    text = normalize(utterance).text
+    if _AFFIRM.match(text):
+        return True
+    if _DECLINE.match(text):
+        return False
+    return None
 
 
 def route(

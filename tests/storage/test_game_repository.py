@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import chess
 import pytest
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from yura_chess.domain.game import (
@@ -21,6 +23,7 @@ from yura_chess.storage.game_repository import (
     ReplayFingerprintConflictError,
     RevisionConflictError,
 )
+from yura_chess.storage.models import RequestReplayRow
 
 OWNER = "a" * 64
 OTHER_OWNER = "b" * 64
@@ -177,6 +180,30 @@ def test_concurrent_writers_lose_the_second_write(
     assert repository.load(game_id, OWNER).moves == ("e2e4",)
 
 
+def test_a_writer_that_already_loaded_the_game_still_sees_a_newer_revision(
+    repository: GameRepository,
+    session: Session,
+    session_factory: sessionmaker[Session],
+) -> None:
+    game_id = _new_game(repository, session)
+    session.commit()
+
+    # Loading first is what the engine-turn path does before it writes. The
+    # locking read inside append_moves must report the revision as it is now, not
+    # the one this session already read, or both writers claim the same ply.
+    loaded = repository.load(game_id, OWNER)
+
+    with session_factory() as concurrent_session:
+        GameRepository(concurrent_session).append_moves(game_id, OWNER, expected_revision=1, moves=("e2e4",))
+        concurrent_session.commit()
+
+    with pytest.raises(RevisionConflictError):
+        repository.append_moves(game_id, OWNER, expected_revision=loaded.revision, moves=("d2d4",))
+    session.rollback()
+
+    assert repository.load(game_id, OWNER).moves == ("e2e4",)
+
+
 def test_pending_engine_turn_round_trip(repository: GameRepository, session: Session) -> None:
     game_id = _new_game(repository, session)
     after_move = repository.append_moves(game_id, OWNER, expected_revision=1, moves=("e2e4",))
@@ -279,6 +306,21 @@ def test_concurrent_delivery_of_the_same_request_yields_one_record(
 
     assert (created, replayed) == (True, False)
     assert first.id == second.id
+
+
+def test_replay_retention_removes_only_expired_rows(repository: GameRepository, session: Session) -> None:
+    now = datetime(2026, 7, 19, 12, 0, 0)
+    stale, _ = repository.record_request("skill", "old", "1", FINGERPRINT, OWNER)
+    fresh, _ = repository.record_request("skill", "new", "1", OTHER_FINGERPRINT, OWNER)
+    stale.created_at = now - timedelta(days=8)
+    fresh.created_at = now - timedelta(days=1)
+    session.flush()
+
+    removed = repository.purge_request_replays(now, retention_days=7)
+    session.commit()
+
+    assert removed == 1
+    assert session.scalars(select(RequestReplayRow.id)).all() == [fresh.id]
 
 
 def test_replay_recovery_sees_a_row_committed_after_the_snapshot_opened(

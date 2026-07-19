@@ -11,7 +11,8 @@ services:
       mariadb:
         condition: service_healthy
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       YURA_CHESS_DATABASE_URL: mysql+pymysql://${MARIADB_USER:-yura_chess}:${MARIADB_PASSWORD:-yura_chess_dev}@mariadb:3306/${MARIADB_DATABASE:-yura_chess}?charset=utf8mb4
     ports:

@@ -35,7 +35,12 @@ class FakeEngine:
         self.delay = delay
         self.searches = 0
 
-    async def best_move(self, board: chess.Board, search_time: float | None = None) -> str:
+    async def best_move(
+        self,
+        board: chess.Board,
+        search_time: float | None = None,
+        skill_level: int | None = None,
+    ) -> str:
         self.searches += 1
         if self.delay:
             await asyncio.sleep(self.delay)
@@ -67,6 +72,7 @@ def alice_request(
     command: str = "",
     new: bool = False,
     state: dict[str, Any] | None = None,
+    session_state: dict[str, Any] | None = None,
     screen: bool = False,
 ) -> dict[str, Any]:
     session: dict[str, Any] = {
@@ -82,7 +88,7 @@ def alice_request(
         "meta": {"locale": "ru-RU", "interfaces": {"screen": {}} if screen else {}},
         "session": session,
         "request": {"command": command, "original_utterance": command, "type": "SimpleUtterance"},
-        "state": {"user": state or {}, "session": {}},
+        "state": {"user": state or {}, "session": session_state or {}},
         "version": "1.0",
     }
 
@@ -113,10 +119,93 @@ async def test_a_sequence_of_requests_stays_on_the_same_game(
     async with build_client(session_factory) as client:
         first = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
         state = first["user_state_update"]
-        second = (await client.post("/alice/webhook", json=alice_request(2, state=state))).json()
+        second = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(2, state=state, session_state=first.get("session_state")),
+            )
+        ).json()
 
     assert second["user_state_update"]["game_id"] == state["game_id"]
     assert games_count(database_engine) == 1
+
+
+async def test_a_spoken_move_uses_the_real_router_and_response_composer(
+    session_factory: sessionmaker[Session],
+) -> None:
+    async with build_client(session_factory) as client:
+        first = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
+        moved = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    2,
+                    command="пешка е два е четыре",
+                    state=first["user_state_update"],
+                    session_state=first.get("session_state"),
+                ),
+            )
+        ).json()
+
+    assert moved["user_state_update"]["revision"] > first["user_state_update"]["revision"]
+    assert "Ваш ход: e2e4" in moved["response"]["text"]
+    assert "Мой ход" in moved["response"]["text"]
+    assert moved["session_state"]["last_heard"] == "пешка е два е четыре"
+
+
+async def test_destructive_confirmation_survives_alice_session_state(
+    session_factory: sessionmaker[Session],
+) -> None:
+    async with build_client(session_factory) as client:
+        first = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
+        asked = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    2,
+                    command="сдаюсь",
+                    state=first["user_state_update"],
+                    session_state=first.get("session_state"),
+                ),
+            )
+        ).json()
+        confirmed = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    3,
+                    command="да",
+                    state=first["user_state_update"],
+                    session_state=asked["session_state"],
+                ),
+            )
+        ).json()
+
+    assert asked["session_state"]["pending_action"]["kind"] == "resign"
+    assert "действительно" in asked["response"]["text"]
+    assert "Партия окончена" in confirmed["response"]["text"]
+
+
+async def test_slow_repeat_survives_alice_session_state(
+    session_factory: sessionmaker[Session],
+) -> None:
+    async with build_client(session_factory) as client:
+        first = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
+        repeated = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    2,
+                    command="повтори медленно",
+                    state=first["user_state_update"],
+                    session_state=first["session_state"],
+                ),
+            )
+        ).json()
+
+    assert first["session_state"]["last_reply"]
+    assert repeated["response"]["text"].startswith("Повторяю:")
+    assert repeated["response"]["tts"].startswith("Повторяю медленно.")
 
 
 async def test_a_foreign_game_id_reveals_nothing_and_never_touches_that_game(

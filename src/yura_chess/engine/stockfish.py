@@ -51,6 +51,13 @@ class StockfishProcess:
     def __init__(self, path: str, threads: int, hash_mb: int, skill_level: int) -> None:
         self._engine = chess.engine.SimpleEngine.popen_uci(path)
         self._engine.configure({"Threads": threads, "Hash": hash_mb, "Skill Level": skill_level})
+        self._skill_level = skill_level
+
+    def set_skill_level(self, skill_level: int) -> None:
+        if skill_level == self._skill_level:
+            return
+        self._engine.configure({"Skill Level": skill_level})
+        self._skill_level = skill_level
 
     def best_move(self, board: chess.Board, search_time: float) -> str:
         result = self._engine.play(board, chess.engine.Limit(time=search_time))
@@ -88,11 +95,14 @@ class _Worker:
         with self._lock:
             self._process = factory()
 
-    def run(self, board: chess.Board, search_time: float) -> str:
+    def run(self, board: chess.Board, search_time: float, skill_level: int | None) -> str:
         with self._lock:
             process = self._process
             if process is None:
                 raise EngineUnavailableError(f"worker {self.index} is not ready")
+            configure = getattr(process, "set_skill_level", None)
+            if skill_level is not None and configure is not None:
+                configure(skill_level)
             return process.best_move(board, search_time)
 
     def detach(self) -> EngineProcess | None:
@@ -146,7 +156,12 @@ class StockfishPool:
             if process is not None:
                 await run_in_threadpool(worker.close, process)
 
-    async def best_move(self, board: chess.Board, search_time: float | None = None) -> str:
+    async def best_move(
+        self,
+        board: chess.Board,
+        search_time: float | None = None,
+        skill_level: int | None = None,
+    ) -> str:
         """Return the engine reply, or raise a controlled error well inside the Alice budget."""
         deadline = self._settings.engine_move_deadline_seconds
         limit = min(search_time if search_time is not None else self._settings.engine_move_time_seconds, deadline)
@@ -154,12 +169,23 @@ class StockfishPool:
         position = board.copy(stack=False)
         try:
             uci = await asyncio.wait_for(
-                run_in_threadpool(worker.run, position, limit),
+                run_in_threadpool(worker.run, position, limit, skill_level),
                 timeout=deadline + _DEADLINE_GRACE_SECONDS,
             )
         except TimeoutError:
             self._damage(worker)
             raise EngineSearchTimeoutError(f"no move within {deadline} s") from None
+        except asyncio.CancelledError:
+            # The caller's deadline cancelled the await, but the search thread
+            # keeps running and keeps the worker's lock, so the worker may not
+            # return to the idle set; only a restart makes it usable again.
+            self._damage(worker)
+            raise
+        except chess.engine.EngineError as error:
+            # A dead or misbehaving process has to reach callers as the failure
+            # they already handle, not as a native type that escapes the adapter.
+            self._damage(worker)
+            raise EngineUnavailableError(f"engine worker failed: {type(error).__name__}") from error
         except Exception:
             self._damage(worker)
             raise

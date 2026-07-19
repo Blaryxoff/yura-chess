@@ -156,6 +156,24 @@ def test_slow_repeat_spells_the_coordinate_and_leaves_the_board_untouched() -> N
     assert board.fen() == before
 
 
+def test_last_move_turn_and_check_can_be_asked_by_voice() -> None:
+    board = chess.Board()
+    no_move = answer_position_query("какой последний ход", board)
+    board.push_uci("e2e4")
+    last_move = answer_position_query("какой был последний ход", board)
+    turn = answer_position_query("чей ход", board)
+    no_check = answer_position_query("есть ли шах сейчас", board)
+    checked = chess.Board("4k3/8/8/8/8/8/4R3/4K3 b - - 0 1")
+    check = answer_position_query("кто под шахом", checked)
+
+    assert no_move.query is PositionQuery.LAST_MOVE
+    assert no_move.speech.text == "Ходов еще не было."
+    assert last_move.speech.text == "Последний ход: пешка e2 e4."
+    assert turn.speech.text == "Сейчас ход черных."
+    assert no_check.speech.text == "Сейчас шаха нет."
+    assert check.speech.text == "Шах черному королю."
+
+
 def test_engine_move_answer_is_complete_without_any_screen_information() -> None:
     board = chess.Board()
     speech = compose_turn(_result(TurnStatus.OK, engine_move="e2e4"), board)

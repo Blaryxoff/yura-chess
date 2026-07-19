@@ -48,6 +48,7 @@ class IllegalReason(StrEnum):
     PAWN_RULE = "pawn_rule"
     PROMOTION = "promotion"
     EN_PASSANT = "en_passant"
+    NO_CAPTURE = "no_capture"
     CASTLING = "castling"
     UNCLEAR = "unclear"
 
@@ -72,6 +73,8 @@ def explain(recognized: RecognizedMove, board: chess.Board) -> Explanation:
         return _unclear()
     source = _source_square(recognized, board)
     if source is None:
+        return _unclear()
+    if source == destination:
         return _unclear()
 
     piece = board.piece_at(source)
@@ -102,15 +105,27 @@ def explain(recognized: RecognizedMove, board: chess.Board) -> Explanation:
     promotion = _promotion(recognized, piece, destination)
     move = chess.Move(source, destination, promotion=promotion)
     if board.is_pseudo_legal(move):
-        return _explain_king_safety(board, move) if move not in board.legal_moves else _explain_pseudo_legal(recognized)
+        return (
+            _explain_king_safety(board, move)
+            if move not in board.legal_moves
+            else _explain_pseudo_legal(recognized, board, move)
+        )
 
     if piece.piece_type is chess.PAWN:
         return _explain_pawn(board, piece, source, destination)
     return _explain_geometry(board, piece, source, destination)
 
 
-def _explain_pseudo_legal(recognized: RecognizedMove) -> Explanation:
+def _explain_pseudo_legal(recognized: RecognizedMove, board: chess.Board, move: chess.Move) -> Explanation:
     """The move itself is legal, so the utterance described something else wrong."""
+    if recognized.capture and not board.is_capture(move):
+        destination = _name(move.to_square)
+        return Explanation(
+            IllegalReason.NO_CAPTURE,
+            f"На поле {destination} брать некого.",
+            source=_name(move.from_square),
+            destination=destination,
+        )
     if recognized.promotion:
         return Explanation(
             IllegalReason.PROMOTION,
@@ -278,7 +293,9 @@ def _promotion(recognized: RecognizedMove, piece: chess.Piece, destination: int)
         return None
     if chess.square_rank(destination) not in (0, 7):
         return None
-    return _PROMOTION_PIECES.get(recognized.promotion or "", chess.QUEEN)
+    if recognized.promotion is None:
+        return chess.QUEEN
+    return _PROMOTION_PIECES.get(recognized.promotion)
 
 
 def _is_aligned(piece_type: int, source: int, destination: int) -> bool:

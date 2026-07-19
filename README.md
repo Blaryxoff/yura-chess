@@ -50,4 +50,28 @@ YURA_CHESS_TEST_DATABASE_URL='mysql+pymysql://root:root_dev@127.0.0.1:3307/yura_
 
 The test fixtures build the schema by running the Alembic migrations, so every run exercises them.
 
+## Shell testing without Alice
+
+The shell runner uses the same command router, game service, speech composer,
+MariaDB state, and Stockfish pool as the Alice webhook:
+
+```bash
+uv run yura-chess-shell --show-fen
+```
+
+Run a command sequence without an interactive prompt:
+
+```bash
+uv run yura-chess-shell \
+  --command "начать игру" \
+  --command "пешка е два е четыре" \
+  --command "что на е четыре" \
+  --command "какая позиция"
+```
+
+`--script path/to/commands.txt` reads one command per line and ignores blank
+lines and comments beginning with `#`. The runner requires the same
+`YURA_CHESS_DATABASE_URL` and `YURA_CHESS_IDENTITY_SALT` environment variables
+as the web application.
+
 The planned production webhook is `https://chess.waxim.ru/alice/webhook`.

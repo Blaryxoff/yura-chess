@@ -111,7 +111,7 @@ class BoardImageCacheRow(Base):
 
     position_hash: Mapped[str] = mapped_column(CHAR(POSITION_HASH_LENGTH), primary_key=True)
     image_id: Mapped[str] = mapped_column(String(IMAGE_ID_LENGTH))
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     # Bumped on every cache hit so eviction can drop the least recently used.
     last_used_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
 
@@ -130,4 +130,4 @@ class RequestReplayRow(Base):
     owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH))
     game_id: Mapped[str | None] = mapped_column(CHAR(36), ForeignKey("games.id", ondelete="CASCADE"), nullable=True)
     response_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
