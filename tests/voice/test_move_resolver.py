@@ -9,7 +9,15 @@ from __future__ import annotations
 import chess
 import pytest
 
-from yura_chess.application.command_router import CommandKind, PendingClarification, route
+from yura_chess.application.command_router import (
+    CommandKind,
+    PendingClarification,
+    PreferenceChange,
+    RematchColor,
+    RematchRequest,
+    route,
+)
+from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle, PauseStyle
 from yura_chess.voice.move_resolver import resolve
 from yura_chess.voice.normalizer import normalize
 from yura_chess.voice.types import ResolutionStatus
@@ -337,3 +345,55 @@ def test_help_commands_never_reach_move_resolution(utterance: str, expected: Com
 
 def test_help_navigation_is_matched_before_the_new_game_command() -> None:
     assert route("справка сначала", chess.Board()).kind is CommandKind.HELP
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("говори кратко", PreferenceChange(detail_level=DetailLevel.BRIEF)),
+        ("отвечай подробнее", PreferenceChange(detail_level=DetailLevel.DETAILED)),
+        ("обычная подробность ответов", PreferenceChange(detail_level=DetailLevel.NORMAL)),
+        ("говори медленнее", PreferenceChange(pause_style=PauseStyle.EXTENDED)),
+        ("говори быстрее", PreferenceChange(pause_style=PauseStyle.NORMAL)),
+        ("называй только клетку назначения", PreferenceChange(notation_style=NotationStyle.SHORT)),
+        ("полная нотация", PreferenceChange(notation_style=NotationStyle.FULL)),
+        ("доску всегда белыми", PreferenceChange(board_orientation=BoardOrientation.WHITE)),
+        ("ориентация за черных", PreferenceChange(board_orientation=BoardOrientation.BLACK)),
+        ("доска по моему цвету", PreferenceChange(board_orientation=BoardOrientation.PLAYER)),
+    ],
+)
+def test_settings_commands_never_reach_move_resolution(utterance: str, expected: PreferenceChange) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.PREFERENCE
+    assert routed.preference == expected
+    assert routed.move is None
+    assert routed.resolution is None
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["что на доске у черных", "где белые слоны", "повтори медленно", "какая сложность"],
+)
+def test_questions_are_not_mistaken_for_settings(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is not CommandKind.PREFERENCE
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("реванш", RematchRequest()),
+        ("еще одну партию", RematchRequest()),
+        ("реванш другим цветом", RematchRequest(color=RematchColor.SWAP)),
+        ("реванш черными", RematchRequest(color=RematchColor.BLACK)),
+        ("еще партию белыми", RematchRequest(color=RematchColor.WHITE)),
+        ("сыграем еще, только сложнее", RematchRequest(harder=True)),
+        ("реванш другим цветом и потруднее", RematchRequest(color=RematchColor.SWAP, harder=True)),
+    ],
+)
+def test_rematch_carries_the_colour_and_level_it_asks_for(utterance: str, expected: RematchRequest) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.REMATCH
+    assert routed.rematch == expected
+    assert routed.move is None

@@ -13,22 +13,37 @@ from sqlalchemy.orm import Session, sessionmaker
 from yura_chess.application.command_router import (
     CommandKind,
     PendingClarification,
+    PreferenceChange,
+    RematchColor,
+    RematchRequest,
     RoutedCommand,
     confirmation_answer,
     route,
 )
 from yura_chess.application.game_service import GameService, MoveSearch, RequestContext
 from yura_chess.domain.game import EngineSettings, GameState, GameStatus, PlayerColor
+from yura_chess.domain.preferences import (
+    BoardOrientation,
+    DetailLevel,
+    NotationStyle,
+    PauseStyle,
+    PlayerPreferences,
+)
 from yura_chess.domain.results import TurnResult, TurnStatus
 from yura_chess.presentation import help_speech
 from yura_chess.presentation.game_facts import answer_game_fact
 from yura_chess.presentation.help_speech import HelpAnswer, HelpMode, HelpState
-from yura_chess.presentation.move_speech import Speech
+from yura_chess.presentation.move_speech import Speech, add_pauses
 from yura_chess.presentation.position_speech import answer_position_query, describe_recent_moves
 from yura_chess.presentation.response_composer import compose_turn
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
+from yura_chess.storage.preferences_repository import PreferencesRepository
 from yura_chess.storage.transcript_repository import TranscriptRepository
+
+MAX_SKILL_LEVEL = 20
+# One rematch step up is two of the twenty engine levels: less is not audible.
+REMATCH_LEVEL_STEP = 2
 
 _BLACK = re.compile(r"\bчерн")
 _LEVEL_WORDS = {
@@ -88,6 +103,9 @@ class ConversationState:
 class PendingAction:
     kind: CommandKind
     utterance: str
+    # A rematch keeps the colour and level it was asked for; re-reading the
+    # utterance after the confirmation would lose them.
+    rematch: RematchRequest | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +113,9 @@ class ConversationReply:
     speech: Speech
     state: ConversationState
     turn: TurnResult | None = None
+    # The preferences this answer was rendered with, so the transport can draw
+    # the board from the side the player chose.
+    preferences: PlayerPreferences | None = None
 
 
 class ConversationService:
@@ -113,15 +134,28 @@ class ConversationService:
         state: ConversationState | None = None,
     ) -> ConversationReply:
         prior_state = state or ConversationState()
+        preferences = self._preferences(owner_key)
         replayed = await self._games.resume_request(owner_key, request)
         reply = (
-            self._replayed_turn_reply(owner_key, utterance, replayed, prior_state)
+            self._replayed_turn_reply(owner_key, utterance, replayed, prior_state, preferences)
             if replayed is not None
-            else await self._handle(owner_key, utterance, request, prior_state)
+            else await self._handle(owner_key, utterance, request, prior_state, preferences)
         )
-        if route(utterance).kind is CommandKind.REPEAT_SLOW:
-            return reply
-        return replace(reply, state=replace(reply.state, last_reply=reply.speech.spoken()[:512]))
+        if route(utterance).kind is not CommandKind.REPEAT_SLOW:
+            # Stored before the pauses are added, so a repeat reads words rather
+            # than speech markup.
+            reply = replace(reply, state=replace(reply.state, last_reply=reply.speech.spoken()[:512]))
+        # A settings command answers with the preferences it just stored.
+        effective = reply.preferences or preferences
+        return replace(reply, speech=add_pauses(reply.speech, effective.pause_style), preferences=effective)
+
+    def _preferences(self, owner_key: str) -> PlayerPreferences:
+        with session_scope(self._session_factory) as session:
+            return PreferencesRepository(session).load(owner_key)
+
+    def _save_preferences(self, preferences: PlayerPreferences) -> PlayerPreferences:
+        with session_scope(self._session_factory) as session:
+            return PreferencesRepository(session).save(preferences)
 
     def cached_response(self, owner_key: str, request: RequestContext) -> str | None:
         return self._games.cached_alice_response(owner_key, request)
@@ -141,6 +175,7 @@ class ConversationService:
         utterance: str,
         request: RequestContext,
         state: ConversationState,
+        preferences: PlayerPreferences,
     ) -> ConversationReply:
         state = state or ConversationState()
         game = self._load(owner_key, state.game_id)
@@ -191,16 +226,20 @@ class ConversationService:
                         cancelled_state,
                     )
                 return ConversationReply(Speech.of("Хорошо, отменяю."), cancelled_state)
+            if confirmed.kind is CommandKind.REMATCH and confirmed.rematch is not None:
+                base = game or self._games.find_latest_game(owner_key)
+                if base is not None:
+                    return await self._rematch(owner_key, base, request, confirmed.rematch, next_state, preferences)
             if confirmed.kind is CommandKind.NEW_GAME:
-                return await self._start(owner_key, confirmed.utterance, request, next_state)
+                return await self._start(owner_key, confirmed.utterance, request, next_state, preferences)
             if confirmed.kind is CommandKind.RESIGN and game is not None:
                 result = await self._games.resign(owner_key, game.id, request)
-                return self._turn_reply(owner_key, result, next_state)
+                return self._turn_reply(owner_key, result, next_state, preferences)
             if confirmed.kind is CommandKind.CONTINUE:
                 candidate = game or self._games.find_latest_active_game(owner_key)
                 if candidate is not None:
                     result = await self._games.continue_game(owner_key, candidate.id, request)
-                    return self._turn_reply(owner_key, result, next_state)
+                    return self._turn_reply(owner_key, result, next_state, preferences)
 
         mode = _help_mode(game)
         # Open help owns «дальше», «назад» and «сначала»: otherwise they would be
@@ -214,6 +253,31 @@ class ConversationService:
         if routed.kind is CommandKind.HELP:
             return self._help_reply(help_speech.answer_help(utterance, mode, state.help), next_state, game)
 
+        # Settings and rematch answer the same way with or without a game open.
+        if routed.kind is CommandKind.PREFERENCE and routed.preference is not None:
+            updated = self._save_preferences(routed.preference.apply(preferences))
+            return ConversationReply(
+                Speech.of(_preference_confirmation(routed.preference)),
+                self._with_game(next_state, game) if game is not None else next_state,
+                preferences=updated,
+            )
+        if routed.kind is CommandKind.REMATCH and routed.rematch is not None:
+            base = game or self._games.find_latest_game(owner_key)
+            if base is None:
+                return ConversationReply(
+                    Speech.of("Партии еще не было, реванш играть не с чем. Скажите «новая игра»."),
+                    next_state,
+                )
+            if base.status is GameStatus.ACTIVE:
+                return ConversationReply(
+                    Speech.of("Текущая партия еще идет. Начать новую? Скажите «да» или «нет»."),
+                    replace(
+                        self._with_game(next_state, base),
+                        pending_action=PendingAction(CommandKind.REMATCH, utterance[:255], routed.rematch),
+                    ),
+                )
+            return await self._rematch(owner_key, base, request, routed.rematch, next_state, preferences)
+
         if game is None:
             if routed.kind is CommandKind.GAME_FACT:
                 return ConversationReply(
@@ -222,11 +286,9 @@ class ConversationService:
                 )
             if routed.kind is CommandKind.LEVEL_QUERY:
                 level = self._settings.engine_skill_level
+                hint = _hint(preferences, "Чтобы выбрать другой, скажите «новая игра уровень десять».")
                 return ConversationReply(
-                    Speech.of(
-                        f"Уровень сложности по умолчанию — {level} из 20. "
-                        "Чтобы выбрать другой, скажите «новая игра уровень десять»."
-                    ),
+                    Speech.of(f"Уровень сложности по умолчанию — {level} из 20.{hint}"),
                     next_state,
                 )
             if routed.kind is CommandKind.CONTINUE:
@@ -234,13 +296,13 @@ class ConversationService:
                 if candidate is None:
                     return ConversationReply(Speech.of("Незаконченных партий нет. Скажите «новая игра»."), next_state)
                 result = await self._games.continue_game(owner_key, candidate.id, request)
-                return self._turn_reply(owner_key, result, next_state)
-            return await self._start(owner_key, utterance, request, next_state)
+                return self._turn_reply(owner_key, result, next_state, preferences)
+            return await self._start(owner_key, utterance, request, next_state, preferences)
 
         assert board is not None
         if not utterance.strip():
             result = await self._games.continue_game(owner_key, game.id, request)
-            return self._turn_reply(owner_key, result, next_state)
+            return self._turn_reply(owner_key, result, next_state, preferences)
         if routed.kind in {CommandKind.START, CommandKind.NEW_GAME}:
             return ConversationReply(
                 Speech.of("Начать новую партию и закончить текущую? Скажите «да» или «нет»."),
@@ -258,11 +320,9 @@ class ConversationService:
             return ConversationReply(Speech.of(f"Я услышала: {heard}."), self._with_game(next_state, game))
         if routed.kind is CommandKind.LEVEL_QUERY:
             level = game.engine.skill_level
+            hint = _hint(preferences, "Чтобы изменить его, скажите «новая игра уровень десять».")
             return ConversationReply(
-                Speech.of(
-                    f"Сейчас установлен уровень сложности {level} из 20. "
-                    "Чтобы изменить его, скажите «новая игра уровень десять»."
-                ),
+                Speech.of(f"Сейчас установлен уровень сложности {level} из 20.{hint}"),
                 self._with_game(next_state, game),
             )
         if routed.kind is CommandKind.GAME_FACT:
@@ -300,7 +360,7 @@ class ConversationService:
             )
         if routed.kind is CommandKind.CLAIM_DRAW:
             result = await self._games.claim_draw(owner_key, game.id, request)
-            return self._turn_reply(owner_key, result, next_state)
+            return self._turn_reply(owner_key, result, next_state, preferences)
         if routed.kind is CommandKind.UNDO:
             result = await self._games.undo_turn(owner_key, game.id, request)
             speech = (
@@ -311,23 +371,23 @@ class ConversationService:
             return ConversationReply(speech, self._state_from_turn(next_state, result), result)
         if routed.kind is CommandKind.CONTINUE:
             result = await self._games.continue_game(owner_key, game.id, request)
-            return self._turn_reply(owner_key, result, next_state)
+            return self._turn_reply(owner_key, result, next_state, preferences)
         if routed.kind is CommandKind.MOVE and routed.move is not None:
             if game.pending_engine_turn is not None:
                 result = await self._games.continue_game(owner_key, game.id, request)
-                reply = self._turn_reply(owner_key, result, next_state)
+                reply = self._turn_reply(owner_key, result, next_state, preferences)
                 return replace(
                     reply,
                     speech=Speech.of(reply.speech.text + " Теперь повторите новый ход."),
                 )
             result = await self._games.play_move(owner_key, game.id, routed.move, request)
-            reply = self._turn_reply(owner_key, result, next_state)
+            reply = self._turn_reply(owner_key, result, next_state, preferences)
             if result.player_move is not None:
                 reply = replace(reply, speech=Speech.of(f"Ваш ход: {result.player_move}. {reply.speech.text}"))
             return reply
 
         return ConversationReply(
-            Speech.of("Не поняла команду. Скажите ход или попросите помощь."),
+            Speech.of("Не поняла команду." + _hint(preferences, "Скажите ход или попросите помощь.")),
             self._with_game(next_state, game),
         )
 
@@ -337,6 +397,7 @@ class ConversationService:
         utterance: str,
         request: RequestContext,
         state: ConversationState,
+        preferences: PlayerPreferences,
     ) -> ConversationReply:
         player_color = PlayerColor.BLACK if _BLACK.search(utterance.lower()) else PlayerColor.WHITE
         level_match = _LEVEL.search(utterance.lower())
@@ -356,21 +417,60 @@ class ConversationService:
             ),
         )
         side = "черными" if player_color is PlayerColor.BLACK else "белыми"
-        reply = self._turn_reply(owner_key, result, state)
+        reply = self._turn_reply(owner_key, result, state, preferences)
         return replace(
             reply,
             speech=Speech.of(f"Новая партия. Вы играете {side}, уровень {level}. {reply.speech.text}"),
         )
 
-    def _turn_reply(self, owner_key: str, result: TurnResult, state: ConversationState) -> ConversationReply:
+    async def _rematch(
+        self,
+        owner_key: str,
+        base: GameState,
+        request: RequestContext,
+        rematch: RematchRequest,
+        state: ConversationState,
+        preferences: PlayerPreferences,
+    ) -> ConversationReply:
+        """Start the next game from the colour and level of the previous one."""
+        player_color = _rematch_color(base.player_color, rematch.color)
+        level = base.engine.skill_level
+        if rematch.harder:
+            level = min(MAX_SKILL_LEVEL, level + REMATCH_LEVEL_STEP)
+        result = await self._games.start_game(
+            owner_key,
+            request,
+            player_color=player_color,
+            engine=EngineSettings(
+                skill_level=level,
+                move_time_ms=round(self._settings.engine_move_time_seconds * 1000),
+            ),
+        )
+        side = "черными" if player_color is PlayerColor.BLACK else "белыми"
+        reply = self._turn_reply(owner_key, result, state, preferences)
+        return replace(
+            reply,
+            speech=Speech.of(f"Реванш. Вы играете {side}, уровень {level}. {reply.speech.text}"),
+        )
+
+    def _turn_reply(
+        self,
+        owner_key: str,
+        result: TurnResult,
+        state: ConversationState,
+        preferences: PlayerPreferences,
+    ) -> ConversationReply:
         final_state = self._load(owner_key, result.game_id)
         board_before_engine: chess.Board | None = None
         if result.engine_move is not None and final_state is not None:
             board_before_engine = final_state.board()
             if final_state.moves and final_state.moves[-1] == result.engine_move:
                 board_before_engine.pop()
+        speech = compose_turn(result, board_before_engine, preferences.notation_style)
+        if preferences.detail_level is DetailLevel.DETAILED and _player_to_move(result):
+            speech = Speech.of(f"{speech.text} Сейчас ваш ход.")
         return ConversationReply(
-            compose_turn(result, board_before_engine),
+            speech,
             self._state_from_turn(state, result),
             result,
         )
@@ -381,9 +481,10 @@ class ConversationService:
         utterance: str,
         result: TurnResult,
         state: ConversationState,
+        preferences: PlayerPreferences,
     ) -> ConversationReply:
         replay_state = replace(state, last_heard=utterance.strip() or state.last_heard)
-        reply = self._turn_reply(owner_key, result, replay_state)
+        reply = self._turn_reply(owner_key, result, replay_state, preferences)
         if result.player_move is not None:
             return replace(reply, speech=Speech.of(f"Ваш ход: {result.player_move}. {reply.speech.text}"))
         if state.game_id != result.game_id:
@@ -469,6 +570,64 @@ class ConversationService:
                 candidate_count=len(resolution.candidates) if resolution is not None else 0,
                 legal_move_count=board.legal_moves.count() if board is not None else 0,
             )
+
+
+def _hint(preferences: PlayerPreferences, text: str) -> str:
+    """Advisory tails are dropped for a player who asked for short answers.
+
+    Only advice is ever dropped: what the position is and what happened in it is
+    said at every detail level.
+    """
+    return "" if preferences.detail_level is DetailLevel.BRIEF else f" {text}"
+
+
+def _player_to_move(result: TurnResult) -> bool:
+    return result.status is TurnStatus.OK and chess.Board(result.fen).turn == result.player_color.to_chess()
+
+
+def _rematch_color(previous: PlayerColor, requested: RematchColor) -> PlayerColor:
+    if requested is RematchColor.WHITE:
+        return PlayerColor.WHITE
+    if requested is RematchColor.BLACK:
+        return PlayerColor.BLACK
+    if requested is RematchColor.SWAP:
+        return PlayerColor.BLACK if previous is PlayerColor.WHITE else PlayerColor.WHITE
+    return previous
+
+
+_DETAIL_CONFIRMATIONS: dict[DetailLevel, str] = {
+    DetailLevel.BRIEF: "Буду отвечать кратко.",
+    DetailLevel.NORMAL: "Возвращаю обычную подробность ответов.",
+    DetailLevel.DETAILED: "Буду отвечать подробнее.",
+}
+
+_NOTATION_CONFIRMATIONS: dict[NotationStyle, str] = {
+    NotationStyle.FULL: "Буду называть обе клетки хода.",
+    NotationStyle.SHORT: "Буду называть только клетку, куда идет фигура.",
+}
+
+# The skill cannot speed Alice up or slow her down; it only adds or drops its own pauses.
+_PAUSE_CONFIRMATIONS: dict[PauseStyle, str] = {
+    PauseStyle.EXTENDED: "Добавлю паузы между фразами. Скорость речи Алисы я не меняю.",
+    PauseStyle.NORMAL: "Убрала добавленные паузы. Скорость речи Алисы я не меняю.",
+}
+
+_ORIENTATION_CONFIRMATIONS: dict[BoardOrientation, str] = {
+    BoardOrientation.WHITE: "Доска на экране будет всегда белыми снизу.",
+    BoardOrientation.BLACK: "Доска на экране будет всегда черными снизу.",
+    BoardOrientation.PLAYER: "Доска на экране будет с вашей стороны.",
+}
+
+
+def _preference_confirmation(change: PreferenceChange) -> str:
+    """Confirm only the settings this command named."""
+    parts = [
+        _DETAIL_CONFIRMATIONS[change.detail_level] if change.detail_level is not None else "",
+        _PAUSE_CONFIRMATIONS[change.pause_style] if change.pause_style is not None else "",
+        _NOTATION_CONFIRMATIONS[change.notation_style] if change.notation_style is not None else "",
+        _ORIENTATION_CONFIRMATIONS[change.board_orientation] if change.board_orientation is not None else "",
+    ]
+    return " ".join(part for part in parts if part) or "Настройка не изменилась."
 
 
 def _help_mode(game: GameState | None) -> HelpMode:

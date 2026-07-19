@@ -126,6 +126,11 @@ class GameService:
         with session_scope(self._session_factory) as session:
             return GameRepository(session).find_latest_active(owner_key)
 
+    def find_latest_game(self, owner_key: str) -> GameState | None:
+        """Find the most recent game of this player, finished ones included."""
+        with session_scope(self._session_factory) as session:
+            return GameRepository(session).find_latest(owner_key)
+
     def request_was_seen(self, owner_key: str, request: RequestContext) -> bool:
         """Check a replay key before conversation-only behavior can bypass it."""
         with session_scope(self._session_factory) as session:

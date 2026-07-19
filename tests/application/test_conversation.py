@@ -7,10 +7,16 @@ import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from yura_chess.application.command_router import CommandKind, PendingClarification
-from yura_chess.application.conversation import ConversationService, ConversationState
+from yura_chess.application.conversation import (
+    MAX_SKILL_LEVEL,
+    ConversationService,
+    ConversationState,
+)
 from yura_chess.application.game_service import RequestContext
 from yura_chess.domain.game import GameStatus, PlayerColor
+from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle
 from yura_chess.presentation.help_speech import HelpState, HelpTopic
+from yura_chess.presentation.move_speech import PAUSE_MARKUP
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
@@ -543,3 +549,201 @@ async def test_the_plain_check_question_still_reads_the_position(
     reply = await conversation.handle(OWNER, "есть ли шах", context(2), started.state)
 
     assert reply.speech.text == "Сейчас шаха нет."
+
+
+async def _finished_game(
+    conversation: ConversationService,
+    opening: str,
+    first_message: int,
+) -> ConversationState:
+    """Start the described game and resign it, so a rematch has a game to answer."""
+    started = await conversation.handle(OWNER, opening, context(first_message))
+    asked = await conversation.handle(OWNER, "сдаюсь", context(first_message + 1), started.state)
+    resigned = await conversation.handle(OWNER, "да", context(first_message + 2), asked.state)
+    assert resigned.turn is not None
+    return resigned.state
+
+
+async def test_settings_command_is_stored_and_never_played_as_a_move(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    played = await conversation.handle(OWNER, "пешка е два е четыре", context(2), started.state)
+
+    reply = await conversation.handle(OWNER, "называй только клетку назначения", context(3), played.state)
+
+    assert reply.turn is None
+    assert reply.preferences is not None
+    assert reply.preferences.notation_style is NotationStyle.SHORT
+    assert reply.state.revision == played.state.revision
+    with session_scope(session_factory) as session:
+        state = GameRepository(session).load(played.state.game_id or "", OWNER)
+    assert len(state.moves) == 2
+    assert state.pending_engine_turn is None
+
+
+async def test_short_notation_applies_to_the_next_engine_move(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    await conversation.handle(OWNER, "короткая нотация", context(2), started.state)
+
+    reply = await conversation.handle(OWNER, "пешка е два е четыре", context(3), started.state)
+
+    assert reply.turn is not None
+    engine_move = reply.turn.engine_move or ""
+    assert f" {engine_move[2:4]}." in reply.speech.text
+    assert engine_move[:2] not in reply.speech.text
+
+
+async def test_slow_adds_pauses_and_fast_removes_only_those(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    slow = await conversation.handle(OWNER, "говори медленнее", context(2), started.state)
+    slow_answer = await conversation.handle(OWNER, "какой уровень", context(3), slow.state)
+    fast = await conversation.handle(OWNER, "говори быстрее", context(4), slow_answer.state)
+    fast_answer = await conversation.handle(OWNER, "какой уровень", context(5), fast.state)
+
+    assert PAUSE_MARKUP in slow_answer.speech.spoken()
+    assert slow_answer.speech.text == fast_answer.speech.text
+    assert PAUSE_MARKUP not in fast_answer.speech.spoken()
+    # «Быстрее» drops only the pauses the skill added, never the punctuation.
+    assert fast_answer.speech.text.endswith(".")
+
+
+async def test_detail_preference_shortens_or_extends_only_the_advice(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    await conversation.handle(OWNER, "говори кратко", context(2), started.state)
+    brief = await conversation.handle(OWNER, "какой уровень", context(3), started.state)
+    await conversation.handle(OWNER, "говори подробнее", context(4), brief.state)
+    detailed = await conversation.handle(OWNER, "какой уровень", context(5), brief.state)
+    detailed_move = await conversation.handle(OWNER, "пешка е два е четыре", context(6), detailed.state)
+
+    assert "уровень сложности" in brief.speech.text
+    assert "новая игра уровень десять" not in brief.speech.text
+    assert "новая игра уровень десять" in detailed.speech.text
+    assert detailed_move.speech.text.endswith("Сейчас ваш ход.")
+
+
+async def test_orientation_preference_survives_a_new_session(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра черными", context(1))
+
+    await conversation.handle(OWNER, "доску всегда белыми", context(2), started.state)
+    later = await conversation.handle(OWNER, "есть ли шах", context(3), ConversationState())
+
+    assert later.preferences is not None
+    assert later.preferences.board_orientation is BoardOrientation.WHITE
+    assert later.preferences.orientation_for(PlayerColor.BLACK) is PlayerColor.WHITE
+
+
+async def test_preferences_are_isolated_per_owner(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    await conversation.handle(OWNER, "говори кратко", context(1))
+
+    other = await conversation.handle("d" * 64, "есть ли шах", context(2))
+
+    assert other.preferences is not None
+    assert other.preferences.detail_level is DetailLevel.NORMAL
+
+
+async def test_rematch_keeps_the_colour_and_level_of_the_finished_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    finished = await _finished_game(conversation, "новая игра черными уровень двенадцать", 1)
+
+    reply = await conversation.handle(OWNER, "реванш", context(4), finished)
+
+    assert reply.turn is not None
+    assert reply.turn.player_color is PlayerColor.BLACK
+    assert reply.turn.game_id != finished.game_id
+    assert "Реванш. Вы играете черными, уровень 12." in reply.speech.text
+    with session_scope(session_factory) as session:
+        state = GameRepository(session).load(reply.turn.game_id, OWNER)
+    assert state.engine.skill_level == 12
+
+
+async def test_rematch_can_swap_the_colour_and_raise_the_level_within_the_cap(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    finished = await _finished_game(conversation, "новая игра белыми уровень девятнадцать", 1)
+
+    reply = await conversation.handle(OWNER, "реванш другим цветом и сложнее", context(4), finished)
+
+    assert reply.turn is not None
+    assert reply.turn.player_color is PlayerColor.BLACK
+    with session_scope(session_factory) as session:
+        state = GameRepository(session).load(reply.turn.game_id, OWNER)
+    assert state.engine.skill_level == MAX_SKILL_LEVEL
+
+
+async def test_rematch_in_a_new_session_still_inherits_the_level(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    await _finished_game(conversation, "новая игра белыми уровень восемь", 1)
+
+    reply = await conversation.handle(OWNER, "еще одну партию", context(4, new=True), ConversationState())
+
+    assert reply.turn is not None
+    with session_scope(session_factory) as session:
+        state = GameRepository(session).load(reply.turn.game_id, OWNER)
+    assert state.engine.skill_level == 10 - 2
+    assert state.player_color is PlayerColor.WHITE
+
+
+async def test_rematch_during_an_active_game_is_confirmed_first(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра белыми уровень шесть", context(1))
+
+    asked = await conversation.handle(OWNER, "реванш сложнее", context(2), started.state)
+    confirmed = await conversation.handle(OWNER, "да", context(3), asked.state)
+
+    assert asked.turn is None
+    assert asked.state.game_id == started.state.game_id
+    assert confirmed.turn is not None
+    assert confirmed.turn.game_id != started.state.game_id
+    with session_scope(session_factory) as session:
+        state = GameRepository(session).load(confirmed.turn.game_id, OWNER)
+    assert state.engine.skill_level == 8
+
+
+async def test_rematch_without_any_previous_game_starts_nothing(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, "реванш", context(1))
+
+    assert reply.turn is None
+    assert reply.state.game_id is None
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).find_latest(OWNER) is None

@@ -148,6 +148,15 @@ class TestCardComposition:
         assert card.position_hash == position_hash(chess.Board(), PlayerColor.WHITE, "e7e5")
         assert Image.open(BytesIO(card.render())).format == "PNG"
 
+    def test_card_is_drawn_from_the_stored_orientation(self) -> None:
+        card = compose_board_card(_result(), has_screen=True, orientation=PlayerColor.BLACK)
+        own_side = compose_board_card(_result(), has_screen=True)
+
+        assert card is not None and own_side is not None
+        assert card.position_hash == position_hash(chess.Board(), PlayerColor.BLACK, "e7e5")
+        assert card.position_hash != own_side.position_hash
+        assert card.title == own_side.title
+
     def test_speech_is_identical_with_and_without_a_screen(self) -> None:
         result = _result(fen=MATE_FEN, engine_move="a1a8")
 

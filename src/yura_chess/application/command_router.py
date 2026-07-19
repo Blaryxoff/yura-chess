@@ -9,11 +9,18 @@ turn, and returns the clarification the next turn should carry.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 import chess
 
+from yura_chess.domain.preferences import (
+    BoardOrientation,
+    DetailLevel,
+    NotationStyle,
+    PauseStyle,
+    PlayerPreferences,
+)
 from yura_chess.presentation import game_facts
 from yura_chess.voice.illegal_move import Explanation, explain
 from yura_chess.voice.move_resolver import resolve
@@ -39,6 +46,10 @@ class CommandKind(StrEnum):
     REPEAT_SLOW = "repeat_slow"
     HELP = "help"
     HELP_EXIT = "help_exit"
+    # A durable presentation setting: how much is said, how, and from which side.
+    PREFERENCE = "preference"
+    # A new game that inherits colour and level from the previous one.
+    REMATCH = "rematch"
     MOVE = "move"
     # A move was understood but is not legal in the current position.
     ILLEGAL_MOVE = "illegal_move"
@@ -56,6 +67,41 @@ class PendingClarification:
     candidates: tuple[str, ...] = ()
 
 
+class RematchColor(StrEnum):
+    """Which side the next game is played from, relative to the previous one."""
+
+    SAME = "same"
+    SWAP = "swap"
+    WHITE = "white"
+    BLACK = "black"
+
+
+@dataclass(frozen=True, slots=True)
+class PreferenceChange:
+    """Only the fields the player named; everything else keeps its stored value."""
+
+    detail_level: DetailLevel | None = None
+    pause_style: PauseStyle | None = None
+    notation_style: NotationStyle | None = None
+    board_orientation: BoardOrientation | None = None
+
+    def apply(self, preferences: PlayerPreferences) -> PlayerPreferences:
+        return replace(
+            preferences,
+            detail_level=self.detail_level or preferences.detail_level,
+            pause_style=self.pause_style or preferences.pause_style,
+            notation_style=self.notation_style or preferences.notation_style,
+            board_orientation=self.board_orientation or preferences.board_orientation,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class RematchRequest:
+    color: RematchColor = RematchColor.SAME
+    # Two steps up the twenty-step scale, which is one noticeable step in play.
+    harder: bool = False
+
+
 @dataclass(frozen=True, slots=True)
 class RoutedCommand:
     kind: CommandKind
@@ -68,6 +114,10 @@ class RoutedCommand:
     heard: str | None = None
     # Why the described move cannot be played; set only for `ILLEGAL_MOVE`.
     explanation: Explanation | None = None
+    # What to change; set only for `PREFERENCE`.
+    preference: PreferenceChange | None = None
+    # How the next game differs from the previous one; set only for `REMATCH`.
+    rematch: RematchRequest | None = None
 
 
 _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
@@ -113,6 +163,60 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     ),
 )
 
+# Settings are matched before the control table, so «говори медленнее» is a
+# preference while «повтори медленно» stays a repeat of the previous answer.
+_PREFERENCE_PATTERNS: tuple[tuple[PreferenceChange, re.Pattern[str]], ...] = (
+    (
+        PreferenceChange(detail_level=DetailLevel.BRIEF),
+        re.compile(r"говори кратк|отвечай кратк|покороче|кратк(ие|о) ответ|краткост"),
+    ),
+    # Before the detailed style, whose «подробность» it also contains.
+    (
+        PreferenceChange(detail_level=DetailLevel.NORMAL),
+        re.compile(r"обычн\w* (подробност|ответ|детальност)"),
+    ),
+    (
+        PreferenceChange(detail_level=DetailLevel.DETAILED),
+        re.compile(r"говори подробн|отвечай подробн|подробнее|подробн(ые|о) ответ|подробност"),
+    ),
+    (
+        PreferenceChange(pause_style=PauseStyle.EXTENDED),
+        re.compile(r"говори медленн|добав(ь|ляй) пауз|делай пауз|с паузами|читай медленн"),
+    ),
+    (
+        PreferenceChange(pause_style=PauseStyle.NORMAL),
+        re.compile(r"говори быстр|убери пауз|без пауз|читай быстр"),
+    ),
+    (
+        PreferenceChange(notation_style=NotationStyle.SHORT),
+        re.compile(r"коротк(ая|ую|ой) нотаци|только (клетку|поле) назначения|называй только (клетку|поле|куда)"),
+    ),
+    (
+        PreferenceChange(notation_style=NotationStyle.FULL),
+        re.compile(r"полн(ая|ую|ой) нотаци|обе клетки|называй обе"),
+    ),
+    # Adjacency keeps a question about the board («что на доске у черных») out of
+    # the orientation setting.
+    (
+        PreferenceChange(board_orientation=BoardOrientation.PLAYER),
+        re.compile(r"(доск\w*|ориентаци\w*) (всегда )?(как я играю|мо(им|ему) цвет\w*|по (моему )?цвету)"),
+    ),
+    (
+        PreferenceChange(board_orientation=BoardOrientation.WHITE),
+        re.compile(r"(доск\w*|ориентаци\w*) (всегда )?(за |со стороны )?бел\w+|бел\w+ снизу"),
+    ),
+    (
+        PreferenceChange(board_orientation=BoardOrientation.BLACK),
+        re.compile(r"(доск\w*|ориентаци\w*) (всегда )?(за |со стороны )?черн\w+|черн\w+ снизу"),
+    ),
+)
+
+_REMATCH = re.compile(r"реванш|еще (одну )?(партию|игру)|сыграем еще|сыграем сложнее|сложнее|потруднее|усложни")
+_REMATCH_SWAP = re.compile(r"друг(им|ой) цвет|смен(и|им|ить) цвет|поменя\w* цвет|другой стороной")
+_REMATCH_HARDER = re.compile(r"сложнее|потруднее|усложни|уровень выше|посильнее|потяжелее")
+_REMATCH_WHITE = re.compile(r"\bбел(ыми|ые)\b")
+_REMATCH_BLACK = re.compile(r"\bчерн(ыми|ые)\b")
+
 _AFFIRM = re.compile(r"^(да|ага|верно|точно|правильно|подтверждаю)$")
 _DECLINE = re.compile(r"^(нет|не|отмена|неверно|неправильно)$")
 
@@ -137,6 +241,13 @@ def route(
     """Classify `utterance`; `board` is `None` when there is no game to move in."""
     normalized = normalize(utterance)
 
+    preference = parse_preference(normalized.text)
+    if preference is not None:
+        return RoutedCommand(CommandKind.PREFERENCE, normalized, preference=preference, clarification=None)
+    rematch = parse_rematch(normalized.text)
+    if rematch is not None:
+        return RoutedCommand(CommandKind.REMATCH, normalized, rematch=rematch, clarification=None)
+
     for kind, pattern in _CONTROL_PATTERNS:
         if pattern.search(normalized.text):
             heard = last_heard if kind is CommandKind.REPEAT_HEARD else None
@@ -153,6 +264,29 @@ def route(
 
     resolution = resolve(normalized, board)
     return _from_resolution(normalized, resolution, board, confidence_threshold)
+
+
+def parse_preference(text: str) -> PreferenceChange | None:
+    """Read a settings command, or return `None` when the phrase is not one."""
+    for change, pattern in _PREFERENCE_PATTERNS:
+        if pattern.search(text):
+            return change
+    return None
+
+
+def parse_rematch(text: str) -> RematchRequest | None:
+    """Read a request for another game, including the colour and level it asks for."""
+    if not _REMATCH.search(text):
+        return None
+    if _REMATCH_WHITE.search(text):
+        color = RematchColor.WHITE
+    elif _REMATCH_BLACK.search(text):
+        color = RematchColor.BLACK
+    elif _REMATCH_SWAP.search(text):
+        color = RematchColor.SWAP
+    else:
+        color = RematchColor.SAME
+    return RematchRequest(color=color, harder=bool(_REMATCH_HARDER.search(text)))
 
 
 def _answer_clarification(normalized: Normalized, pending: PendingClarification) -> RoutedCommand | None:

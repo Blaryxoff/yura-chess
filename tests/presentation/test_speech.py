@@ -11,9 +11,12 @@ import chess
 import pytest
 
 from yura_chess.domain.game import GameStatus, PlayerColor
+from yura_chess.domain.preferences import NotationStyle, PauseStyle
 from yura_chess.domain.results import GameEnd, GameOutcome, TurnResult, TurnStatus
 from yura_chess.presentation.move_speech import (
+    PAUSE_MARKUP,
     Speech,
+    add_pauses,
     describe_move,
     describe_played_move,
     spell_slowly,
@@ -264,3 +267,45 @@ def test_every_status_produces_a_non_empty_spoken_answer(status: TurnStatus) -> 
 
     assert speech.text
     assert speech.spoken()
+
+
+def test_short_notation_names_only_where_the_piece_lands() -> None:
+    quiet = describe_move(chess.Board(), chess.Move.from_uci("e2e4"), NotationStyle.SHORT)
+    capture = describe_move(chess.Board(CAPTURE_FEN), chess.Move.from_uci("a1d1"), NotationStyle.SHORT)
+    played = describe_played_move(_after("g1f3"), chess.Move.from_uci("g1f3"), NotationStyle.SHORT)
+
+    assert quiet.text == "пешка e4."
+    assert capture.text == "ладья берет ферзя на d1."
+    assert played.text == "конь f3."
+
+
+def test_short_notation_keeps_the_chess_meaning_of_special_moves() -> None:
+    castling = describe_move(chess.Board(CASTLING_FEN), chess.Move.from_uci("e1c1"), NotationStyle.SHORT)
+    promotion = describe_move(chess.Board(PROMOTION_FEN), chess.Move.from_uci("a7a8q"), NotationStyle.SHORT)
+    mate = describe_move(chess.Board(MATE_IN_ONE_FEN), chess.Move.from_uci("a1a8"), NotationStyle.SHORT)
+
+    assert castling.text == "Длинная рокировка."
+    assert "и превращается в ферзя" in promotion.text
+    assert mate.text.endswith("Мат.")
+
+
+def test_extended_pauses_only_space_out_the_pronunciation() -> None:
+    speech = Speech.of("Мой ход. пешка e2 e4. Шах.")
+
+    paused = add_pauses(speech, PauseStyle.EXTENDED)
+
+    assert paused.text == speech.text
+    assert paused.spoken().count(PAUSE_MARKUP) == 2
+    assert paused.spoken().replace(PAUSE_MARKUP, "") == speech.spoken()
+
+
+def test_normal_pauses_add_nothing_and_remove_nothing() -> None:
+    speech = Speech.of("Мой ход. пешка e2 e4.")
+
+    assert add_pauses(speech, PauseStyle.NORMAL) == speech
+
+
+def _after(uci: str) -> chess.Board:
+    board = chess.Board()
+    board.push_uci(uci)
+    return board

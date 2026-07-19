@@ -15,6 +15,7 @@ from functools import partial
 import chess
 
 from yura_chess.domain.game import PlayerColor
+from yura_chess.domain.preferences import NotationStyle
 from yura_chess.domain.results import GameEnd, GameOutcome, TurnResult, TurnStatus
 from yura_chess.presentation.board_image import position_hash, render_png
 from yura_chess.presentation.move_speech import Speech, describe_move, describe_played_move
@@ -38,9 +39,13 @@ _DRAW_TEXTS: dict[GameEnd, str] = {
 }
 
 
-def compose_turn(result: TurnResult, board_before: chess.Board | None = None) -> Speech:
+def compose_turn(
+    result: TurnResult,
+    board_before: chess.Board | None = None,
+    notation: NotationStyle = NotationStyle.FULL,
+) -> Speech:
     """Say what the turn did; `board_before` is the position the engine moved in."""
-    parts = [text for text in (_move_text(result, board_before), _outcome_text(result)) if text]
+    parts = [text for text in (_move_text(result, board_before, notation), _outcome_text(result)) if text]
     if not parts:
         return Speech.of(_STATUS_TEXTS.get(result.status, "Ваш ход."))
     return Speech.of(" ".join(parts))
@@ -55,15 +60,24 @@ class BoardCard:
     title: str
 
 
-def compose_board_card(result: TurnResult, has_screen: bool) -> BoardCard | None:
-    """Describe the picture of the position, or nothing if no screen will show it."""
+def compose_board_card(
+    result: TurnResult,
+    has_screen: bool,
+    orientation: PlayerColor | None = None,
+) -> BoardCard | None:
+    """Describe the picture of the position, or nothing if no screen will show it.
+
+    `orientation` is the side the board is drawn from; without a stored
+    preference it is the player's own colour.
+    """
     if not has_screen:
         return None
     board = chess.Board(result.fen)
     last_move = result.engine_move or result.player_move
+    drawn_from = orientation or result.player_color
     return BoardCard(
-        position_hash=position_hash(board, result.player_color, last_move),
-        render=partial(render_png, board, result.player_color, last_move),
+        position_hash=position_hash(board, drawn_from, last_move),
+        render=partial(render_png, board, drawn_from, last_move),
         title="Ваш ход" if board.turn == _chess_color(result.player_color) else "Мой ход",
     )
 
@@ -72,17 +86,17 @@ def _chess_color(color: PlayerColor) -> chess.Color:
     return chess.WHITE if color is PlayerColor.WHITE else chess.BLACK
 
 
-def _move_text(result: TurnResult, board_before: chess.Board | None) -> str:
+def _move_text(result: TurnResult, board_before: chess.Board | None, notation: NotationStyle) -> str:
     if result.status is TurnStatus.ENGINE_UNAVAILABLE:
         return _STATUS_TEXTS[TurnStatus.ENGINE_UNAVAILABLE]
     if result.engine_move is None:
         return ""
     move = chess.Move.from_uci(result.engine_move)
     if board_before is not None:
-        return "Мой ход. " + describe_move(board_before, move).text
+        return "Мой ход. " + describe_move(board_before, move, notation).text
     # Without the previous position the moving piece is still readable off the
     # destination square; only what it captured is lost.
-    return "Мой ход. " + describe_played_move(chess.Board(result.fen), move).text
+    return "Мой ход. " + describe_played_move(chess.Board(result.fen), move, notation).text
 
 
 def _outcome_text(result: TurnResult) -> str:
