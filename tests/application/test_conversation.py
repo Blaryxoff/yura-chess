@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from yura_chess.application.command_router import CommandKind, PendingClarification
 from yura_chess.application.conversation import (
     MAX_SKILL_LEVEL,
+    ConversationReply,
     ConversationService,
     ConversationState,
 )
@@ -17,7 +18,7 @@ from yura_chess.domain.analysis import MoveCandidate, PositionAnalysis, Score
 from yura_chess.domain.game import GameStatus, PlayerColor
 from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle
 from yura_chess.presentation.help_speech import HelpState, HelpTopic
-from yura_chess.presentation.move_speech import PAUSE_MARKUP
+from yura_chess.presentation.move_speech import PAUSE_MARKUP, Speech
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
@@ -764,3 +765,59 @@ async def test_rematch_without_any_previous_game_starts_nothing(
     assert reply.state.game_id is None
     with session_scope(session_factory) as session:
         assert GameRepository(session).find_latest(OWNER) is None
+
+
+# Ten quiet moves: the tenth leaves the opening, which is the only thing in the
+# whole sequence worth a remark.
+TO_MIDDLEGAME = ("e2e4", "d2d4", "g1f3", "f1c4", "b1c3", "c1f4", "a2a3", "b2b3", "g2g3", "h2h3")
+
+
+async def play_all(
+    conversation: ConversationService,
+    moves: tuple[str, ...],
+    state: ConversationState,
+) -> ConversationReply:
+    reply = ConversationReply(Speech.of(""), state)
+    for offset, move in enumerate(moves):
+        reply = await conversation.handle(OWNER, move, context(10 + offset), reply.state)
+    return reply
+
+
+async def test_an_ordinary_move_is_played_without_any_comment(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    reply = await play_all(conversation, TO_MIDDLEGAME[:3], started.state)
+
+    assert reply.speech.text == "Ваш ход: g1f3. Мой ход. ладья g8 h8."
+
+
+async def test_a_comment_survives_a_replayed_request_and_a_new_service(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    played = await play_all(conversation, TO_MIDDLEGAME, started.state)
+    last = context(10 + len(TO_MIDDLEGAME) - 1)
+    replayed = await subject(session_factory, offline_settings).handle(OWNER, TO_MIDDLEGAME[-1], last, played.state)
+
+    assert "Партия перешла в миттельшпиль." in played.speech.text
+    assert replayed.speech.text == played.speech.text
+
+
+async def test_brief_answers_are_played_without_a_comment(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    await conversation.handle(OWNER, "отвечай кратко", context(1))
+    started = await conversation.handle(OWNER, "новая игра", context(2))
+
+    reply = await play_all(conversation, TO_MIDDLEGAME, started.state)
+
+    assert "миттельшпиль" not in reply.speech.text

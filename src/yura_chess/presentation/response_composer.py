@@ -43,9 +43,14 @@ def compose_turn(
     result: TurnResult,
     board_before: chess.Board | None = None,
     notation: NotationStyle = NotationStyle.FULL,
+    commentary: str | None = None,
 ) -> Speech:
-    """Say what the turn did; `board_before` is the position the engine moved in."""
-    parts = [text for text in (_move_text(result, board_before, notation), _outcome_text(result)) if text]
+    """Say what the turn did; `board_before` is the position the engine moved in.
+
+    `commentary` is the optional remark about the move and always comes last: it
+    is an aside, never part of what happened.
+    """
+    parts = [text for text in (_move_text(result, board_before, notation), _outcome_text(result), commentary) if text]
     if not parts:
         return Speech.of(_STATUS_TEXTS.get(result.status, "Ваш ход."))
     return Speech.of(" ".join(parts))

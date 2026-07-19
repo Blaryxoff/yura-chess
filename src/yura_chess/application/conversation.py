@@ -33,6 +33,7 @@ from yura_chess.domain.preferences import (
 )
 from yura_chess.domain.results import TurnResult, TurnStatus
 from yura_chess.presentation import help_speech
+from yura_chess.presentation.commentary import comment_on
 from yura_chess.presentation.game_facts import answer_game_fact
 from yura_chess.presentation.help_speech import HelpAnswer, HelpMode, HelpState
 from yura_chess.presentation.move_speech import Speech, add_pauses
@@ -484,7 +485,12 @@ class ConversationService:
             board_before_engine = final_state.board()
             if final_state.moves and final_state.moves[-1] == result.engine_move:
                 board_before_engine.pop()
-        speech = compose_turn(result, board_before_engine, preferences.notation_style)
+        speech = compose_turn(
+            result,
+            board_before_engine,
+            preferences.notation_style,
+            self._commentary(owner_key, result, final_state, preferences),
+        )
         if (
             preferences.detail_level is DetailLevel.DETAILED
             and _player_to_move(result)
@@ -496,6 +502,30 @@ class ConversationService:
             self._state_from_turn(state, result),
             result,
         )
+
+    def _commentary(
+        self,
+        owner_key: str,
+        result: TurnResult,
+        state: GameState | None,
+        preferences: PlayerPreferences,
+    ) -> str | None:
+        """Remark on the move just played, if it was worth remarking on.
+
+        A finished game says nothing extra: the outcome already carries the news.
+        """
+        if state is None or result.status is not TurnStatus.OK or result.outcome is not None:
+            return None
+        if result.player_move is None and result.engine_move is None:
+            return None
+        comment = comment_on(
+            state.initial_fen,
+            state.moves,
+            state.player_color,
+            preferences.detail_level,
+            self._training.centipawn_losses(owner_key, state),
+        )
+        return comment.text if comment is not None else None
 
     def _replayed_turn_reply(
         self,

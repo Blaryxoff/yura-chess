@@ -166,6 +166,20 @@ class TrainingService:
         ]
         return significant[-1] if significant else None
 
+    def centipawn_losses(self, owner_key: str, game: GameState) -> dict[int, int]:
+        """What every valued move of this game cost its player, by ply.
+
+        Read-only and complete for a training game, so a comment derived from it
+        is the same after a reload as it was when the move was played.
+        """
+        if game.mode is not GameMode.TRAINING:
+            return {}
+        with session_scope(self._session_factory) as session:
+            checkpoints = AnalysisRepository(session).list_for_game(game.id, owner_key)
+        played = len(game.moves)
+        # A taken-back move keeps its row but is no longer part of the game.
+        return {point.ply: point.centipawn_loss for point in checkpoints if point.ply < played}
+
     def warning(self, owner_key: str, game: GameState) -> Speech | None:
         """Warn about the player's last move, once the turn is already complete."""
         if game.mode is not GameMode.TRAINING:

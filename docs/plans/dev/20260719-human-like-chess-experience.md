@@ -158,12 +158,12 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Create `src/yura_chess/presentation/commentary.py`, `tests/presentation/test_commentary.py`; Modify `src/yura_chess/application/conversation.py`, `src/yura_chess/presentation/response_composer.py`, `tests/application/test_conversation.py`
 
-- [ ] Комментировать только шах, material swing, превращение, смену стадии, дебют или крупное изменение оценки
-- [ ] Добавить cooldown и запрет одинаковой категории на соседних ходах
-- [ ] В обычной игре использовать только rule-based факты; engine commentary разрешать только в training
-- [ ] Учитывать detail preference и сохранять полный voice-only смысл
-- [ ] Проверить тишину после обычных ходов и детерминированность после replay/reload
-- [ ] Mark completed
+- [x] Комментировать только шах, material swing, превращение, смену стадии, дебют или крупное изменение оценки
+- [x] Добавить cooldown и запрет одинаковой категории на соседних ходах
+- [x] В обычной игре использовать только rule-based факты; engine commentary разрешать только в training (потери приходят из checkpoints и пусты вне `GameMode.TRAINING`)
+- [x] Учитывать detail preference и сохранять полный voice-only смысл (кратко — без комментария; ход и исход произносятся всегда)
+- [x] Проверить тишину после обычных ходов и детерминированность после replay/reload
+- [x] Mark completed
 
 ### Task 12: Сохранить состояние разбора партии
 
