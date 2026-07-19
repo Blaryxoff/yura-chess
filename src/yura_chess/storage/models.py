@@ -8,6 +8,7 @@ from sqlalchemy import (
     CHAR,
     BigInteger,
     DateTime,
+    Enum,
     ForeignKey,
     Index,
     Integer,
@@ -119,6 +120,42 @@ class BoardImageCacheRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     # Bumped on every cache hit so eviction can drop the least recently used.
     last_used_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+
+class PlayerPreferencesRow(Base):
+    """One durable presentation-preference row per owner.
+
+    The owner key is the primary key, so a second row for the same owner is
+    impossible. The allowed values and the defaults repeat
+    `yura_chess.domain.preferences`; the repository is the only translator
+    between the two, and a test pins them to each other.
+    """
+
+    __tablename__ = "player_preferences"
+
+    owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), primary_key=True)
+    detail_level: Mapped[str] = mapped_column(
+        Enum("brief", "normal", "detailed", name="player_detail_level"),
+        server_default="normal",
+    )
+    pause_style: Mapped[str] = mapped_column(
+        Enum("normal", "extended", name="player_pause_style"),
+        server_default="normal",
+    )
+    notation_style: Mapped[str] = mapped_column(
+        Enum("full", "short", name="player_notation_style"),
+        server_default="full",
+    )
+    board_orientation: Mapped[str] = mapped_column(
+        Enum("player", "white", "black", name="player_board_orientation"),
+        server_default="player",
+    )
+    default_mode: Mapped[str] = mapped_column(
+        Enum("game", "training", name="player_default_mode"),
+        server_default="game",
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class RequestReplayRow(Base):

@@ -70,12 +70,12 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Create `migrations/versions/0007_player_preferences.py`, `src/yura_chess/domain/preferences.py`, `src/yura_chess/storage/preferences_repository.py`, `tests/storage/test_preferences_repository.py`; Modify `src/yura_chess/storage/models.py`
 
-- [ ] Добавить owner-scoped row с подробностью, режимом добавленных TTS-пауз, стилем нотации, ориентацией доски и default mode
-- [ ] Зафиксировать defaults: normal detail, обычные паузы, обе клетки хода, orientation за сторону игрока и `game`; до выбора цвета использовать white
-- [ ] Добавить ограничения enum/value и одинаковые defaults на уровне домена, миграции и БД
-- [ ] Реализовать идемпотентное чтение/upsert без хранения Alice identifiers
-- [ ] Проверить миграцию, изоляцию владельцев и сохранение между сессиями
-- [ ] Mark completed
+- [x] Добавить owner-scoped row с подробностью, режимом добавленных TTS-пауз, стилем нотации, ориентацией доски и default mode
+- [x] Зафиксировать defaults: normal detail, обычные паузы, обе клетки хода, orientation за сторону игрока и `game`; до выбора цвета использовать white
+- [x] Добавить ограничения enum/value и одинаковые defaults на уровне домена, миграции и БД
+- [x] Реализовать идемпотентное чтение/upsert без хранения Alice identifiers
+- [x] Проверить миграцию, изоляцию владельцев и сохранение между сессиями
+- [x] Mark completed
 
 ### Task 5: Применить предпочтения и команды реванша
 

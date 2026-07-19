@@ -20,6 +20,7 @@ TEST_DSN_ENV = "YURA_CHESS_TEST_DATABASE_URL"
 _TABLES = (
     "board_image_cache",
     "asr_transcripts",
+    "player_preferences",
     "request_replays",
     "pending_engine_turns",
     "game_moves",
