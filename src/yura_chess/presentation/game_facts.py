@@ -23,6 +23,7 @@ from yura_chess.presentation.move_speech import (
     PIECE_NAMES_ACCUSATIVE,
     Speech,
 )
+from yura_chess.presentation.opening import describe_opening, describe_stage
 from yura_chess.presentation.position_speech import describe_last_move
 from yura_chess.voice.normalizer import normalize
 
@@ -35,6 +36,8 @@ class GameFact(StrEnum):
     CASTLING = "castling"
     CHECK_ATTACKERS = "check_attackers"
     LAST_MOVE_CHANGES = "last_move_changes"
+    OPENING = "opening"
+    STAGE = "stage"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +79,14 @@ _PATTERNS: tuple[tuple[GameFact, re.Pattern[str]], ...] = (
     (
         GameFact.MOVE_NUMBER,
         re.compile(r"номер хода|какой сейчас ход|какой ход по счету|который сейчас ход|на каком ходу"),
+    ),
+    (
+        GameFact.OPENING,
+        re.compile(r"(как|что)\w* (называется |за )?дебют|название дебюта|какой мы играем дебют|дебют мы играем"),
+    ),
+    (
+        GameFact.STAGE,
+        re.compile(r"стади\w+ (партии|игры)|какая стадия|это (уже )?(эндшпиль|миттельшпиль)|дебют или миттельшпиль"),
     ),
     (
         GameFact.LAST_MOVE_CHANGES,
@@ -185,6 +196,14 @@ def describe_last_move_changes(board: chess.Board, player: chess.Color) -> Speec
     return Speech.of(f"{describe_last_move(board).text} Изменения: {', '.join(changes)}.")
 
 
+def describe_opening_name(board: chess.Board, player: chess.Color) -> Speech:
+    return describe_opening(board)
+
+
+def describe_game_stage(board: chess.Board, player: chess.Color) -> Speech:
+    return describe_stage(board)
+
+
 _ANSWERS = {
     GameFact.COLOR: describe_color,
     GameFact.MOVE_NUMBER: describe_move_number,
@@ -193,6 +212,8 @@ _ANSWERS = {
     GameFact.CASTLING: describe_castling,
     GameFact.CHECK_ATTACKERS: describe_check_attackers,
     GameFact.LAST_MOVE_CHANGES: describe_last_move_changes,
+    GameFact.OPENING: describe_opening_name,
+    GameFact.STAGE: describe_game_stage,
 }
 
 

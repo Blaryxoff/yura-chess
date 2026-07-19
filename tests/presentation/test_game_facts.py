@@ -120,6 +120,31 @@ def test_castling_changes_mention_the_rook_without_repeating_the_move() -> None:
     assert "ладья перешла через короля" in text
 
 
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("как называется дебют", GameFact.OPENING),
+        ("какой дебют мы играем", GameFact.OPENING),
+        ("что за дебют", GameFact.OPENING),
+        ("какая стадия партии", GameFact.STAGE),
+        ("это уже эндшпиль", GameFact.STAGE),
+    ],
+)
+def test_opening_and_stage_questions_are_recognized(utterance: str, expected: GameFact) -> None:
+    assert answer(utterance, board_of(*SCOTCH))[0] is expected
+
+
+def test_the_opening_answer_names_the_line_or_admits_it_is_unknown() -> None:
+    assert "Italian Game" in answer("как называется дебют", board_of(*SCOTCH))[1]
+    unknown = chess.Board("4k3/8/8/8/8/8/8/4K1N1 w - - 0 40")
+    assert answer("как называется дебют", unknown)[1] == "Дебют не определён."
+
+
+def test_the_stage_answer_names_the_stage() -> None:
+    assert answer("какая стадия партии", board_of(*SCOTCH))[1] == "Сейчас дебют."
+    assert answer("какая стадия партии", chess.Board("4k3/8/8/8/8/8/8/4K1N1 w - - 0 40"))[1] == "Сейчас эндшпиль."
+
+
 def test_the_same_history_always_produces_the_same_answer() -> None:
     questions = ("за кого я играю", "сколько ходов сыграно", "какие фигуры съедены", "могу ли я рокироваться")
     first = board_of(*SCOTCH)
@@ -130,7 +155,14 @@ def test_the_same_history_always_produces_the_same_answer() -> None:
 def test_answering_never_mutates_the_board() -> None:
     board = board_of(*SCOTCH)
     before = board.fen()
-    for question in ("сколько ходов сыграно", "какие фигуры съедены", "что изменилось", "могу ли я рокироваться"):
+    for question in (
+        "сколько ходов сыграно",
+        "какие фигуры съедены",
+        "что изменилось",
+        "могу ли я рокироваться",
+        "как называется дебют",
+        "какая стадия партии",
+    ):
         answer(question, board)
     assert board.fen() == before
     assert len(board.move_stack) == len(SCOTCH)
