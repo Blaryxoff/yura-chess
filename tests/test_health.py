@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from settings_fixtures import TEST_IDENTITY_SALT
 
 from yura_chess.main import _purge_retained_data, create_app
+from yura_chess.presentation.website import WEBMASTER_VERIFICATION_HTML, WEBMASTER_VERIFICATION_PATH
 from yura_chess.settings import Settings
 
 
@@ -23,6 +24,26 @@ def test_liveness_does_not_depend_on_the_database(offline_settings: Settings) ->
         "version": "0.1.0",
         "components": None,
     }
+
+
+def test_public_landing_page_describes_the_skill_for_everyone(offline_settings: Settings) -> None:
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "Шахматы с Юрой" in response.text
+    assert "Stockfish" in response.text
+    assert "Какой уровень сложности?" in response.text
+    assert "незряч" not in response.text.lower()
+
+
+def test_yandex_webmaster_verification_file_is_served_verbatim(offline_settings: Settings) -> None:
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get(WEBMASTER_VERIFICATION_PATH)
+
+    assert response.status_code == 200
+    assert response.text == WEBMASTER_VERIFICATION_HTML
 
 
 def test_readiness_reports_an_unreachable_database(offline_settings: Settings) -> None:

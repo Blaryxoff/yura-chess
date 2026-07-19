@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI, Response, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -12,6 +13,11 @@ from yura_chess import __version__
 from yura_chess.adapters.alice.webhook import build_router as build_alice_router
 from yura_chess.adapters.yandex_images import BoardImageService
 from yura_chess.engine.stockfish import StockfishPool
+from yura_chess.presentation.website import (
+    LANDING_PAGE_HTML,
+    WEBMASTER_VERIFICATION_HTML,
+    WEBMASTER_VERIFICATION_PATH,
+)
 from yura_chess.settings import Settings, get_settings
 from yura_chess.storage.database import (
     check_connection,
@@ -98,6 +104,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings or get_settings()
+
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    async def landing_page() -> HTMLResponse:
+        return HTMLResponse(LANDING_PAGE_HTML)
+
+    @app.get(WEBMASTER_VERIFICATION_PATH, response_class=HTMLResponse, include_in_schema=False)
+    async def webmaster_verification() -> HTMLResponse:
+        return HTMLResponse(WEBMASTER_VERIFICATION_HTML)
 
     @app.get("/health/live", response_model=HealthResponse, tags=["health"])
     async def health_live() -> HealthResponse:

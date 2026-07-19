@@ -38,6 +38,7 @@ Health endpoints:
 
 - `GET /health/live` — process liveness, independent of the database
 - `GET /health/ready` — returns 503 until the database connection and schema check pass
+- `GET /` — public product page used by players, moderators and brand verification
 
 ### Screen board lifecycle
 
