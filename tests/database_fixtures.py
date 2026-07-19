@@ -24,6 +24,8 @@ _TABLES = (
     "request_replays",
     "analysis_checkpoints",
     "game_reviews",
+    "puzzle_attempts",
+    "puzzle_profiles",
     "pending_engine_turns",
     "game_moves",
     "games",

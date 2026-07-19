@@ -25,6 +25,7 @@ FINGERPRINT_LENGTH = 64
 TRANSCRIPT_TEXT_LENGTH = 255
 POSITION_HASH_LENGTH = 64
 IMAGE_ID_LENGTH = 128
+PUZZLE_ID_LENGTH = 16
 
 
 class Base(DeclarativeBase):
@@ -207,6 +208,55 @@ class GameReviewRow(Base):
     )
     ply: Mapped[int] = mapped_column(Integer, server_default="0")
     page: Mapped[int] = mapped_column(Integer, server_default="0")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), index=True)
+
+
+class PuzzleProfileRow(Base):
+    """One durable difficulty profile per owner.
+
+    The allowed buckets and the starting one repeat `yura_chess.domain.puzzle`;
+    the repository is the only translator between the two, and a test pins them
+    to each other.
+    """
+
+    __tablename__ = "puzzle_profiles"
+
+    owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), primary_key=True)
+    bucket: Mapped[str] = mapped_column(
+        Enum("low", "medium", "high", name="puzzle_bucket"),
+        server_default="medium",
+    )
+    clean_streak: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    failure_streak: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class PuzzleAttemptRow(Base):
+    """One owner working through one catalogue puzzle.
+
+    The puzzle id is the Lichess id of the offline import rather than a foreign
+    key: the catalogue is a packaged file, not a table. Nothing here references a
+    game — an attempt has its own timestamps precisely so an unfinished puzzle
+    and an unfinished game can be told apart.
+    """
+
+    __tablename__ = "puzzle_attempts"
+
+    owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), primary_key=True)
+    puzzle_id: Mapped[str] = mapped_column(String(PUZZLE_ID_LENGTH), primary_key=True)
+    # Absolute index into the puzzle's solution line, never an increment.
+    node: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    mistakes: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    hints: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    # The clean run the owner was on when this attempt finished.
+    streak: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    status: Mapped[str] = mapped_column(
+        Enum("active", "solved", "failed", "abandoned", name="puzzle_attempt_status"),
+        server_default="active",
+    )
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), index=True)

@@ -202,12 +202,12 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Create `migrations/versions/0011_puzzles.py`, `src/yura_chess/domain/puzzle.py`, `src/yura_chess/storage/puzzle_repository.py`, `tests/storage/test_puzzle_repository.py`; Modify `src/yura_chess/storage/models.py`
 
-- [ ] Добавить каталог задач, owner-scoped puzzle profile с difficulty bucket и streak counters, а также attempts с текущим node, ошибками, подсказками, серией и статусом
-- [ ] Зафиксировать rating buckets: low до 1400, medium 1401–1800, high от 1801; новый profile начинать с medium
-- [ ] Изолировать attempts от games и сохранить отдельные resume timestamps
-- [ ] Реализовать атомарное продвижение решения и идемпотентное replay-safe чтение/обновление
-- [ ] Проверить cross-user isolation, reload, completion, abandon и concurrent attempt conflict
-- [ ] Mark completed
+- [x] Добавить каталог задач, owner-scoped puzzle profile с difficulty bucket и streak counters, а также attempts с текущим node, ошибками, подсказками, серией и статусом (каталог — packaged `puzzles.jsonl` через `domain/puzzle.py`, как ECO-набор; в БД только profile и attempts)
+- [x] Зафиксировать rating buckets: low до 1400, medium 1401–1800, high от 1801; новый profile начинать с medium
+- [x] Изолировать attempts от games и сохранить отдельные resume timestamps
+- [x] Реализовать атомарное продвижение решения и идемпотентное replay-safe чтение/обновление (advance идемпотентен по значению, finish_attempt пишет attempt и profile одним flush)
+- [x] Проверить cross-user isolation, reload, completion, abandon и concurrent attempt conflict
+- [x] Mark completed
 
 ### Task 15: Реализовать голосовой режим задач
 
