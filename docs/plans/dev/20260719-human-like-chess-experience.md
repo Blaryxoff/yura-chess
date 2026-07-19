@@ -93,11 +93,11 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Create `scripts/import_lichess_openings.py`, `src/yura_chess/data/openings.tsv`, `src/yura_chess/data/openings.meta.json`, `tests/test_opening_import.py`
 
-- [ ] Добавить воспроизводимый offline importer компактного CC0 ECO-набора с зафиксированной версией источника
-- [ ] Проверять формат UCI-префиксов, ECO, названия дебюта и варианта до записи output
-- [ ] Сохранять source revision, license URL и детерминированный output hash
-- [ ] Проверить повторный импорт и идентичный результат без сетевого доступа runtime
-- [ ] Mark completed
+- [x] Добавить воспроизводимый offline importer компактного CC0 ECO-набора с зафиксированной версией источника
+- [x] Проверять формат UCI-префиксов, ECO, названия дебюта и варианта до записи output
+- [x] Сохранять source revision, license URL и детерминированный output hash
+- [x] Проверить повторный импорт и идентичный результат без сетевого доступа runtime
+- [x] Mark completed
 
 ### Task 6.5: Распознавать дебют и стадию партии
 

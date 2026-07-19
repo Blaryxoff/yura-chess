@@ -1,0 +1,21 @@
+{
+  "columns": [
+    "eco",
+    "opening",
+    "variation",
+    "uci"
+  ],
+  "license": "CC0-1.0",
+  "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "opening_count": 3803,
+  "output_hash": "sha256:0d71f2abc1949f024330266e05e7c4913841d6b33e0462319880d6e008c8640f",
+  "source_files": [
+    "a.tsv",
+    "b.tsv",
+    "c.tsv",
+    "d.tsv",
+    "e.tsv"
+  ],
+  "source_repository": "https://github.com/lichess-org/chess-openings",
+  "source_revision": "292fd0468068f58bb244f7fe1c3e573e493c3c53"
+}
