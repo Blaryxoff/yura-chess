@@ -213,6 +213,25 @@ def bare_topic(utterance: str) -> HelpAnswer | None:
     return None if topic is None else _render(topic, 0)
 
 
+def restore(topic: str | None, page: int) -> HelpState | None:
+    """Rebuild the reading position a client sent back.
+
+    A missing topic means the menu is open; a topic this build no longer has
+    closes the help instead of forcing the player into it.
+    """
+    if topic is None:
+        return HelpState(topic=None, page=0)
+    try:
+        section = HelpTopic(topic)
+    except ValueError:
+        return None
+    return HelpState(topic=section, page=max(0, min(page, page_count(section) - 1)))
+
+
+def page_count(topic: HelpTopic) -> int:
+    return max(1, -(-len(_lines(topic)) // LINES_PER_PAGE))
+
+
 def close() -> HelpAnswer:
     return HelpAnswer(Speech.of("Закрываю справку. Назовите ход или команду."), None)
 
@@ -234,7 +253,7 @@ def _unknown_topic() -> HelpAnswer:
 
 def _render(topic: HelpTopic, page: int) -> HelpAnswer:
     lines = _lines(topic)
-    pages = max(1, -(-len(lines) // LINES_PER_PAGE))
+    pages = page_count(topic)
     page = max(0, min(page, pages - 1))
     chunk = lines[page * LINES_PER_PAGE : (page + 1) * LINES_PER_PAGE]
     has_next = page + 1 < pages

@@ -10,6 +10,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from yura_chess.presentation.help_speech import HelpTopic
+
 # Platform limits for a single response.
 TEXT_LIMIT = 1024
 TTS_LIMIT = 1024
@@ -114,6 +116,13 @@ class PendingActionState(_AliceModel):
     utterance: str = Field(max_length=255)
 
 
+class HelpSessionState(_AliceModel):
+    """Where the open help stopped reading; absent as soon as help closes."""
+
+    topic: HelpTopic | None = None
+    page: int = Field(default=0, ge=0)
+
+
 class ConversationSessionState(_AliceModel):
     """Short-lived dialog state; the canonical game remains server-side."""
 
@@ -124,6 +133,7 @@ class ConversationSessionState(_AliceModel):
     clarification: ClarificationState | None = None
     pending_action: PendingActionState | None = None
     position_page: int = Field(default=0, ge=0, le=3)
+    help: HelpSessionState | None = None
 
 
 class AliceResponse(_AliceModel):

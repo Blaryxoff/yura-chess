@@ -8,9 +8,14 @@ from types import SimpleNamespace
 
 import chess
 import pytest
+from settings_fixtures import TEST_IDENTITY_SALT, UNREACHABLE_DATABASE_URL
+from sqlalchemy.orm import Session, sessionmaker
 
 from yura_chess import cli
-from yura_chess.application.conversation import ConversationState
+from yura_chess.application.conversation import ConversationService, ConversationState
+from yura_chess.application.player_identity import owner_key
+from yura_chess.presentation.help_speech import HelpState, HelpTopic
+from yura_chess.settings import Settings
 
 
 def test_scripted_commands_preserve_order_and_ignore_comments(tmp_path: Path) -> None:
@@ -91,6 +96,61 @@ def test_shell_bootstraps_an_alice_new_session_before_commands(monkeypatch: pyte
 
     assert result == 0
     assert calls == [(0, "", True), (1, "где белые слоны", False)]
+
+
+def test_shell_keeps_the_open_help_between_scripted_commands(
+    session_factory: sessionmaker[Session],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        environment="test",
+        database_url=UNREACHABLE_DATABASE_URL,
+        identity_salt=TEST_IDENTITY_SALT,
+    )
+    conversation = ConversationService(session_factory, _NoEngine(), settings)
+    owner = owner_key(settings.identity_salt, "shell:help-topics", None)
+
+    async def run() -> list[ConversationState]:
+        state = ConversationState()
+        states: list[ConversationState] = []
+        for message_id, utterance in enumerate(["", "справка", "партия", "дальше", "какая позиция"]):
+            state = await cli._run_one(
+                conversation,
+                owner,
+                "shell-help-topics",
+                message_id,
+                utterance,
+                state,
+                False,
+                False,
+                "player",
+                is_new_session=message_id == 0,
+            )
+            states.append(state)
+        return states
+
+    _, menu, topic, paged, position = asyncio.run(run())
+
+    assert menu.help == HelpState(topic=None, page=0)
+    assert topic.help == HelpState(topic=HelpTopic.GAME, page=0)
+    assert paged.help == HelpState(topic=HelpTopic.GAME, page=1)
+    # A board question closes the help, so «дальше» goes back to reading the board.
+    assert position.help is None
+    printed = capsys.readouterr().out
+    assert "Разделы справки" in printed
+    assert "Раздел «партия»" in printed
+
+
+class _NoEngine:
+    """The scripted help flow must never need a move search."""
+
+    async def best_move(
+        self,
+        board: chess.Board,
+        search_time: float | None = None,
+        skill_level: int | None = None,
+    ) -> str:
+        raise AssertionError("help must not start an engine search")
 
 
 def test_help_does_not_require_runtime_settings(monkeypatch: pytest.MonkeyPatch) -> None:

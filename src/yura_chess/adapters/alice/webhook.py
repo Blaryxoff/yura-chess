@@ -31,6 +31,7 @@ from yura_chess.adapters.alice.models import (
     ClarificationState,
     ConversationSessionState,
     GameStateUpdate,
+    HelpSessionState,
     PendingActionState,
     ResponseBody,
 )
@@ -40,6 +41,7 @@ from yura_chess.application.conversation import ConversationReply, ConversationS
 from yura_chess.application.game_service import RequestContext
 from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key
 from yura_chess.domain.results import TurnResult
+from yura_chess.presentation import help_speech
 from yura_chess.presentation.response_composer import compose_board_card
 from yura_chess.storage.game_repository import ReplayFingerprintConflictError
 from yura_chess.storage.models import FINGERPRINT_LENGTH
@@ -239,6 +241,15 @@ def _conversation_state(payload: AliceRequest) -> ConversationState:
             pending_action = PendingAction(CommandKind(kind), utterance[:255])
     last_reply_raw = raw.get("last_reply")
     page = raw.get("position_page", 0)
+    help_raw = raw.get("help")
+    help_state = None
+    if isinstance(help_raw, dict):
+        topic = help_raw.get("topic")
+        help_page = help_raw.get("page", 0)
+        help_state = help_speech.restore(
+            topic if isinstance(topic, str) else None,
+            help_page if isinstance(help_page, int) else 0,
+        )
     return ConversationState(
         game_id=_claimed_game_id(payload),
         revision=raw.get("revision") if isinstance(raw.get("revision"), int) else None,
@@ -247,6 +258,7 @@ def _conversation_state(payload: AliceRequest) -> ConversationState:
         clarification=clarification,
         pending_action=pending_action,
         position_page=page if isinstance(page, int) and 0 <= page <= 3 else 0,
+        help=help_state,
     )
 
 
@@ -277,6 +289,7 @@ def _session_state_update(state: ConversationState) -> ConversationSessionState:
         clarification=clarification,
         pending_action=pending_action,
         position_page=state.position_page,
+        help=HelpSessionState(topic=state.help.topic, page=state.help.page) if state.help is not None else None,
     )
 
 

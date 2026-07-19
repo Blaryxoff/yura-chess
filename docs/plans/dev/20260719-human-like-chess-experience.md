@@ -49,11 +49,11 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Modify `src/yura_chess/adapters/alice/models.py`, `src/yura_chess/adapters/alice/webhook.py`, `src/yura_chess/cli.py`, `tests/adapters/test_alice_webhook.py`, `tests/test_cli.py`
 
-- [ ] Добавить ограниченное help topic/page состояние только в `session_state`, не в долговечный `user_state_update`
-- [ ] Проверить сериализацию, валидацию диапазонов, восстановление и очистку состояния справки
-- [ ] Добавить Alice multi-request и shell сценарии тематической и полной справки
-- [ ] Проверить лимиты text/TTS/state и отсутствие обязательной экранной информации
-- [ ] Mark completed
+- [x] Добавить ограниченное help topic/page состояние только в `session_state`, не в долговечный `user_state_update`
+- [x] Проверить сериализацию, валидацию диапазонов, восстановление и очистку состояния справки
+- [x] Добавить Alice multi-request и shell сценарии тематической и полной справки
+- [x] Проверить лимиты text/TTS/state и отсутствие обязательной экранной информации
+- [x] Mark completed
 
 ### Task 3: Добавить фактические вопросы о партии
 

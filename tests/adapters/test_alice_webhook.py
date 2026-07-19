@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import chess
@@ -13,7 +14,7 @@ from settings_fixtures import TEST_IDENTITY_SALT, UNREACHABLE_DATABASE_URL
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from yura_chess.adapters.alice.models import STATE_LIMIT_BYTES, TEXT_LIMIT, AliceRequest
+from yura_chess.adapters.alice.models import STATE_LIMIT_BYTES, TEXT_LIMIT, TTS_LIMIT, AliceRequest
 from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key
 from yura_chess.domain.game import PlayerColor
 from yura_chess.main import create_app
@@ -249,6 +250,180 @@ async def test_slow_repeat_survives_alice_session_state(
     assert first["session_state"]["last_reply"]
     assert repeated["response"]["text"].startswith("Повторяю:")
     assert repeated["response"]["tts"].startswith("Повторяю медленно.")
+
+
+async def test_the_help_menu_and_the_full_catalogue_survive_alice_session_state(
+    session_factory: sessionmaker[Session],
+    database_engine: Engine,
+) -> None:
+    async with build_client(session_factory) as client:
+        opened = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
+        menu = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    2,
+                    command="справка",
+                    state=opened["user_state_update"],
+                    session_state=opened.get("session_state"),
+                ),
+            )
+        ).json()
+        catalogue = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    3,
+                    command="дальше",
+                    state=opened["user_state_update"],
+                    session_state=menu["session_state"],
+                ),
+            )
+        ).json()
+        second_page = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    4,
+                    command="дальше",
+                    state=opened["user_state_update"],
+                    session_state=catalogue["session_state"],
+                ),
+            )
+        ).json()
+
+    # The open menu is state with no topic yet, which is what makes «дальше» read
+    # the whole catalogue instead of the board.
+    assert menu["session_state"]["help"] == {"page": 0}
+    assert "Разделы справки" in menu["response"]["text"]
+    assert catalogue["session_state"]["help"] == {"topic": "all", "page": 0}
+    assert second_page["session_state"]["help"] == {"topic": "all", "page": 1}
+    # Reading help changes nothing about the game: no durable state update at all.
+    assert "user_state_update" not in second_page
+    assert second_page["session_state"]["revision"] == opened["user_state_update"]["revision"]
+    assert games_count(database_engine) == 1
+
+
+async def test_a_help_topic_is_paged_and_then_cleared_by_the_next_command(
+    session_factory: sessionmaker[Session],
+) -> None:
+    async with build_client(session_factory) as client:
+        opened = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
+        topic = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    2,
+                    command="справка про партию",
+                    state=opened["user_state_update"],
+                    session_state=opened.get("session_state"),
+                ),
+            )
+        ).json()
+        paged = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    3,
+                    command="дальше",
+                    state=opened["user_state_update"],
+                    session_state=topic["session_state"],
+                ),
+            )
+        ).json()
+        closed = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    4,
+                    command="выйти из справки",
+                    state=opened["user_state_update"],
+                    session_state=paged["session_state"],
+                ),
+            )
+        ).json()
+        after = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    5,
+                    command="дальше",
+                    state=opened["user_state_update"],
+                    session_state=closed["session_state"],
+                ),
+            )
+        ).json()
+
+    assert topic["session_state"]["help"] == {"topic": "game", "page": 0}
+    assert paged["session_state"]["help"] == {"topic": "game", "page": 1}
+    assert "help" not in closed["session_state"]
+    # With help closed «дальше» is board pagination again, not help navigation.
+    assert "help" not in after["session_state"]
+    assert "Раздел" not in after["response"]["text"]
+
+
+async def test_a_corrupted_help_state_is_ignored_and_an_out_of_range_page_is_clamped(
+    session_factory: sessionmaker[Session],
+) -> None:
+    async with build_client(session_factory) as client:
+        opened = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
+        session_state = dict(opened.get("session_state") or {})
+        session_state["help"] = {"topic": "no-such-topic", "page": 999}
+        answered = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    2,
+                    command="дальше",
+                    state=opened["user_state_update"],
+                    session_state=session_state,
+                ),
+            )
+        ).json()
+
+        session_state["help"] = {"topic": "game", "page": 999}
+        clamped = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    3,
+                    command="дальше",
+                    state=opened["user_state_update"],
+                    session_state=session_state,
+                ),
+            )
+        ).json()
+
+    assert answered.get("session_state", {}).get("help") is None
+    assert "Раздел" not in answered["response"]["text"]
+    # A page past the end of a real topic is pulled back to the last one.
+    assert clamped["session_state"]["help"] == {"topic": "game", "page": 1}
+
+
+async def test_a_help_answer_stays_inside_the_platform_limits_without_a_screen(
+    session_factory: sessionmaker[Session],
+) -> None:
+    async with build_client(session_factory) as client:
+        opened = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
+        catalogue = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    2,
+                    command="все команды",
+                    state=opened["user_state_update"],
+                    session_state=opened.get("session_state"),
+                ),
+            )
+        ).json()
+
+    body = catalogue["response"]
+    assert len(body["text"]) <= TEXT_LIMIT
+    assert len(body.get("tts") or "") <= TTS_LIMIT
+    assert len(json.dumps(catalogue["session_state"], ensure_ascii=False).encode("utf-8")) <= STATE_LIMIT_BYTES
+    # Nothing the player needs may live only on a screen.
+    assert body.get("card") is None
+    assert "Раздел «ходы»" in body["text"]
 
 
 async def test_a_foreign_game_id_reveals_nothing_and_never_touches_that_game(
