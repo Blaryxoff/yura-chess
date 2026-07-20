@@ -256,12 +256,12 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Create `tests/e2e/test_alice_sessions.py`, `tests/e2e/test_modes.py`, `tests/e2e/test_staging_webhook.py`, `tests/e2e/fixtures/full_help_and_modes.txt`; Modify `tests/golden/test_full_games.py`
 
-- [ ] Прогнать полный жизненный цикл: справка, обычная игра, preferences, training, commentary, review, PGN и puzzles
-- [ ] Проверить отдельные Alice JSON-сессии с экраном и без экрана, restart/resume и повтор каждого mutation request
-- [ ] Проверить cross-user isolation, конфликт fingerprint, pending engine turn, pool saturation и analysis timeout
-- [ ] Прогнать shell fixture с white/black orientation и доказать отсутствие обязательной Alice/UI зависимости
-- [ ] Параметризовать staging webhook suite через `YURA_CHESS_STAGING_URL`, чтобы запускать его через защищённый SSH tunnel к Firebat loopback без публичного staging hostname
-- [ ] Mark completed
+- [x] Прогнать полный жизненный цикл: справка, обычная игра, preferences, training, commentary, review, PGN и puzzles
+- [x] Проверить отдельные Alice JSON-сессии с экраном и без экрана, restart/resume и повтор каждого mutation request
+- [x] Проверить cross-user isolation, конфликт fingerprint, pending engine turn, pool saturation и analysis timeout
+- [x] Прогнать shell fixture с white/black orientation и доказать отсутствие обязательной Alice/UI зависимости
+- [x] Параметризовать staging webhook suite через `YURA_CHESS_STAGING_URL`, чтобы запускать его через защищённый SSH tunnel к Firebat loopback без публичного staging hostname
+- [x] Mark completed
 
 ### Task 18.5: Собрать и развернуть immutable staging-образ
 

@@ -209,6 +209,46 @@ async def test_a_replayed_request_never_moves_a_golden_game_twice(
     assert len(first.moves) == 2
 
 
+class FailingOnceEngine(ScriptedEngine):
+    """Loses the first search, then behaves; the pool does this under load."""
+
+    def __init__(self, seed: int) -> None:
+        super().__init__(seed)
+        self.failures = 1
+
+    async def best_move(
+        self,
+        board: chess.Board,
+        search_time: float | None = None,
+        skill_level: int | None = None,
+    ) -> str:
+        if self.failures > 0:
+            self.failures -= 1
+            self.searches += 1
+            raise EngineUnavailableError("engine pool is saturated")
+        return await super().best_move(board, search_time, skill_level)
+
+
+async def test_a_pending_engine_turn_is_finished_by_the_next_request(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """A lost search leaves the player's move stored and the reply owed, not dropped."""
+    owner = "owner-pending"
+    engine = FailingOnceEngine(5)
+    service = GameService(session_factory, engine)
+    driver = await open_game(service, owner, 5)
+
+    stalled = await service.play_move(owner, driver.game_id, "e2e4", context(owner, 0))
+    resumed = await service.continue_game(owner, driver.game_id, context(owner, 1))
+
+    assert stalled.status is TurnStatus.ENGINE_UNAVAILABLE
+    assert stalled.moves == ("e2e4",)
+    # The owed engine move is played once, on top of the move that was kept.
+    assert resumed.status is TurnStatus.OK
+    assert len(resumed.moves) == 2
+    assert resumed.moves[0] == "e2e4"
+
+
 async def test_parallel_users_play_independent_games(
     session_factory: sessionmaker[Session],
     database_engine: Engine,
