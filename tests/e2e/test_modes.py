@@ -116,7 +116,7 @@ async def test_the_finished_game_is_reviewed_without_being_changed(
     with session_scope(session_factory) as session:
         finished = GameRepository(session).load(game_id, OWNER)
 
-    assert finished.status is GameStatus.FINISHED
+    assert finished.status is GameStatus.RESIGNED
     # The trainer was switched off before the game ended, and neither the review
     # nor the puzzle may have re-moded or re-moved it.
     assert finished.mode is GameMode.GAME

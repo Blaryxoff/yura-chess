@@ -40,7 +40,7 @@ def games_count(database_engine: Engine) -> int:
 def stored_moves(database_engine: Engine, game_id: str) -> list[str]:
     with database_engine.begin() as connection:
         rows = connection.execute(
-            text("SELECT move_uci FROM game_moves WHERE game_id = :game ORDER BY ply"),
+            text("SELECT uci FROM game_moves WHERE game_id = :game ORDER BY ply"),
             {"game": game_id},
         ).all()
     return [row[0] for row in rows]

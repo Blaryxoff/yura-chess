@@ -218,7 +218,12 @@ class ConversationService:
         state = state or ConversationState()
         game = self._load(owner_key, state.game_id)
         if state.game_id is not None and game is None:
+            # A game id the owner cannot load is someone else's or long gone; the
+            # player keeps their own running game instead of silently getting a new one.
             state = ConversationState(last_heard=state.last_heard)
+            game = self._games.find_latest_active_game(owner_key)
+            if game is not None:
+                state = self._with_game(state, game)
 
         if request.is_new_session and not utterance.strip() and not self._games.request_was_seen(owner_key, request):
             # An unfinished puzzle is asked about as a puzzle, never as a game.

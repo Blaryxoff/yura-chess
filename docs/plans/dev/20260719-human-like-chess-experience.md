@@ -279,11 +279,11 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Create `docs/qa/20260719-human-like-experience-e2e.md`; Read `pyproject.toml`, `alembic.ini`, `docker-compose.yml`, `deploy/compose.staging.yml`
 
-- [ ] Выполнить все `Validation Commands` без пропуска полного `tests/e2e`
-- [ ] Записать команды, окружение, результаты, длительности и известные ограничения в QA report
-- [ ] Зафиксировать ручной real-device checklist как дополнительный gate, не заменяющий автоматический E2E
-- [ ] Не выполнять production deploy без отдельного подтверждения после окончания модерации
-- [ ] Mark completed
+- [x] Выполнить все `Validation Commands` без пропуска полного `tests/e2e` (779 passed, 4 skipped; `tests/e2e` впервые реально выполнен — до этого молча пропускался без DSN и выявил 6 настоящих дефектов, все исправлены. Не выполнена только staging webhook команда: staging deploy из Task 18.5 закрыт как ручной, эндпоинта не существует)
+- [x] Записать команды, окружение, результаты, длительности и известные ограничения в QA report (`docs/qa/20260719-human-like-experience-e2e.md`)
+- [x] Зафиксировать ручной real-device checklist как дополнительный gate, не заменяющий автоматический E2E
+- [x] Не выполнять production deploy без отдельного подтверждения после окончания модерации (deploy не выполнялся; `deploy/compose.production.yml` не изменялся)
+- [x] Mark completed
 
 ## Verification notes
 
