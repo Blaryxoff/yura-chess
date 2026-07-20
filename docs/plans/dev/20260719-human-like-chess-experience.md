@@ -246,11 +246,11 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Modify `README.md`, `deploy/README.md`, `deploy/compose.staging.yml`; Read `deploy/compose.production.yml`
 
-- [ ] Документировать все голосовые возможности и help topics без скрытых обязательных команд
-- [ ] Обновить staging конфигурацию, migration order и отдельную тестовую identity/DB
-- [ ] Оставить production compose и текущий immutable SHA без изменений
-- [ ] Документировать staging deploy/rollback и безопасную очистку тестовых данных
-- [ ] Mark completed
+- [x] Документировать все голосовые возможности и help topics без скрытых обязательных команд
+- [x] Обновить staging конфигурацию, migration order и отдельную тестовую identity/DB
+- [x] Оставить production compose и текущий immutable SHA без изменений
+- [x] Документировать staging deploy/rollback и безопасную очистку тестовых данных
+- [x] Mark completed
 
 ### Task 18: Добавить полный автоматический E2E-набор
 

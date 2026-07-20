@@ -1,6 +1,11 @@
 # Firebat staging. The application joins the existing `staging-mariadb` over the
 # shared external network; it gets its own database and its own user, and no
 # database port is published anywhere.
+#
+# Staging is a separate identity as well as a separate database: its own
+# `YURA_CHESS_IDENTITY_SALT` and the `yura_chess_staging` DSN live in
+# `/srv/yura-chess/staging.env`, so a staging owner key can never resolve to a
+# production player and test data is deletable without touching real games.
 services:
   app:
     image: ${YURA_CHESS_IMAGE:?set an immutable image tag}

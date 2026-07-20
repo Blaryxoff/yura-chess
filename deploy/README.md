@@ -50,6 +50,75 @@ Because the schema is migrated before the new code starts, **each migration must
 stay compatible with the previous release**. That is what makes an application-only
 rollback safe.
 
+The human-like experience release adds `0007_player_preferences` …
+`0011_puzzles` on top of `0006_alice_response_replay`. They are additive and run
+in that order as one `alembic upgrade head`, so the previously deployed image
+keeps working against the migrated schema.
+
+## Staging
+
+Staging exists to run the full release once before production sees it. It shares
+the `staging-mariadb` server with other projects, so it is isolated by data, not
+by host: its own database `yura_chess_staging`, its own user, and — in
+`/srv/yura-chess/staging.env` — its own `YURA_CHESS_IDENTITY_SALT`. A staging
+owner key therefore cannot resolve to a production player, and staging games are
+test data by construction.
+
+```bash
+deploy/deploy.sh staging "$TAG"     # same order: validate, pull, migrate, start, /health/ready
+deploy/rollback.sh staging          # application only, previous recorded tag
+```
+
+Staging has no public name. The automated webhook suite reaches it through an
+SSH tunnel to the Firebat host loopback:
+
+```bash
+ssh -N -L 18081:127.0.0.1:8081 firebat &
+YURA_CHESS_STAGING_URL=http://127.0.0.1:18081 uv run pytest tests/e2e/test_staging_webhook.py
+```
+
+Deploying staging never touches production: different Compose file, project name,
+container, database and recorded image tag. Production keeps serving the
+moderated image until a production deploy is confirmed separately.
+
+### Clearing staging test data
+
+**Destructive.** Only ever inside `yura_chess_staging`, and only with the staging
+user — the same server holds other projects' databases, so a server-wide `DROP`
+or a `mariadb` shell without an explicit database is never acceptable here.
+
+```bash
+# Verify first: this must print exactly yura_chess_staging.
+docker compose --project-name yura-chess-staging exec app \
+  python -c "import os,urllib.parse as u; print(u.urlparse(os.environ['YURA_CHESS_DATABASE_URL']).path)"
+
+# Then, with the app stopped, delete the owner-scoped rows. Deleting a game
+# cascades to its moves, pending engine turns, analysis checkpoints and review
+# state, and to the request replays that referenced it; preferences, puzzle
+# profiles and attempts, transcripts, game-less replays and the image cache are
+# separate roots.
+docker compose --project-name yura-chess-staging stop app
+mariadb --user=yura-chess --password --database=yura_chess_staging -e "
+  DELETE FROM games;
+  DELETE FROM player_preferences;
+  DELETE FROM puzzle_attempts;
+  DELETE FROM puzzle_profiles;
+  DELETE FROM asr_transcripts;
+  DELETE FROM request_replays;
+  DELETE FROM board_image_cache;"
+docker compose --project-name yura-chess-staging start app
+```
+
+Clearing `board_image_cache` forgets the mapping without deleting the remote
+Dialogs resources, so do it only when staging runs without an OAuth token or
+after the maintenance pass has drained; every evicted position is rendered and
+uploaded again on demand.
+
+Re-running the migrations is not needed afterwards; the schema is untouched. To
+start from an empty schema instead, drop and recreate the `yura_chess_staging`
+database only, then run `deploy/deploy.sh staging "$TAG"` again so the release
+migration rebuilds it.
+
 ## Rollback
 
 ```bash
