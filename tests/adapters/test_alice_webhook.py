@@ -126,8 +126,26 @@ async def test_a_new_session_opens_a_game_and_returns_minimal_state(
     body = response.json()
     assert body["version"] == "1.0"
     assert set(body["user_state_update"]) == {"game_id", "revision"}
+    assert "Шахматы с Юрой" in body["response"]["text"]
+    assert "пешка е два е четыре" in body["response"]["text"]
+    assert "скажите «помощь»" in body["response"]["text"]
     assert len(body["response"]["text"]) <= TEXT_LIMIT
     assert len(str(body["user_state_update"]).encode("utf-8")) <= STATE_LIMIT_BYTES
+
+
+@pytest.mark.parametrize("command", ["помощь", "что ты умеешь"])
+async def test_moderation_help_commands_return_an_instruction_on_the_first_alice_request(
+    command: str,
+    session_factory: sessionmaker[Session],
+) -> None:
+    async with build_client(session_factory) as client:
+        response = await client.post("/alice/webhook", json=alice_request(1, command=command, new=True))
+
+    assert response.status_code == 200
+    text = response.json()["response"]["text"]
+    assert "играть с вами в шахматы голосом" in text
+    assert "новая игра белыми" in text
+    assert "пешка е два е четыре" in text
 
 
 async def test_a_sequence_of_requests_stays_on_the_same_game(

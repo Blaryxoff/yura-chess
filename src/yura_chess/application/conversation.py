@@ -659,6 +659,15 @@ class ConversationService:
         )
         side = "черными" if player_color is PlayerColor.BLACK else "белыми"
         reply = self._turn_reply(owner_key, result, state, preferences)
+        if request.is_new_session and not utterance.strip():
+            return replace(
+                reply,
+                speech=Speech.of(
+                    f"Это навык «Шахматы с Юрой». Здесь вы играете в шахматы голосом против компьютера. "
+                    f"Новая партия уже началась: вы играете {side}, уровень {level}. "
+                    f"Назовите ход, например «пешка е два е четыре», или скажите «помощь». {reply.speech.text}"
+                ),
+            )
         return replace(
             reply,
             speech=Speech.of(f"Новая партия. Вы играете {side}, уровень {level}. {reply.speech.text}"),
