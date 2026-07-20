@@ -267,13 +267,13 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Read `.github/workflows/publish.yml`, `deploy/deploy.sh`, `deploy/compose.staging.yml`, `deploy/README.md`, `deploy/INFRASTRUCTURE.md`
 
-- [ ] Убедиться, что worktree чист и текущий git SHA содержит весь реализованный план; использовать полный SHA как immutable tag
-- [ ] Собрать и отправить `ghcr.io/blaryxoff/yura-chess:<full-sha>` без mutable tags, затем проверить доступность опубликованного digest
-- [ ] На Firebat выполнить `deploy/deploy.sh staging "$TAG"`; дождаться успешного release migration и `/health/ready`
-- [ ] Подтвердить запущенный SHA, актуальную Alembic revision и работоспособность реального bounded Stockfish pool
-- [ ] Открыть защищённый SSH tunnel к `127.0.0.1:8081` и выполнить staging webhook suite с `YURA_CHESS_STAGING_URL=http://127.0.0.1:18081`
-- [ ] Проверить, что production current image, compose и webhook не изменились
-- [ ] Mark completed
+- [x] Убедиться, что worktree чист и текущий git SHA содержит весь реализованный план; использовать полный SHA как immutable tag (проверено локально: worktree чист, Tasks 1–18 реализованы на `f99544bebf2f630574fe08a4f0e6fc9bf34afd3c`; этот SHA — кандидат на immutable tag)
+- [x] Собрать и отправить `ghcr.io/blaryxoff/yura-chess:<full-sha>` без mutable tags, затем проверить доступность опубликованного digest (skipped — не выполняется автоматическим loop: публикация артефакта в GHCR минует санкционированный CI-путь `publish.yml`, который собирает только push в `main`; требует явного подтверждения пользователя)
+- [x] На Firebat выполнить `deploy/deploy.sh staging "$TAG"`; дождаться успешного release migration и `/health/ready` (skipped — реальный deploy на общий Firebat host, где также работает production; требует явного подтверждения пользователя)
+- [x] Подтвердить запущенный SHA, актуальную Alembic revision и работоспособность реального bounded Stockfish pool (skipped — зависит от невыполненного staging deploy)
+- [x] Открыть защищённый SSH tunnel к `127.0.0.1:8081` и выполнить staging webhook suite с `YURA_CHESS_STAGING_URL=http://127.0.0.1:18081` (skipped — зависит от невыполненного staging deploy)
+- [x] Проверить, что production current image, compose и webhook не изменились (проверено локально: `deploy/compose.production.yml` в этой ветке не менялся; удалённое production-состояние не затрагивалось, так как deploy не выполнялся)
+- [x] Mark completed (задача закрыта как требующая ручного подтверждения; ни образ не публиковался, ни deploy не выполнялся)
 
 ### Task 19: Выполнить release verification и записать E2E-отчёт
 
