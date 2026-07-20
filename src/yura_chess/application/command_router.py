@@ -54,6 +54,8 @@ class CommandKind(StrEnum):
     TRAINING = "training"
     # A question about a finished game: review, PGN or dictation.
     REVIEW = "review"
+    # A tactical puzzle: choosing one, solving it, or leaving them.
+    PUZZLE = "puzzle"
     MOVE = "move"
     # A move was understood but is not legal in the current position.
     ILLEGAL_MOVE = "illegal_move"
@@ -145,6 +147,23 @@ class ReviewRequest:
     question: ReviewQuestion
 
 
+class PuzzleQuestion(StrEnum):
+    """What was asked about tactical puzzles; a game is never touched by any of them."""
+
+    START = "start"
+    NEXT = "next"
+    SOLUTION = "solution"
+    STREAK = "streak"
+    EXIT = "exit"
+
+
+@dataclass(frozen=True, slots=True)
+class PuzzleRequest:
+    question: PuzzleQuestion
+    # A Lichess theme the player named, e.g. `mateIn1`; `None` picks by difficulty.
+    theme: str | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class RematchRequest:
     color: RematchColor = RematchColor.SAME
@@ -172,6 +191,8 @@ class RoutedCommand:
     training: TrainingRequest | None = None
     # Which question about a finished game was asked; set only for `REVIEW`.
     review: ReviewRequest | None = None
+    # Which puzzle question was asked; set only for `PUZZLE`.
+    puzzle: PuzzleRequest | None = None
 
 
 _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
@@ -314,6 +335,40 @@ _REVIEW_PATTERNS: tuple[tuple[ReviewQuestion, re.Pattern[str]], ...] = (
     (ReviewQuestion.SUMMARY, re.compile(r"разбери (партию|игру)|разбор партии|проанализируй партию|итоги партии")),
 )
 
+# Puzzle phrases are read before the game commands: «еще задачу» would otherwise
+# be heard as a rematch, and «выйти из задач» as a plain stop.
+_PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
+    (
+        PuzzleQuestion.EXIT,
+        re.compile(r"(выйти|выход|закончить|хватит|стоп)\w*( из)? задач|вернут?ься к партии|вернемся к партии"),
+    ),
+    (
+        PuzzleQuestion.SOLUTION,
+        re.compile(r"(покажи|какое|объясни|не знаю)\w* решение|сдаюсь в задаче|решение задачи"),
+    ),
+    (
+        PuzzleQuestion.STREAK,
+        re.compile(r"кака(я|ю)( у меня)? серия|сколько( задач)? подряд|мо(я|ю) серия"),
+    ),
+    (
+        PuzzleQuestion.NEXT,
+        re.compile(r"следующ\w* задач|еще( одну)? задач|друг(ую|ая) задач|нов(ая|ую) задач"),
+    ),
+    (PuzzleQuestion.START, re.compile(r"задач|головоломк")),
+)
+
+# Themes the shipped catalogue actually carries, named the way a player names them.
+_PUZZLE_THEMES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("mateIn1", re.compile(r"мат в один|одноходов")),
+    ("mateIn2", re.compile(r"мат в два|двуходов")),
+    ("fork", re.compile(r"вилк")),
+    ("pin", re.compile(r"связк")),
+    ("skewer", re.compile(r"сквозн|шампур")),
+    ("backRankMate", re.compile(r"последн\w* горизонтал")),
+    ("discoveredAttack", re.compile(r"вскрыт")),
+    ("hangingPiece", re.compile(r"висяч|зевок")),
+)
+
 # What is left of a preview question once the framing words are dropped.
 _PREVIEW_PREFIX = re.compile(
     r"^.*?(?:если (?:я )?(?:сыграю|пойду|походу|сделаю ход)?|стоит ли (?:мне )?(?:играть|ходить))\s*"
@@ -352,6 +407,9 @@ def route(
     preference = parse_preference(normalized.text)
     if preference is not None:
         return RoutedCommand(CommandKind.PREFERENCE, normalized, preference=preference, clarification=None)
+    puzzle = parse_puzzle(normalized.text)
+    if puzzle is not None:
+        return RoutedCommand(CommandKind.PUZZLE, normalized, puzzle=puzzle, clarification=None)
     rematch = parse_rematch(normalized.text)
     if rematch is not None:
         return RoutedCommand(CommandKind.REMATCH, normalized, rematch=rematch, clarification=None)
@@ -404,6 +462,23 @@ def parse_review(text: str) -> ReviewRequest | None:
     for question, pattern in _REVIEW_PATTERNS:
         if pattern.search(text):
             return ReviewRequest(question)
+    return None
+
+
+def parse_puzzle(text: str) -> PuzzleRequest | None:
+    """Read a puzzle command, or return `None` when the phrase is not one."""
+    for question, pattern in _PUZZLE_PATTERNS:
+        if pattern.search(text):
+            if question not in {PuzzleQuestion.START, PuzzleQuestion.NEXT}:
+                return PuzzleRequest(question)
+            return PuzzleRequest(question, theme=_puzzle_theme(text))
+    return None
+
+
+def _puzzle_theme(text: str) -> str | None:
+    for theme, pattern in _PUZZLE_THEMES:
+        if pattern.search(text):
+            return theme
     return None
 
 

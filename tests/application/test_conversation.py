@@ -821,3 +821,19 @@ async def test_brief_answers_are_played_without_a_comment(
     reply = await play_all(conversation, TO_MIDDLEGAME, started.state)
 
     assert "миттельшпиль" not in reply.speech.text
+
+
+async def test_a_puzzle_is_offered_before_any_game_exists_and_leaves_none_behind(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    offered = await conversation.handle(OWNER, "дай задачу", context(1, new=True))
+    left = await conversation.handle(OWNER, "выйти из задач", context(2), offered.state)
+
+    assert "Задача, ход" in offered.speech.text
+    assert offered.state.game_id is None
+    assert "Выхожу из задач" in left.speech.text
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).find_latest(OWNER) is None

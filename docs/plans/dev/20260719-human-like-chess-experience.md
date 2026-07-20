@@ -213,14 +213,14 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Create `src/yura_chess/application/puzzle_service.py`, `tests/application/test_puzzle_service.py`; Modify `src/yura_chess/application/command_router.py`, `src/yura_chess/application/conversation.py`, `tests/application/test_conversation.py`
 
-- [ ] Реализовать выбор случайной, тематической, mate-in-one/two и подходящей по сохранённому difficulty bucket задачи
-- [ ] Переиспользовать position speech, resolver, legality explanations и board image без мутации game rows
-- [ ] Обрабатывать correct alternative, forced opponent reply, legal-wrong, illegal и ambiguous move
-- [ ] Реализовать подсказки, объяснение решения, следующую задачу, серию и выход к партии
-- [ ] После трёх подряд чистых решений без ошибки/подсказки повышать bucket на одну ступень; после двух подряд неудач с показом решения или выходом после ошибочной попытки понижать его на одну ступень
-- [ ] Делать обновление bucket/streak и завершение attempt одной replay-safe атомарной операцией, не выходя за low/high
-- [ ] Различать resume prompt незавершённой задачи и незавершённой игры
-- [ ] Mark completed
+- [x] Реализовать выбор случайной, тематической, mate-in-one/two и подходящей по сохранённому difficulty bucket задачи
+- [x] Переиспользовать position speech, resolver, legality explanations и board image без мутации game rows
+- [x] Обрабатывать correct alternative, forced opponent reply, legal-wrong, illegal и ambiguous move
+- [x] Реализовать подсказки, объяснение решения, следующую задачу, серию и выход к партии
+- [x] После трёх подряд чистых решений без ошибки/подсказки повышать bucket на одну ступень; после двух подряд неудач с показом решения или выходом после ошибочной попытки понижать его на одну ступень
+- [x] Делать обновление bucket/streak и завершение attempt одной replay-safe атомарной операцией, не выходя за low/high
+- [x] Различать resume prompt незавершённой задачи и незавершённой игры
+- [x] Mark completed
 
 ### Task 16: Интегрировать новые режимы с Alice state и экраном
 

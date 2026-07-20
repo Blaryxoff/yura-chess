@@ -20,10 +20,12 @@ from yura_chess.application.command_router import (
     ReviewQuestion,
     ReviewRequest,
     RoutedCommand,
+    TrainingQuestion,
     confirmation_answer,
     route,
 )
 from yura_chess.application.game_service import GameService, MoveSearch, RequestContext
+from yura_chess.application.puzzle_service import OpenPuzzle, PuzzleService
 from yura_chess.application.review_service import ReviewService
 from yura_chess.application.training_service import PositionSearch, TrainingService
 from yura_chess.domain.game import EngineSettings, GameMode, GameState, GameStatus, PlayerColor
@@ -136,10 +138,18 @@ class ChessEngine(MoveSearch, PositionSearch, Protocol):
 class ConversationService:
     """Interpret one utterance and produce the complete voice-first response."""
 
-    def __init__(self, session_factory: sessionmaker[Session], engine: ChessEngine, settings: Settings) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        engine: ChessEngine,
+        settings: Settings,
+        puzzles: PuzzleService | None = None,
+    ) -> None:
         self._session_factory = session_factory
         self._training = TrainingService(session_factory, engine, settings)
         self._review = ReviewService(session_factory, engine, settings)
+        # Injectable so a test can fix which puzzle the catalogue offers.
+        self._puzzles = puzzles or PuzzleService(session_factory)
         self._games = GameService(session_factory, engine, observer=self._training)
         self._settings = settings
 
@@ -200,6 +210,13 @@ class ConversationService:
             state = ConversationState(last_heard=state.last_heard)
 
         if request.is_new_session and not utterance.strip() and not self._games.request_was_seen(owner_key, request):
+            # An unfinished puzzle is asked about as a puzzle, never as a game.
+            unsolved = self._puzzles.find_open(owner_key)
+            if unsolved is not None:
+                return ConversationReply(
+                    self._puzzles.resume_prompt(unsolved),
+                    replace(state, pending_action=PendingAction(CommandKind.PUZZLE, "")),
+                )
             candidate = game if game is not None and game.status is GameStatus.ACTIVE else None
             candidate = candidate or self._games.find_latest_active_game(owner_key)
             if candidate is not None:
@@ -238,12 +255,25 @@ class ConversationService:
             next_state = replace(next_state, pending_action=None)
             if not confirmation:
                 cancelled_state = self._with_game(next_state, game) if game else next_state
+                if confirmed.kind is CommandKind.PUZZLE:
+                    unsolved = self._puzzles.find_open(owner_key)
+                    if unsolved is not None:
+                        self._puzzles.abandon(owner_key, unsolved)
+                    return ConversationReply(
+                        Speech.of("Хорошо, задачу закрываю. Скажите «продолжить» или «новая игра»."),
+                        cancelled_state,
+                    )
                 if confirmed.kind is CommandKind.CONTINUE:
                     return ConversationReply(
                         Speech.of("Хорошо. Скажите «новая игра», если хотите начать другую."),
                         cancelled_state,
                     )
                 return ConversationReply(Speech.of("Хорошо, отменяю."), cancelled_state)
+            if confirmed.kind is CommandKind.PUZZLE:
+                unsolved = self._puzzles.find_open(owner_key)
+                if unsolved is not None:
+                    return ConversationReply(self._puzzles.present(unsolved).speech, next_state)
+                return ConversationReply(Speech.of("Задача уже закрыта. Скажите «дай задачу»."), next_state)
             if confirmed.kind is CommandKind.REMATCH and confirmed.rematch is not None:
                 base = game or self._games.find_latest_game(owner_key)
                 if base is not None:
@@ -267,6 +297,14 @@ class ConversationService:
                 if candidate is not None:
                     result = await self._games.continue_game(owner_key, candidate.id, request)
                     return self._turn_reply(owner_key, result, next_state, preferences)
+
+        # An open puzzle owns moves and hints: they are judged against its own
+        # position, so they must not reach the game's move resolution at all.
+        open_puzzle = self._puzzles.find_open(owner_key)
+        if open_puzzle is not None:
+            solving = self._puzzle_reply(owner_key, open_puzzle, utterance, request, state, next_state)
+            if solving is not None:
+                return solving
 
         mode = _help_mode(game)
         # Open help owns «дальше», «назад» and «сначала»: otherwise they would be
@@ -316,6 +354,14 @@ class ConversationService:
                     ),
                 )
             return await self._rematch(owner_key, base, request, routed.rematch, next_state, preferences)
+
+        # Puzzles need no game, and never change the one that happens to be open.
+        if routed.kind is CommandKind.PUZZLE and routed.puzzle is not None:
+            chosen = self._puzzles.answer(owner_key, routed.puzzle, request, None)
+            return ConversationReply(
+                chosen.speech,
+                self._with_game(next_state, game) if game is not None else next_state,
+            )
 
         if routed.kind is CommandKind.TRAINING and routed.training is not None:
             if game is None:
@@ -438,6 +484,58 @@ class ConversationService:
             Speech.of("Не поняла команду." + _hint(preferences, "Скажите ход или попросите помощь.")),
             self._with_game(next_state, game),
         )
+
+    def _puzzle_reply(
+        self,
+        owner_key: str,
+        open_puzzle: OpenPuzzle,
+        utterance: str,
+        request: RequestContext,
+        prior: ConversationState,
+        state: ConversationState,
+    ) -> ConversationReply | None:
+        """Answer whatever the puzzle owns; `None` lets the game have the utterance."""
+        board = open_puzzle.board()
+        routed = route(
+            utterance,
+            board,
+            pending=prior.clarification,
+            confidence_threshold=self._settings.voice_move_confidence_threshold,
+        )
+        if routed.kind in _LEAVES_PUZZLE:
+            # Asking for a game ends the puzzle rather than keeping both open.
+            self._puzzles.abandon(owner_key, open_puzzle)
+            return None
+        if routed.kind is CommandKind.PUZZLE and routed.puzzle is not None:
+            return ConversationReply(
+                self._puzzles.answer(owner_key, routed.puzzle, request, open_puzzle).speech,
+                state,
+            )
+        if (
+            routed.kind is CommandKind.TRAINING
+            and routed.training is not None
+            and routed.training.question is TrainingQuestion.HINT
+        ):
+            return ConversationReply(self._puzzles.hint(owner_key, open_puzzle, request).speech, state)
+        if routed.kind is CommandKind.MOVE and routed.move is not None:
+            return ConversationReply(self._puzzles.play(owner_key, open_puzzle, routed.move, request).speech, state)
+        if routed.kind is CommandKind.ILLEGAL_MOVE:
+            text = routed.explanation.text if routed.explanation is not None else "Так пойти нельзя."
+            return ConversationReply(Speech.of(text), state)
+        if routed.kind is CommandKind.CLARIFY:
+            pending = routed.clarification or prior.clarification
+            return ConversationReply(self._clarification_speech(pending), replace(state, clarification=pending))
+        if routed.kind is CommandKind.CANCEL_CLARIFY:
+            return ConversationReply(Speech.of("Хорошо, ход не делаю. Назовите другой ход."), state)
+        if routed.kind is CommandKind.POSITION_QUERY:
+            answer = answer_position_query(utterance, board, prior.position_page)
+            return ConversationReply(answer.speech, replace(state, position_page=answer.page))
+        if routed.kind is CommandKind.UNKNOWN:
+            return ConversationReply(
+                Speech.of("Не поняла. Назовите ход, скажите «подскажи» или «покажи решение»."),
+                state,
+            )
+        return None
 
     async def _review_reply(
         self,
@@ -706,6 +804,19 @@ class ConversationService:
                 legal_move_count=board.legal_moves.count() if board is not None else 0,
             )
 
+
+# Commands that are about a game, not about the puzzle that happens to be open.
+_LEAVES_PUZZLE = frozenset(
+    {
+        CommandKind.START,
+        CommandKind.NEW_GAME,
+        CommandKind.CONTINUE,
+        CommandKind.REMATCH,
+        CommandKind.RESIGN,
+        CommandKind.UNDO,
+        CommandKind.CLAIM_DRAW,
+    }
+)
 
 _REVIEW_NEXT = re.compile(r"^(дальше|далее|еще|ещё|следующ\w*)$")
 _REVIEW_PREVIOUS = re.compile(r"^(назад|обратно|предыдущ\w*)$")
