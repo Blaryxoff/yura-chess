@@ -263,7 +263,9 @@ def test_three_clean_solves_raise_the_difficulty_by_one_step(
 
     for step in range(3):
         start(puzzles, step * 2 + 1)
-        puzzles.play(OWNER, open_puzzle(puzzles), "d7e8", context(step * 2 + 2))
+        solved = puzzles.play(OWNER, open_puzzle(puzzles), "d7e8", context(step * 2 + 2))
+        # The announced series is the one the player is on, promotion or not.
+        assert f"Ваша серия: {step + 1}." in solved.speech.text
         if step < 2:
             assert profile(session_factory).bucket is PuzzleBucket.MEDIUM
 
