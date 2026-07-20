@@ -14,11 +14,14 @@ from yura_chess.application.conversation import (
     ConversationState,
 )
 from yura_chess.application.game_service import RequestContext
+from yura_chess.application.puzzle_service import PuzzleService
 from yura_chess.domain.analysis import MoveCandidate, PositionAnalysis, Score
 from yura_chess.domain.game import GameStatus, PlayerColor
 from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle
+from yura_chess.presentation.board_image import position_hash
 from yura_chess.presentation.help_speech import HelpState, HelpTopic
 from yura_chess.presentation.move_speech import PAUSE_MARKUP, Speech
+from yura_chess.presentation.response_composer import BoardCard
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
@@ -837,3 +840,32 @@ async def test_a_puzzle_is_offered_before_any_game_exists_and_leaves_none_behind
     assert "Выхожу из задач" in left.speech.text
     with session_scope(session_factory) as session:
         assert GameRepository(session).find_latest(OWNER) is None
+
+
+async def test_a_puzzle_card_is_drawn_from_the_solver_side_and_the_stored_orientation(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    """The picture follows the puzzle's own position; no game row is involved."""
+    conversation = subject(session_factory, offline_settings)
+
+    offered = await conversation.handle(OWNER, "дай задачу", context(1, new=True))
+
+    open_puzzle = PuzzleService(session_factory).find_open(OWNER)
+    assert open_puzzle is not None
+    board = open_puzzle.board()
+    # A Lichess puzzle starts after the setup move, so the side to move solves it.
+    solver = PlayerColor.WHITE if board.turn is chess.WHITE else PlayerColor.BLACK
+    assert isinstance(offered.card, BoardCard)
+    assert offered.card.position_hash == position_hash(board, solver, open_puzzle.last_move)
+    assert open_puzzle.last_move is not None
+
+    # Pinned to the other side, the same position must be drawn the other way up.
+    opposite = PlayerColor.BLACK if solver is PlayerColor.WHITE else PlayerColor.WHITE
+    command = "показывай доску за черных" if opposite is PlayerColor.BLACK else "показывай доску за белых"
+    pinned = await conversation.handle(OWNER, command, context(2), offered.state)
+    shown = await conversation.handle(OWNER, "подскажи", context(3), pinned.state)
+
+    assert isinstance(shown.card, BoardCard)
+    assert shown.card.position_hash == position_hash(board, opposite, open_puzzle.last_move)
+    assert shown.card.position_hash != offered.card.position_hash
