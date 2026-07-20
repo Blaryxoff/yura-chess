@@ -165,6 +165,33 @@ async def test_current_engine_level_can_be_asked_in_natural_speech(
     )
 
 
+async def test_new_session_greeting_explains_the_skill_and_next_commands(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    reply = await subject(session_factory, offline_settings).handle(OWNER, "", context(1, new=True))
+
+    assert reply.turn is not None
+    assert "Шахматы с Юрой" in reply.speech.text
+    assert "шахматы голосом" in reply.speech.text
+    assert "пешка е два е четыре" in reply.speech.text
+    assert "скажите «помощь»" in reply.speech.text
+
+
+@pytest.mark.parametrize("utterance", ["помощь", "что ты умеешь"])
+async def test_moderation_help_commands_return_an_instruction_in_a_new_session(
+    utterance: str,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    reply = await subject(session_factory, offline_settings).handle(OWNER, utterance, context(1, new=True))
+
+    assert reply.turn is None
+    assert "играть с вами в шахматы голосом" in reply.speech.text
+    assert "новая игра белыми" in reply.speech.text
+    assert "пешка е два е четыре" in reply.speech.text
+
+
 async def test_new_session_offers_the_latest_unfinished_game_and_last_two_moves(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
