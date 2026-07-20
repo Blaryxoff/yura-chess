@@ -17,6 +17,7 @@ import chess
 from yura_chess.domain.game import PlayerColor
 from yura_chess.domain.preferences import NotationStyle
 from yura_chess.domain.results import GameEnd, GameOutcome, TurnResult, TurnStatus
+from yura_chess.presentation import help_speech
 from yura_chess.presentation.board_image import position_hash, render_png
 from yura_chess.presentation.move_speech import Speech, describe_move, describe_played_move
 
@@ -85,6 +86,38 @@ def compose_board_card(
         render=partial(render_png, board, drawn_from, last_move),
         title="Ваш ход" if board.turn == _chess_color(result.player_color) else "Мой ход",
     )
+
+
+def compose_position_card(
+    board: chess.Board,
+    orientation: PlayerColor,
+    last_move_uci: str | None,
+    title: str,
+) -> BoardCard:
+    """The same picture for a position that belongs to no game, such as a puzzle."""
+    return BoardCard(
+        position_hash=position_hash(board, orientation, last_move_uci),
+        render=partial(render_png, board, orientation, last_move_uci),
+        title=title,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class TextCard:
+    """A screen-only repetition of what was already said; never new information."""
+
+    header: str
+    items: tuple[str, ...]
+
+
+def compose_help_card() -> TextCard:
+    """The topics help can read, listed for a screen that is already showing them."""
+    return TextCard("Справка", tuple(f"Раздел «{section.title}»" for section in help_speech.SECTIONS))
+
+
+def compose_pgn_card(export: str) -> TextCard:
+    """The export as it would be copied off the screen; the voice reads the moves."""
+    return TextCard("PGN", (export,))
 
 
 def _chess_color(color: PlayerColor) -> chess.Color:

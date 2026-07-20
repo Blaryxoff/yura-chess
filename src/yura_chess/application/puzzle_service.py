@@ -65,6 +65,12 @@ class OpenPuzzle:
         return board
 
     @property
+    def last_move(self) -> str | None:
+        """The move that led to the position the player is looking at."""
+        applied = _applied(self.attempt.node)
+        return self.puzzle.moves[applied - 1] if applied else None
+
+    @property
     def expected(self) -> str:
         """The move the player has to find in that position."""
         return self.puzzle.moves[_applied(self.attempt.node)]

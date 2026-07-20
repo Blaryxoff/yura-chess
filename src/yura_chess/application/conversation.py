@@ -43,7 +43,14 @@ from yura_chess.presentation.game_facts import answer_game_fact
 from yura_chess.presentation.help_speech import HelpAnswer, HelpMode, HelpState
 from yura_chess.presentation.move_speech import Speech, add_pauses
 from yura_chess.presentation.position_speech import answer_position_query, describe_recent_moves
-from yura_chess.presentation.response_composer import compose_turn
+from yura_chess.presentation.response_composer import (
+    BoardCard,
+    TextCard,
+    compose_help_card,
+    compose_pgn_card,
+    compose_position_card,
+    compose_turn,
+)
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.preferences_repository import PreferencesRepository
@@ -129,6 +136,10 @@ class ConversationReply:
     # The preferences this answer was rendered with, so the transport can draw
     # the board from the side the player chose.
     preferences: PlayerPreferences | None = None
+    # An optional screen card the transport may attach; the speech above is
+    # always complete without it. A puzzle position arrives here because it
+    # belongs to no game and so has no `turn`.
+    card: BoardCard | TextCard | None = None
 
 
 class ChessEngine(MoveSearch, PositionSearch, Protocol):
@@ -213,9 +224,13 @@ class ConversationService:
             # An unfinished puzzle is asked about as a puzzle, never as a game.
             unsolved = self._puzzles.find_open(owner_key)
             if unsolved is not None:
-                return ConversationReply(
-                    self._puzzles.resume_prompt(unsolved),
-                    replace(state, pending_action=PendingAction(CommandKind.PUZZLE, "")),
+                return self._with_puzzle_card(
+                    owner_key,
+                    ConversationReply(
+                        self._puzzles.resume_prompt(unsolved),
+                        replace(state, pending_action=PendingAction(CommandKind.PUZZLE, "")),
+                    ),
+                    preferences,
                 )
             candidate = game if game is not None and game.status is GameStatus.ACTIVE else None
             candidate = candidate or self._games.find_latest_active_game(owner_key)
@@ -272,7 +287,11 @@ class ConversationService:
             if confirmed.kind is CommandKind.PUZZLE:
                 unsolved = self._puzzles.find_open(owner_key)
                 if unsolved is not None:
-                    return ConversationReply(self._puzzles.present(unsolved).speech, next_state)
+                    return self._with_puzzle_card(
+                        owner_key,
+                        ConversationReply(self._puzzles.present(unsolved).speech, next_state),
+                        preferences,
+                    )
                 return ConversationReply(Speech.of("Задача уже закрыта. Скажите «дай задачу»."), next_state)
             if confirmed.kind is CommandKind.REMATCH and confirmed.rematch is not None:
                 base = game or self._games.find_latest_game(owner_key)
@@ -304,7 +323,7 @@ class ConversationService:
         if open_puzzle is not None:
             solving = self._puzzle_reply(owner_key, open_puzzle, utterance, request, state, next_state)
             if solving is not None:
-                return solving
+                return self._with_puzzle_card(owner_key, solving, preferences)
 
         mode = _help_mode(game)
         # Open help owns «дальше», «назад» and «сначала»: otherwise they would be
@@ -358,9 +377,13 @@ class ConversationService:
         # Puzzles need no game, and never change the one that happens to be open.
         if routed.kind is CommandKind.PUZZLE and routed.puzzle is not None:
             chosen = self._puzzles.answer(owner_key, routed.puzzle, request, None)
-            return ConversationReply(
-                chosen.speech,
-                self._with_game(next_state, game) if game is not None else next_state,
+            return self._with_puzzle_card(
+                owner_key,
+                ConversationReply(
+                    chosen.speech,
+                    self._with_game(next_state, game) if game is not None else next_state,
+                ),
+                preferences,
             )
 
         if routed.kind is CommandKind.TRAINING and routed.training is not None:
@@ -485,6 +508,28 @@ class ConversationService:
             self._with_game(next_state, game),
         )
 
+    def _with_puzzle_card(
+        self,
+        owner_key: str,
+        reply: ConversationReply,
+        preferences: PlayerPreferences,
+    ) -> ConversationReply:
+        """Draw the position the attempt now stands on; a closed attempt draws nothing."""
+        current = self._puzzles.find_open(owner_key)
+        if current is None:
+            return reply
+        board = current.board()
+        solver = PlayerColor.WHITE if board.turn is chess.WHITE else PlayerColor.BLACK
+        return replace(
+            reply,
+            card=compose_position_card(
+                board,
+                preferences.orientation_for(solver),
+                current.last_move,
+                "Задача",
+            ),
+        )
+
     def _puzzle_reply(
         self,
         owner_key: str,
@@ -568,6 +613,9 @@ class ConversationService:
                 self._with_game(state, reviewed),
                 reviewing=request.question is not ReviewQuestion.EXIT,
             ),
+            # The export is already the spoken answer's text; the card only makes
+            # it easier to copy off a screen.
+            card=compose_pgn_card(speech.text) if request.question is ReviewQuestion.PGN else None,
         )
 
     def _reviewable(self, owner_key: str, game: GameState | None) -> GameState | None:
@@ -766,6 +814,7 @@ class ConversationService:
         return ConversationReply(
             answer.speech,
             self._with_game(help_state, game) if game is not None else help_state,
+            card=compose_help_card() if answer.state is not None else None,
         )
 
     @staticmethod

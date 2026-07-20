@@ -17,6 +17,9 @@ TEXT_LIMIT = 1024
 TTS_LIMIT = 1024
 STATE_LIMIT_BYTES = 1024
 CARD_TITLE_LIMIT = 128
+CARD_DESCRIPTION_LIMIT = 256
+# `ItemsList` shows between one and five items.
+CARD_ITEMS_LIMIT = 5
 
 # `request_replays` stores the replay key in CHAR/VARCHAR(64) columns.
 IDENTIFIER_LIMIT = 64
@@ -87,15 +90,34 @@ class AliceRequest(_AliceModel):
 class BigImageCard(_AliceModel):
     """The single-image card; sent only to a device that has a screen."""
 
-    type: str = "BigImage"
+    type: Literal["BigImage"] = "BigImage"
     image_id: str
     title: str | None = Field(default=None, max_length=CARD_TITLE_LIMIT)
+
+
+class CardHeader(_AliceModel):
+    text: str = Field(max_length=CARD_TITLE_LIMIT)
+
+
+class CardItem(_AliceModel):
+    """One line of an `ItemsList`; `image_id` is not required for this card type."""
+
+    title: str | None = Field(default=None, max_length=CARD_TITLE_LIMIT)
+    description: str | None = Field(default=None, max_length=CARD_DESCRIPTION_LIMIT)
+
+
+class ItemsListCard(_AliceModel):
+    """A text card that repeats what was said; never the only place to read it."""
+
+    type: Literal["ItemsList"] = "ItemsList"
+    header: CardHeader
+    items: list[CardItem] = Field(min_length=1, max_length=CARD_ITEMS_LIMIT)
 
 
 class ResponseBody(_AliceModel):
     text: str
     tts: str | None = None
-    card: BigImageCard | None = None
+    card: BigImageCard | ItemsListCard | None = Field(default=None, discriminator="type")
     end_session: bool = False
 
 
@@ -134,6 +156,9 @@ class ConversationSessionState(_AliceModel):
     pending_action: PendingActionState | None = None
     position_page: int = Field(default=0, ge=0, le=3)
     help: HelpSessionState | None = None
+    # True while a review is being dictated, so «дальше» turns its page. Which
+    # review, and how far it has come, stays server-side.
+    reviewing: bool = False
 
 
 class AliceResponse(_AliceModel):

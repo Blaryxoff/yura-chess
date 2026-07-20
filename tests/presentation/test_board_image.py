@@ -21,13 +21,31 @@ import pytest
 from PIL import Image, ImageDraw
 from sqlalchemy.orm import Session, sessionmaker
 
-from yura_chess.adapters.alice.models import AliceRequest, AliceResponse, BigImageCard, ResponseBody
-from yura_chess.adapters.alice.webhook import _attach_card
+from yura_chess.adapters.alice.models import (
+    CARD_DESCRIPTION_LIMIT,
+    CARD_ITEMS_LIMIT,
+    AliceRequest,
+    AliceResponse,
+    BigImageCard,
+    ItemsListCard,
+    ResponseBody,
+)
+from yura_chess.adapters.alice.webhook import _attach_card, _card_for
 from yura_chess.adapters.yandex_images import BoardImageCache, BoardImageService, YandexImageClient
+from yura_chess.application.conversation import ConversationReply, ConversationState
 from yura_chess.domain.game import GameStatus, PlayerColor
+from yura_chess.domain.preferences import BoardOrientation, PlayerPreferences
 from yura_chess.domain.results import TurnResult, TurnStatus
 from yura_chess.presentation.board_image import BOARD_PIXELS, CARD_HEIGHT, CARD_WIDTH, position_hash, render_png
-from yura_chess.presentation.response_composer import compose_board_card, compose_turn
+from yura_chess.presentation.response_composer import (
+    BoardCard,
+    TextCard,
+    compose_board_card,
+    compose_help_card,
+    compose_pgn_card,
+    compose_position_card,
+    compose_turn,
+)
 from yura_chess.settings import Settings
 from yura_chess.storage.models import BoardImageCacheRow
 
@@ -308,7 +326,8 @@ class TestAttachCard:
         return AliceResponse(response=ResponseBody(text="Мой ход. Е2 Е4."), version="1.0")
 
     async def _attach(self, has_screen: bool, images: BoardImageService | None, budget: float = 3.0) -> AliceResponse:
-        return await _attach_card(self._response(), _result(), has_screen, images, budget)
+        card = _card_for(ConversationReply(compose_turn(_result()), ConversationState(), _result()), has_screen)
+        return await _attach_card(self._response(), card, images, budget)
 
     async def _service(self, uploader: object) -> BoardImageService:
         return BoardImageService(_FakeSessionFactory({}), _settings(), uploader=uploader)  # type: ignore[arg-type]
@@ -336,7 +355,9 @@ class TestAttachCard:
             return "img-1"
 
         # Enough budget to start the upload, far too little to finish it.
-        response = await _attach_card(self._response(), _result(), True, await self._service(slow), 1.0)
+        response = await _attach_card(
+            self._response(), compose_board_card(_result(), True), await self._service(slow), 1.0
+        )
 
         assert response.response.card is None
         assert response.response.text == "Мой ход. Е2 Е4."
@@ -500,3 +521,63 @@ class TestCacheAgainstDatabase:
         for candidate in candidates:
             cache.forget(candidate)
         assert cache.get(f"{1:064d}", now) == "img-1"
+
+
+class TestCardSelection:
+    """Which card an answer offers, and to whom."""
+
+    def _reply(self, **overrides: object) -> ConversationReply:
+        result = _result()
+        defaults: dict[str, object] = {"speech": compose_turn(result), "state": ConversationState(), "turn": result}
+        return ConversationReply(**(defaults | overrides))  # type: ignore[arg-type]
+
+    def test_a_voice_only_device_is_offered_nothing(self) -> None:
+        assert _card_for(self._reply(), has_screen=False) is None
+        assert _card_for(self._reply(card=compose_help_card()), has_screen=False) is None
+
+    def test_a_turn_is_drawn_from_the_stored_orientation(self) -> None:
+        pinned = replace(PlayerPreferences(owner_key="o"), board_orientation=BoardOrientation.BLACK)
+
+        card = _card_for(self._reply(preferences=pinned), has_screen=True)
+        own_side = _card_for(self._reply(), has_screen=True)
+
+        assert isinstance(card, BoardCard) and isinstance(own_side, BoardCard)
+        assert card.position_hash == position_hash(chess.Board(), PlayerColor.BLACK, "e7e5")
+        assert card.position_hash != own_side.position_hash
+
+    def test_a_position_without_a_game_wins_over_the_turn(self) -> None:
+        """A puzzle carries its own board; nothing about it comes from a game row."""
+        board = chess.Board(MATE_FEN)
+        puzzle_card = compose_position_card(board, PlayerColor.BLACK, "a1a7", "Задача")
+
+        card = _card_for(self._reply(card=puzzle_card), has_screen=True)
+
+        assert card is puzzle_card
+        assert puzzle_card.position_hash == position_hash(board, PlayerColor.BLACK, "a1a7")
+
+    def test_a_text_card_needs_no_image_service(self) -> None:
+        assert isinstance(_card_for(self._reply(card=compose_pgn_card("1. e4 e5 *")), has_screen=True), TextCard)
+
+
+@pytest.mark.anyio
+class TestTextCardAttachment:
+    async def test_the_listing_is_sent_without_uploading_anything(self) -> None:
+        response = AliceResponse(response=ResponseBody(text="Разделы справки."), version="1.0")
+
+        attached = await _attach_card(response, compose_help_card(), None, 3.0)
+
+        card = attached.response.card
+        assert isinstance(card, ItemsListCard)
+        assert card.header.text == "Справка"
+        assert len(card.items) <= CARD_ITEMS_LIMIT
+        assert attached.response.text == "Разделы справки."
+
+    async def test_an_over_long_export_is_clipped_rather_than_dropped(self) -> None:
+        response = AliceResponse(response=ResponseBody(text="PGN"), version="1.0")
+
+        attached = await _attach_card(response, compose_pgn_card("1. e4 e5 " * 200), None, 3.0)
+
+        card = attached.response.card
+        assert isinstance(card, ItemsListCard)
+        assert card.items[0].description is not None
+        assert len(card.items[0].description) <= CARD_DESCRIPTION_LIMIT

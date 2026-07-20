@@ -14,10 +14,20 @@ from settings_fixtures import TEST_IDENTITY_SALT, UNREACHABLE_DATABASE_URL
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from yura_chess.adapters.alice.models import STATE_LIMIT_BYTES, TEXT_LIMIT, TTS_LIMIT, AliceRequest
+from yura_chess.adapters.alice.models import (
+    CARD_ITEMS_LIMIT,
+    STATE_LIMIT_BYTES,
+    TEXT_LIMIT,
+    TTS_LIMIT,
+    AliceRequest,
+)
+from yura_chess.adapters.alice.webhook import _conversation_state, _session_state_update
+from yura_chess.application.command_router import CommandKind, PendingClarification
+from yura_chess.application.conversation import ConversationState, PendingAction
 from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key
 from yura_chess.domain.game import PlayerColor
 from yura_chess.main import create_app
+from yura_chess.presentation.help_speech import HelpState, HelpTopic
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
@@ -658,3 +668,79 @@ def test_the_owner_key_is_pseudonymous_and_scoped() -> None:
 
     with pytest.raises(UnidentifiedRequestError):
         owner_key(salt, None, None)
+
+
+async def test_a_help_card_is_optional_and_the_voice_answer_is_unchanged(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Screen and no-screen answers say the same thing; only the card differs."""
+    async with build_client(session_factory) as client:
+        spoken = (await client.post("/alice/webhook", json=alice_request(1, command="справка"))).json()
+        shown = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(1, session_id="session-2", command="справка", screen=True),
+            )
+        ).json()
+
+    assert spoken["response"].get("card") is None
+    assert shown["response"]["text"] == spoken["response"]["text"]
+    card = shown["response"]["card"]
+    assert card["type"] == "ItemsList"
+    assert card["header"]["text"] == "Справка"
+    assert 1 <= len(card["items"]) <= CARD_ITEMS_LIMIT
+    # Every listed topic was already offered by the spoken menu.
+    assert all(item["description"] for item in card["items"])
+
+
+def test_the_review_page_flag_survives_the_alice_session_state() -> None:
+    """«дальше» keeps turning the review's pages after a round trip through Alice."""
+    sent = _session_state_update(ConversationState(game_id="game-1", revision=2, reviewing=True))
+    payload = alice_request(2, session_state=sent.model_dump(exclude_none=True))
+
+    restored = _conversation_state(AliceRequest.model_validate(payload))
+
+    assert sent.reviewing is True
+    assert restored.reviewing is True
+    assert _conversation_state(AliceRequest.model_validate(alice_request(3))).reviewing is False
+
+
+def test_no_durable_identifier_other_than_the_game_reaches_the_client() -> None:
+    """The review and the puzzle attempt stay server-side; only the game is claimed."""
+    sent = _session_state_update(ConversationState(game_id="game-1", revision=2, reviewing=True, position_page=1))
+
+    assert set(sent.model_dump(exclude_none=True)) <= {
+        "game_id",
+        "revision",
+        "last_heard",
+        "last_reply",
+        "clarification",
+        "pending_action",
+        "position_page",
+        "help",
+        "reviewing",
+    }
+
+
+def test_the_session_state_is_kept_inside_the_platform_limit() -> None:
+    """A worst-case dialog drops what can be repeated, never the game it is about."""
+    state = ConversationState(
+        game_id="1" * 36,
+        revision=99,
+        last_heard="я" * 255,
+        last_reply="я" * 512,
+        clarification=PendingClarification("я" * 255, tuple(f"кандидат-{index}" for index in range(16))),
+        pending_action=PendingAction(CommandKind.NEW_GAME, "я" * 255),
+        position_page=3,
+        help=HelpState(topic=HelpTopic.ALL, page=2),
+        reviewing=True,
+    )
+
+    trimmed = _session_state_update(state)
+
+    assert len(trimmed.model_dump_json(exclude_none=True).encode("utf-8")) <= STATE_LIMIT_BYTES
+    assert trimmed.game_id == state.game_id
+    assert trimmed.revision == state.revision
+    assert trimmed.reviewing is True
+    # What was dropped is exactly what the next request can be told again.
+    assert trimmed.last_reply is None

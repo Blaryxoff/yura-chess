@@ -226,11 +226,11 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Modify `src/yura_chess/adapters/alice/models.py`, `src/yura_chess/adapters/alice/webhook.py`, `src/yura_chess/presentation/board_image.py`, `tests/adapters/test_alice_webhook.py`, `tests/presentation/test_board_image.py`
 
-- [ ] Передавать только ограниченное conversation pagination состояние в `session_state`; долговечные identifiers хранить server-side
-- [ ] Рендерить game/training/puzzle board с правильной сохранённой ориентацией и последним применённым ходом
-- [ ] Добавить optional PGN/help cards без обязательной информации только на экране
-- [ ] Проверить лимиты Alice response/state, screen/no-screen и image API fallback
-- [ ] Mark completed
+- [x] Передавать только ограниченное conversation pagination состояние в `session_state`; долговечные identifiers хранить server-side
+- [x] Рендерить game/training/puzzle board с правильной сохранённой ориентацией и последним применённым ходом
+- [x] Добавить optional PGN/help cards без обязательной информации только на экране
+- [x] Проверить лимиты Alice response/state, screen/no-screen и image API fallback
+- [x] Mark completed
 
 ### Task 16.5: Синхронизировать итоговый каталог справки
 

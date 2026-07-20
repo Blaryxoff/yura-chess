@@ -21,6 +21,8 @@ from fastapi import Request as HttpRequest
 from pydantic import SecretStr
 
 from yura_chess.adapters.alice.models import (
+    CARD_DESCRIPTION_LIMIT,
+    CARD_ITEMS_LIMIT,
     CARD_TITLE_LIMIT,
     STATE_LIMIT_BYTES,
     TEXT_LIMIT,
@@ -28,10 +30,13 @@ from yura_chess.adapters.alice.models import (
     AliceRequest,
     AliceResponse,
     BigImageCard,
+    CardHeader,
+    CardItem,
     ClarificationState,
     ConversationSessionState,
     GameStateUpdate,
     HelpSessionState,
+    ItemsListCard,
     PendingActionState,
     ResponseBody,
 )
@@ -42,7 +47,7 @@ from yura_chess.application.game_service import RequestContext
 from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key
 from yura_chess.domain.results import TurnResult
 from yura_chess.presentation import help_speech
-from yura_chess.presentation.response_composer import compose_board_card
+from yura_chess.presentation.response_composer import BoardCard, TextCard, compose_board_card
 from yura_chess.storage.game_repository import ReplayFingerprintConflictError
 from yura_chess.storage.models import FINGERPRINT_LENGTH
 
@@ -67,17 +72,19 @@ def build_router() -> APIRouter:
         started = monotonic()
         try:
             async with asyncio.timeout(settings.webhook_deadline_seconds):
-                response, result, owner, context = await _handle(payload, conversation, settings.identity_salt)
+                response, reply, owner, context = await _handle(payload, conversation, settings.identity_salt)
                 # The answer is already complete; the card is added only if the
                 # rest of the budget can pay for it.
                 remaining = settings.webhook_deadline_seconds - (monotonic() - started)
-                response = await _attach_card(response, result, payload.has_screen, images, remaining)
+                card = _card_for(reply, payload.has_screen)
+                response = await _attach_card(response, card, images, remaining)
                 if owner is not None and context is not None:
+                    turn = reply.turn if reply is not None else None
                     conversation.store_response(
                         owner,
                         context,
                         response.model_dump_json(exclude_none=True),
-                        result.game_id if result is not None else _response_game_id(response),
+                        turn.game_id if turn is not None else _response_game_id(response),
                     )
                 return response
         except TimeoutError:
@@ -92,7 +99,7 @@ async def _handle(
     payload: AliceRequest,
     conversation: ConversationService,
     salt: SecretStr,
-) -> tuple[AliceResponse, TurnResult | None, str | None, RequestContext | None]:
+) -> tuple[AliceResponse, ConversationReply | None, str | None, RequestContext | None]:
     try:
         owner = owner_key(salt, payload.user_id, payload.application_id)
     except UnidentifiedRequestError:
@@ -125,7 +132,7 @@ async def _handle(
         # A foreign or stale game_id must not reveal whether that game exists.
         reply = await conversation.handle(owner, "", context, ConversationState())
 
-    return _compose(payload, reply), reply.turn, owner, context
+    return _compose(payload, reply), reply, owner, context
 
 
 def _response_game_id(response: AliceResponse) -> str | None:
@@ -136,18 +143,39 @@ def _response_game_id(response: AliceResponse) -> str | None:
     return None
 
 
+def _card_for(reply: ConversationReply | None, has_screen: bool) -> BoardCard | TextCard | None:
+    """The picture or listing this answer may show; a voice-only device gets none."""
+    if reply is None or not has_screen:
+        return None
+    if reply.card is not None:
+        return reply.card
+    if reply.turn is None:
+        return None
+    orientation = reply.preferences.orientation_for(reply.turn.player_color) if reply.preferences else None
+    return compose_board_card(reply.turn, has_screen, orientation)
+
+
+def _text_card(card: TextCard) -> ItemsListCard:
+    return ItemsListCard(
+        header=CardHeader(text=_clip(card.header, CARD_TITLE_LIMIT)),
+        items=[CardItem(description=_clip(item, CARD_DESCRIPTION_LIMIT)) for item in card.items[:CARD_ITEMS_LIMIT]],
+    )
+
+
 async def _attach_card(
     response: AliceResponse,
-    result: TurnResult | None,
-    has_screen: bool,
+    card: BoardCard | TextCard | None,
     images: BoardImageService | None,
     remaining_seconds: float,
 ) -> AliceResponse:
     """Add the board picture when there is a screen, an image service and time left."""
-    if result is None or images is None:
-        return response
-    card = compose_board_card(result, has_screen)
     if card is None:
+        return response
+    if isinstance(card, TextCard):
+        if card.items:
+            response.response.card = _text_card(card)
+        return response
+    if images is None:
         return response
     try:
         # A slow upload must expire before the webhook does, or a card that never
@@ -259,6 +287,7 @@ def _conversation_state(payload: AliceRequest) -> ConversationState:
         pending_action=pending_action,
         position_page=page if isinstance(page, int) and 0 <= page <= 3 else 0,
         help=help_state,
+        reviewing=raw.get("reviewing") is True,
     )
 
 
@@ -281,7 +310,7 @@ def _session_state_update(state: ConversationState) -> ConversationSessionState:
             kind=pending_kind,
             utterance=state.pending_action.utterance[:255],
         )
-    return ConversationSessionState(
+    session_state = ConversationSessionState(
         game_id=state.game_id,
         revision=state.revision,
         last_heard=state.last_heard[:255] if state.last_heard else None,
@@ -290,7 +319,21 @@ def _session_state_update(state: ConversationState) -> ConversationSessionState:
         pending_action=pending_action,
         position_page=state.position_page,
         help=HelpSessionState(topic=state.help.topic, page=state.help.page) if state.help is not None else None,
+        reviewing=state.reviewing,
     )
+    return _within_state_limit(session_state)
+
+
+def _within_state_limit(state: ConversationSessionState) -> ConversationSessionState:
+    """Drop the repeatable parts first; navigation must survive the size limit.
+
+    Losing `last_reply` costs a repeat, losing the candidates costs a
+    clarification — losing the game id would lose the game.
+    """
+    for stripped in (state, state.model_copy(update={"last_reply": None})):
+        if len(stripped.model_dump_json(exclude_none=True).encode("utf-8")) <= STATE_LIMIT_BYTES:
+            return stripped
+    return state.model_copy(update={"last_reply": None, "clarification": None, "pending_action": None})
 
 
 def _clip(text: str, limit: int) -> str:
