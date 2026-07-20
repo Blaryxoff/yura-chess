@@ -195,21 +195,25 @@ class RoutedCommand:
     puzzle: PuzzleRequest | None = None
 
 
+# Help is matched before everything else: «справка по задачам» names a help
+# section, and must not open a puzzle, and «справка сначала» must not start a
+# new game.
+_HELP_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
+    (CommandKind.HELP_EXIT, re.compile(r"(выйти|выход|закрой|закрыть|хватит|стоп)\w*( из)? справк")),
+    (
+        CommandKind.HELP,
+        re.compile(
+            r"помощь|что ты умеешь|справка|справку|справке|как играть|"
+            r"какие команды|список команд|все команды|что можно сказать"
+        ),
+    ),
+)
+
 _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (CommandKind.REPEAT_HEARD, re.compile(r"что (ты )?(услышал|поняла|понял|разобрал)|что я сказал")),
     (
         CommandKind.REPEAT_SLOW,
         re.compile(r"^повтори( еще раз)? медленн(о|ее)|^повтори (последнюю фразу|ответ)$"),
-    ),
-    # Help is matched before the game commands so that «справка сначала» stays
-    # help navigation instead of starting a new game.
-    (CommandKind.HELP_EXIT, re.compile(r"(выйти|выход|закрой|закрыть|хватит|стоп)\w*( из)? справк")),
-    (
-        CommandKind.HELP,
-        re.compile(
-            r"помощь|что ты умеешь|справка|справку|как играть|"
-            r"какие команды|список команд|все команды|что можно сказать"
-        ),
     ),
     (CommandKind.NEW_GAME, re.compile(r"нов(ая|ую) (игра|игру|партия|партию)|начн?ем заново|сначала|заново")),
     (CommandKind.RESIGN, re.compile(r"сдаюсь|сдаться|сдаемся|я проиграл")),
@@ -403,6 +407,10 @@ def route(
 ) -> RoutedCommand:
     """Classify `utterance`; `board` is `None` when there is no game to move in."""
     normalized = normalize(utterance)
+
+    for kind, pattern in _HELP_PATTERNS:
+        if pattern.search(normalized.text):
+            return RoutedCommand(kind, normalized, clarification=None)
 
     preference = parse_preference(normalized.text)
     if preference is not None:

@@ -317,21 +317,21 @@ class ConversationService:
                     result = await self._games.continue_game(owner_key, candidate.id, request)
                     return self._turn_reply(owner_key, result, next_state, preferences)
 
+        open_puzzle = self._puzzles.find_open(owner_key)
+        mode = _help_mode(game, open_puzzle is not None)
+        # Open help owns «дальше», «назад» and «сначала»: otherwise they would be
+        # read as board pagination, as a new game, or as a step of the puzzle.
+        if state.help is not None:
+            navigated = help_speech.navigate(utterance, state.help, mode) or help_speech.bare_topic(utterance, mode)
+            if navigated is not None:
+                return self._help_reply(navigated, next_state, game)
+
         # An open puzzle owns moves and hints: they are judged against its own
         # position, so they must not reach the game's move resolution at all.
-        open_puzzle = self._puzzles.find_open(owner_key)
         if open_puzzle is not None:
             solving = self._puzzle_reply(owner_key, open_puzzle, utterance, request, state, next_state)
             if solving is not None:
                 return self._with_puzzle_card(owner_key, solving, preferences)
-
-        mode = _help_mode(game)
-        # Open help owns «дальше», «назад» and «сначала»: otherwise they would be
-        # read as board pagination or as a new game.
-        if state.help is not None:
-            navigated = help_speech.navigate(utterance, state.help, mode) or help_speech.bare_topic(utterance)
-            if navigated is not None:
-                return self._help_reply(navigated, next_state, game)
         # An open review owns «дальше» and «назад» while it is being dictated,
         # exactly as open help owns them.
         if state.reviewing and routed.kind is not CommandKind.REVIEW:
@@ -941,7 +941,9 @@ def _preference_confirmation(change: PreferenceChange) -> str:
     return " ".join(part for part in parts if part) or "Настройка не изменилась."
 
 
-def _help_mode(game: GameState | None) -> HelpMode:
+def _help_mode(game: GameState | None, solving_puzzle: bool = False) -> HelpMode:
+    if solving_puzzle:
+        return HelpMode.PUZZLE
     if game is None:
         return HelpMode.NO_GAME
     if game.status is not GameStatus.ACTIVE:

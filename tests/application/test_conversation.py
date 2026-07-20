@@ -19,12 +19,13 @@ from yura_chess.domain.analysis import MoveCandidate, PositionAnalysis, Score
 from yura_chess.domain.game import GameStatus, PlayerColor
 from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle
 from yura_chess.presentation.board_image import position_hash
-from yura_chess.presentation.help_speech import HelpState, HelpTopic
+from yura_chess.presentation.help_speech import SECTIONS, HelpState, HelpTopic
 from yura_chess.presentation.move_speech import PAUSE_MARKUP, Speech
 from yura_chess.presentation.response_composer import BoardCard
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
+from yura_chess.storage.review_repository import ReviewRepository
 
 pytestmark = pytest.mark.anyio
 
@@ -349,7 +350,12 @@ async def test_help_before_a_game_offers_topics_without_starting_anything(
     [
         ("справка по ходам", HelpTopic.MOVES, "«пешка е два е четыре»"),
         ("справка по позиции", HelpTopic.POSITION, "две горизонтали"),
+        ("справка про факты", HelpTopic.FACTS, "За кого я играю"),
         ("справка про партию", HelpTopic.GAME, "уровень десять"),
+        ("справка про настройки", HelpTopic.SETTINGS, "Говори кратко"),
+        ("справка про тренера", HelpTopic.TRAINING, "режим тренера"),
+        ("справка про разбор", HelpTopic.REVIEW, "Разбери партию"),
+        ("справка про задачи", HelpTopic.PUZZLES, "Дай задачу"),
         ("справка про речь", HelpTopic.SPEECH, "Что ты услышала"),
         ("все команды", HelpTopic.ALL, "Все команды."),
     ],
@@ -395,7 +401,7 @@ async def test_unknown_help_topic_lists_the_real_sections_and_keeps_help_open(
 ) -> None:
     conversation = subject(session_factory, offline_settings)
 
-    reply = await conversation.handle(OWNER, "справка по настройкам", context(1))
+    reply = await conversation.handle(OWNER, "справка про погоду", context(1))
 
     assert "Такого раздела в справке нет" in reply.speech.text
     assert "позиция" in reply.speech.text
@@ -491,6 +497,197 @@ async def test_help_after_a_finished_game_says_the_game_is_over(
     reply = await conversation.handle(OWNER, "справка", context(4), resigned.state)
 
     assert "Партия закончена" in reply.speech.text
+
+
+# One phrase per public command, so a command that is neither advertised nor
+# advertised twice fails the audit. Every implemented category is listed here.
+_CATEGORY_PHRASES = (
+    # Moves, board questions and the game itself.
+    "пешка е два е четыре",
+    "отмени ход",
+    "какая позиция",
+    "что на е четыре",
+    "где белые слоны",
+    "чей ход",
+    "есть ли шах",
+    "какой был последний ход",
+    "новая игра черными",
+    "продолжить последнюю партию",
+    "предлагаю ничью",
+    "сдаюсь",
+    "какой уровень",
+    "реванш",
+    # Facts about the game.
+    "за кого я играю",
+    "какой сейчас ход",
+    "сколько ходов мы сыграли",
+    "какие фигуры съедены",
+    "рокиров",
+    "кто дает шах",
+    "какой дебют",
+    "какая стадия партии",
+    "что изменил последний ход",
+    # Settings.
+    "говори кратко",
+    "говори подробно",
+    "говори медленнее",
+    "говори быстрее",
+    "короткая нотация",
+    "полная нотация",
+    "доска всегда за белых",
+    # Trainer.
+    "включи режим тренера",
+    "выключи тренера",
+    "оцени позицию",
+    "назови оценку числом",
+    "почему ты так сходила",
+    "чем ты угрожаешь",
+    "какие ходы хорошие",
+    "что будет, если я сыграю",
+    "подскажи",
+    "где я ошибся",
+    "оставить мой ход",
+    # Review and PGN.
+    "разбери партию",
+    "продолжить разбор",
+    "где перелом",
+    "главная ошибка",
+    "сколько я ошибся",
+    "продиктуй ходы",
+    "покажи pgn",
+    "сыграть эту позицию заново",
+    "выйти из разбора",
+    # Puzzles.
+    "дай задачу",
+    "следующая задача",
+    "покажи решение",
+    "какая у меня серия",
+    "вернуться к партии",
+    # Speech.
+    "что ты услышала",
+    "повтори медленно",
+    "повтори координаты по буквам",
+)
+
+
+@pytest.mark.parametrize("phrase", _CATEGORY_PHRASES)
+def test_every_public_command_category_lives_in_exactly_one_help_section(phrase: str) -> None:
+    holders = [section.topic for section in SECTIONS if phrase in " ".join(section.lines).lower().replace("ё", "е")]
+
+    assert len(holders) == 1, f"«{phrase}» is listed in {holders}"
+
+
+async def test_the_whole_catalogue_stays_paged_after_the_new_sections(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    reply = await conversation.handle(OWNER, "все команды", context(1))
+
+    pages = 1
+    while "Скажите «дальше»" in reply.speech.text:
+        reply = await conversation.handle(OWNER, "дальше", context(pages + 1), reply.state)
+        pages += 1
+
+    assert pages > 1
+    assert reply.state.help == HelpState(topic=HelpTopic.ALL, page=pages - 1)
+    assert "Это конец раздела" in reply.speech.text
+
+
+@pytest.mark.parametrize(
+    ("topic", "note"),
+    [
+        ("справка про тренера", "сначала скажите «новая игра»"),
+        ("справка про разбор", "сыграйте партию до конца"),
+        ("справка про факты", "после «новая игра»"),
+    ],
+)
+async def test_a_section_says_what_its_commands_need_before_a_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    topic: str,
+    note: str,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, topic, context(1))
+
+    assert note in reply.speech.text
+
+
+async def test_an_open_game_changes_what_the_trainer_and_review_sections_advise(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    trainer = await conversation.handle(OWNER, "справка про тренера", context(2), started.state)
+    review = await conversation.handle(OWNER, "справка про разбор", context(3), trainer.state)
+
+    assert "включи режим тренера" in trainer.speech.text
+    assert "когда партия закончится" in review.speech.text
+
+
+async def test_help_inside_a_puzzle_names_the_puzzle_and_leaves_the_attempt_alone(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    offered = await conversation.handle(OWNER, "дай задачу", context(1, new=True))
+    before = PuzzleService(session_factory).find_open(OWNER)
+    assert before is not None
+
+    helped = await conversation.handle(OWNER, "справка", context(2), offered.state)
+    paged = await conversation.handle(OWNER, "дальше", context(3), helped.state)
+    closed = await conversation.handle(OWNER, "закрой справку", context(4), paged.state)
+
+    assert "Идет задача" in helped.speech.text
+    assert paged.state.help == HelpState(topic=HelpTopic.ALL, page=0)
+    assert closed.state.help is None
+    after = PuzzleService(session_factory).find_open(OWNER)
+    assert after is not None
+    assert after.puzzle.id == before.puzzle.id
+    assert after.attempt.node == before.attempt.node
+    assert after.attempt.mistakes == before.attempt.mistakes
+    assert after.attempt.hints == before.attempt.hints
+    assert after.attempt.revision == before.attempt.revision
+
+
+async def test_help_navigation_leaves_an_open_review_where_it_stopped(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    asked = await conversation.handle(OWNER, "сдаюсь", context(2), started.state)
+    resigned = await conversation.handle(OWNER, "да", context(3), asked.state)
+    dictated = await conversation.handle(OWNER, "продиктуй ходы", context(4), resigned.state)
+    game_id = dictated.state.game_id or ""
+    with session_scope(session_factory) as session:
+        before = ReviewRepository(session).find(game_id, OWNER)
+    assert before is not None
+
+    helped = await conversation.handle(OWNER, "справка про разбор", context(5), dictated.state)
+    paged = await conversation.handle(OWNER, "дальше", context(6), helped.state)
+
+    assert paged.state.help == HelpState(topic=HelpTopic.REVIEW, page=1)
+    with session_scope(session_factory) as session:
+        after = ReviewRepository(session).find(game_id, OWNER)
+    assert after == before
+
+
+async def test_the_puzzle_section_points_back_to_the_game_while_a_puzzle_is_open(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    offered = await conversation.handle(OWNER, "дай задачу", context(1, new=True))
+
+    reply = await conversation.handle(OWNER, "справка про партию", context(2), offered.state)
+
+    assert "вернуться к партии" in reply.speech.text
+    assert PuzzleService(session_factory).find_open(OWNER) is not None
 
 
 @pytest.mark.parametrize(
