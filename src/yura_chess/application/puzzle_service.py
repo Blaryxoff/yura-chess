@@ -184,7 +184,8 @@ class PuzzleService:
         with session_scope(self._session_factory) as session:
             profile = PuzzleRepository(session).load_profile(owner_key)
         current = open_puzzle.puzzle.id if open_puzzle is not None else None
-        pool = [entry for entry in catalogue() if entry.id != current]
+        # Skipping the open puzzle must never leave nothing to choose from.
+        pool = [entry for entry in catalogue() if entry.id != current] or list(catalogue())
         if request.theme is not None:
             pool = [entry for entry in pool if request.theme in entry.themes]
             if not pool:
@@ -325,8 +326,9 @@ def _next_profile(profile: PuzzleProfile, solved: bool, clean: bool) -> PuzzlePr
         bucket = profile.bucket.harder() if streak % CLEAN_SOLVES_TO_PROMOTE == 0 else profile.bucket
         return replace(profile, bucket=bucket, clean_streak=streak, failure_streak=0)
     if solved:
-        # Solved with a hint or after a mistake: neither a clean run nor a failure.
-        return replace(profile, clean_streak=0)
+        # Solved with a hint or after a mistake: not a clean run, but it does
+        # break the run of failures that demotes the difficulty.
+        return replace(profile, clean_streak=0, failure_streak=0)
     failures = profile.failure_streak + 1
     bucket = profile.bucket.easier() if failures % FAILURES_TO_DEMOTE == 0 else profile.bucket
     return replace(profile, bucket=bucket, clean_streak=0, failure_streak=failures)

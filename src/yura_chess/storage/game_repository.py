@@ -10,7 +10,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import chess
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,7 @@ from yura_chess.domain.game import (
     PlayerColor,
 )
 from yura_chess.storage.models import (
+    AnalysisCheckpointRow,
     GameMoveRow,
     GameRow,
     PendingEngineTurnRow,
@@ -195,6 +196,14 @@ class GameRepository:
         if row.pending_engine_turn is not None:
             raise PendingTurnConflictError(f"game {game_id} has a pending engine turn")
         del row.moves[keep_plies:]
+        # A checkpoint values one concrete move at one ply; once that move is
+        # gone its verdict must not describe whatever is played there next.
+        self._session.execute(
+            delete(AnalysisCheckpointRow)
+            .where(AnalysisCheckpointRow.game_id == game_id)
+            .where(AnalysisCheckpointRow.owner_key == owner_key)
+            .where(AnalysisCheckpointRow.ply >= keep_plies)
+        )
         row.last_player_move_at = max(
             (move.created_at for move in row.moves if move.actor == MoveActor.PLAYER.value),
             default=None,

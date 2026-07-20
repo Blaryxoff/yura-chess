@@ -302,6 +302,25 @@ def test_two_failures_lower_the_difficulty_by_one_step(session_factory: sessionm
     assert (stored.bucket, stored.failure_streak) == (PuzzleBucket.LOW, 2)
 
 
+def test_a_solve_between_two_failures_keeps_the_difficulty(session_factory: sessionmaker[Session]) -> None:
+    """Demotion follows two failures in a row, and a solve breaks the row."""
+    puzzles = service(session_factory, MATE_IN_TWO, MATE_IN_ONE, LONG_LINE)
+
+    start(puzzles, 1)
+    puzzles.answer(OWNER, PuzzleRequest(PuzzleQuestion.SOLUTION), context(2), open_puzzle(puzzles))
+
+    start(puzzles, 3)
+    puzzles.hint(OWNER, open_puzzle(puzzles), context(4))
+    puzzles.play(OWNER, open_puzzle(puzzles), "d7e8", context(5))
+    assert profile(session_factory).failure_streak == 0
+
+    start(puzzles, 6)
+    puzzles.answer(OWNER, PuzzleRequest(PuzzleQuestion.SOLUTION), context(7), open_puzzle(puzzles))
+
+    stored = profile(session_factory)
+    assert (stored.bucket, stored.failure_streak) == (PuzzleBucket.MEDIUM, 1)
+
+
 def test_leaving_a_clean_attempt_changes_no_difficulty(session_factory: sessionmaker[Session]) -> None:
     puzzles = service(session_factory, MATE_IN_TWO)
     start(puzzles, 1)

@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from datetime import datetime, timedelta
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from threading import Event
 from time import sleep
@@ -17,6 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
 import chess
+import chess.pgn
 import pytest
 from PIL import Image, ImageDraw
 from sqlalchemy.orm import Session, sessionmaker
@@ -37,6 +38,7 @@ from yura_chess.domain.game import GameStatus, PlayerColor
 from yura_chess.domain.preferences import BoardOrientation, PlayerPreferences
 from yura_chess.domain.results import TurnResult, TurnStatus
 from yura_chess.presentation.board_image import BOARD_PIXELS, CARD_HEIGHT, CARD_WIDTH, position_hash, render_png
+from yura_chess.presentation.help_speech import SECTIONS
 from yura_chess.presentation.response_composer import (
     BoardCard,
     TextCard,
@@ -571,6 +573,9 @@ class TestTextCardAttachment:
         assert card.header.text == "Справка"
         assert len(card.items) <= CARD_ITEMS_LIMIT
         assert attached.response.text == "Разделы справки."
+        # The screen names the same topics the spoken menu offers, none dropped.
+        listing = " ".join(item.description or "" for item in card.items)
+        assert all(f"«{section.title}»" in listing for section in SECTIONS)
 
     async def test_an_over_long_export_is_clipped_rather_than_dropped(self) -> None:
         response = AliceResponse(response=ResponseBody(text="PGN"), version="1.0")
@@ -581,3 +586,24 @@ class TestTextCardAttachment:
         assert isinstance(card, ItemsListCard)
         assert card.items[0].description is not None
         assert len(card.items[0].description) <= CARD_DESCRIPTION_LIMIT
+
+    async def test_a_whole_game_stays_re_importable_on_the_screen(self) -> None:
+        """A PGN cut in the middle of a move could not be read back as a game."""
+        exported = chess.pgn.Game()
+        exported.headers["Event"] = "Yura Chess"
+        board = chess.Board()
+        node: chess.pgn.GameNode = exported
+        for _ in range(60):
+            move = next(iter(board.legal_moves))
+            node = node.add_main_variation(move)
+            board.push(move)
+        export = str(exported)
+        response = AliceResponse(response=ResponseBody(text="PGN"), version="1.0")
+
+        attached = await _attach_card(response, compose_pgn_card(export), None, 3.0)
+
+        card = attached.response.card
+        assert isinstance(card, ItemsListCard)
+        shown = " ".join(item.description or "" for item in card.items)
+        assert shown.split() == export.split()
+        assert chess.pgn.read_game(StringIO(shown)) is not None

@@ -74,12 +74,14 @@ class ReviewService:
             return self._pgn(owner_key, game)
         if request.question is ReviewQuestion.MOVES:
             return self.dictate(owner_key, game, step=0)
-        if request.question is ReviewQuestion.CONTINUE:
+        losses, complete = await self._valuations(owner_key, game)
+        if request.question is ReviewQuestion.CONTINUE and complete:
+            # Only a finished analysis may hand «продолжить разбор» back to the
+            # dictation; otherwise the partial tail would promise a count that
+            # can never be reached.
             resumed = self._resume_moves(owner_key, game)
             if resumed is not None:
                 return resumed
-
-        losses, complete = await self._valuations(owner_key, game)
         if request.question is ReviewQuestion.MISTAKE_COUNT:
             return Speech.of(_counts_text(losses) + _partial_tail(game, losses, complete))
         if request.question is ReviewQuestion.TURNING_POINT:
@@ -140,7 +142,7 @@ class ReviewService:
                 initial_fen=board.fen(),
                 mode=GameMode.TRAINING,
             )
-        number = turning.ply // 2 + 1
+        number = board.fullmove_number
         return branch.id, Speech.of(
             f"Играем с хода {number} в режиме тренера. Прежняя партия осталась без изменений. Ваш ход."
         )
@@ -372,7 +374,7 @@ def _counts_text(losses: dict[int, AnalysisCheckpoint]) -> str:
 def _move_reference(game: GameState, ply: int) -> str:
     board = _board_before(game, ply)
     described = describe_move(board, chess.Move.from_uci(game.moves[ply])).text.rstrip(".")
-    return f"ход {ply // 2 + 1}, {described}"
+    return f"ход {board.fullmove_number}, {described}"
 
 
 def _partial_tail(game: GameState, losses: dict[int, AnalysisCheckpoint], complete: bool) -> str:

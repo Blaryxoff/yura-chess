@@ -203,3 +203,20 @@ def test_a_concurrent_insert_is_taken_over(session: Session, checkpoints: Analys
 
     assert stored.engine == ENGINE
     assert len(session.scalars(select(AnalysisCheckpointRow)).all()) == 1
+
+
+def test_taking_a_move_back_drops_the_checkpoints_that_valued_it(
+    session: Session,
+    checkpoints: AnalysisRepository,
+    repository: GameRepository,
+) -> None:
+    """A verdict belongs to one concrete move, never to the ply it stood on."""
+    game = repository.create_game(OWNER, PlayerColor.WHITE)
+    played = repository.append_moves(game.id, OWNER, expected_revision=game.revision, moves=("e2e4", "e7e5"))
+    checkpoints.upsert(make_checkpoint(game.id, ply=0))
+    checkpoints.upsert(make_checkpoint(game.id, ply=1))
+    session.flush()
+
+    repository.truncate_moves(game.id, OWNER, expected_revision=played.revision, keep_plies=1)
+
+    assert [point.ply for point in checkpoints.list_for_game(game.id, OWNER)] == [0]

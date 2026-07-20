@@ -306,6 +306,25 @@ async def test_the_dictation_pages_through_the_moves_and_stores_its_cursor(
     assert (review.section, review.page) == (ReviewSection.MOVES, 1)
 
 
+async def test_an_open_dictation_does_not_stop_the_analysis_from_finishing(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    """«продолжить разбор» owes the count first; the pages wait for it."""
+    moves = ("g1f3", "g8f6", "f3g1", "f6g8") * 4
+    service = ReviewService(session_factory, FakeEngine(), offline_settings)
+    game = finished_game(session_factory, moves=moves, status=GameStatus.RESIGNED)
+    partial = await service.answer(OWNER, game, ReviewRequest(ReviewQuestion.MISTAKE_COUNT))
+    assert "продолжить разбор" in partial.text
+    service.dictate(OWNER, game, step=0)
+
+    continued = await service.answer(OWNER, game, ReviewRequest(ReviewQuestion.CONTINUE))
+
+    assert "продолжить разбор" not in continued.text
+    with session_scope(session_factory) as session:
+        assert len(AnalysisRepository(session).list_for_game(game.id, OWNER)) == 8
+
+
 async def test_a_stored_cursor_lets_a_new_session_continue_the_dictation(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
@@ -379,6 +398,32 @@ async def test_the_training_branch_is_a_new_game_and_leaves_the_finished_one_alo
     assert "тренера" in speech.text
     after = load(session_factory, game.id)
     assert (after.moves, after.revision, after.status) == (game.moves, game.revision, game.status)
+
+
+async def test_a_game_that_started_mid_way_keeps_its_own_move_numbers(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    """A branch is numbered from the position it started in, not from ply zero."""
+    start_fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 4 3"
+    engine = FakeEngine(scores={"f1c4": 300})
+    service = ReviewService(session_factory, engine, offline_settings)
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        state = repository.create_game(OWNER, PlayerColor.WHITE, initial_fen=start_fen)
+        game = repository.append_moves(
+            state.id,
+            OWNER,
+            state.revision,
+            ("a2a3", "a7a6", "h2h3", "h7h6"),
+            status=GameStatus.FINISHED,
+        )
+
+    summary = await service.answer(OWNER, game, ReviewRequest(ReviewQuestion.SUMMARY))
+    dictated = service.dictate(OWNER, game, step=0)
+
+    assert "Перелом — ход 3," in summary.text
+    assert "Ход 3" in dictated.text
 
 
 async def test_a_review_question_before_any_finished_game_says_so(

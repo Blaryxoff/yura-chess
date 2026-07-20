@@ -6,7 +6,7 @@ import chess
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from yura_chess.application.command_router import CommandKind, PendingClarification
+from yura_chess.application.command_router import CommandKind, PendingClarification, route
 from yura_chess.application.conversation import (
     MAX_SKILL_LEVEL,
     ConversationReply,
@@ -522,7 +522,7 @@ _CATEGORY_PHRASES = (
     "какой сейчас ход",
     "сколько ходов мы сыграли",
     "какие фигуры съедены",
-    "рокиров",
+    "могу ли я сделать рокировку",
     "кто дает шах",
     "какой дебют",
     "какая стадия партии",
@@ -575,6 +575,14 @@ def test_every_public_command_category_lives_in_exactly_one_help_section(phrase:
     holders = [section.topic for section in SECTIONS if phrase in " ".join(section.lines).lower().replace("ё", "е")]
 
     assert len(holders) == 1, f"«{phrase}» is listed in {holders}"
+
+
+@pytest.mark.parametrize("phrase", _CATEGORY_PHRASES)
+def test_every_advertised_command_is_understood_by_the_router(phrase: str) -> None:
+    """Help may only advertise phrases the router actually recognises."""
+    routed = route(phrase, board=chess.Board())
+
+    assert routed.kind is not CommandKind.UNKNOWN, f"«{phrase}» is advertised but not routed"
 
 
 async def test_the_whole_catalogue_stays_paged_after_the_new_sections(

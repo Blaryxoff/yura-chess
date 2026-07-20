@@ -187,8 +187,11 @@ class TrainingService:
         checkpoint = self.last_mistake(owner_key, game)
         if checkpoint is None or checkpoint.ply < len(game.moves) - 2:
             return None
+        board = chess.Board(game.initial_fen)
+        for uci in game.moves[: checkpoint.ply]:
+            board.push(chess.Move.from_uci(uci))
         return Speech.of(
-            f"Внимание: ваш ход {checkpoint.ply // 2 + 1} потерял {_pawns(checkpoint.centipawn_loss)}. "
+            f"Внимание: ваш ход {board.fullmove_number} потерял {_pawns(checkpoint.centipawn_loss)}. "
             "Скажите «оставить мой ход» или «вернуть ход»."
         )
 
@@ -333,7 +336,7 @@ class TrainingService:
             board.push(chess.Move.from_uci(uci))
         move = chess.Move.from_uci(game.moves[checkpoint.ply])
         return Speech.of(
-            f"Ход {checkpoint.ply // 2 + 1}, {_move_phrase(board, move.uci())}: "
+            f"Ход {board.fullmove_number}, {_move_phrase(board, move.uci())}: "
             f"он стоил {_pawns(checkpoint.centipawn_loss)}."
         )
 

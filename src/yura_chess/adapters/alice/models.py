@@ -10,16 +10,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from yura_chess.application.command_router import RematchColor, ReviewQuestion
 from yura_chess.presentation.help_speech import HelpTopic
+from yura_chess.presentation.response_composer import CARD_DESCRIPTION_LIMIT, CARD_ITEMS_LIMIT
 
 # Platform limits for a single response.
 TEXT_LIMIT = 1024
 TTS_LIMIT = 1024
 STATE_LIMIT_BYTES = 1024
 CARD_TITLE_LIMIT = 128
-CARD_DESCRIPTION_LIMIT = 256
-# `ItemsList` shows between one and five items.
-CARD_ITEMS_LIMIT = 5
 
 # `request_replays` stores the replay key in CHAR/VARCHAR(64) columns.
 IDENTIFIER_LIMIT = 64
@@ -133,9 +132,18 @@ class ClarificationState(_AliceModel):
     candidates: list[str] = Field(default_factory=list, max_length=16)
 
 
+class RematchState(_AliceModel):
+    color: RematchColor = RematchColor.SAME
+    harder: bool = False
+
+
 class PendingActionState(_AliceModel):
-    kind: Literal["new_game", "resign", "continue"]
+    kind: Literal["new_game", "resign", "continue", "rematch", "review", "puzzle"]
     utterance: str = Field(max_length=255)
+    # A rematch and a review question keep what was asked for; re-reading the
+    # utterance after the confirmation would lose it.
+    rematch: RematchState | None = None
+    review: ReviewQuestion | None = None
 
 
 class HelpSessionState(_AliceModel):

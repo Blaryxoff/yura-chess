@@ -21,6 +21,10 @@ from yura_chess.presentation import help_speech
 from yura_chess.presentation.board_image import position_hash, render_png
 from yura_chess.presentation.move_speech import Speech, describe_move, describe_played_move
 
+# How much a single Alice `ItemsList` card can carry.
+CARD_DESCRIPTION_LIMIT = 256
+CARD_ITEMS_LIMIT = 5
+
 _STATUS_TEXTS: dict[TurnStatus, str] = {
     TurnStatus.ENGINE_UNAVAILABLE: "Ваш ход записан, я ещё думаю над ответом. Скажите «продолжаем».",
     TurnStatus.NOT_PLAYER_TURN: "Сейчас не ваш ход.",
@@ -112,12 +116,36 @@ class TextCard:
 
 def compose_help_card() -> TextCard:
     """The topics help can read, listed for a screen that is already showing them."""
-    return TextCard("Справка", tuple(f"Раздел «{section.title}»" for section in help_speech.SECTIONS))
+    titles = tuple(f"«{section.title}»" for section in help_speech.SECTIONS)
+    return TextCard("Справка", _packed(titles, ", "))
 
 
 def compose_pgn_card(export: str) -> TextCard:
-    """The export as it would be copied off the screen; the voice reads the moves."""
-    return TextCard("PGN", (export,))
+    """The export as it would be copied off the screen; the voice reads the moves.
+
+    PGN is whitespace-insensitive, so the export is split across the card items
+    on token boundaries: every item stays readable and the whole card still
+    re-imports as one game.
+    """
+    return TextCard("PGN", _packed(tuple(export.split()), " "))
+
+
+def _packed(parts: tuple[str, ...], separator: str) -> tuple[str, ...]:
+    """Greedily fill the card items so no part is ever cut in the middle.
+
+    A card holds a fixed number of items of a fixed width; parts that no longer
+    fit are dropped rather than truncated, because half a token is worse than a
+    missing one on a screen that only repeats what was already said.
+    """
+    items: list[str] = []
+    for part in parts:
+        if items and len(items[-1]) + len(separator) + len(part) <= CARD_DESCRIPTION_LIMIT:
+            items[-1] = f"{items[-1]}{separator}{part}"
+            continue
+        if len(items) == CARD_ITEMS_LIMIT:
+            break
+        items.append(part[:CARD_DESCRIPTION_LIMIT])
+    return tuple(items)
 
 
 def _chess_color(color: PlayerColor) -> chess.Color:

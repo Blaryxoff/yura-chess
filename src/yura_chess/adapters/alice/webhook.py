@@ -21,8 +21,6 @@ from fastapi import Request as HttpRequest
 from pydantic import SecretStr
 
 from yura_chess.adapters.alice.models import (
-    CARD_DESCRIPTION_LIMIT,
-    CARD_ITEMS_LIMIT,
     CARD_TITLE_LIMIT,
     STATE_LIMIT_BYTES,
     TEXT_LIMIT,
@@ -38,16 +36,30 @@ from yura_chess.adapters.alice.models import (
     HelpSessionState,
     ItemsListCard,
     PendingActionState,
+    RematchState,
     ResponseBody,
 )
 from yura_chess.adapters.yandex_images import BoardImageService
-from yura_chess.application.command_router import CommandKind, PendingClarification
+from yura_chess.application.command_router import (
+    CommandKind,
+    PendingClarification,
+    RematchColor,
+    RematchRequest,
+    ReviewQuestion,
+    ReviewRequest,
+)
 from yura_chess.application.conversation import ConversationReply, ConversationService, ConversationState, PendingAction
 from yura_chess.application.game_service import RequestContext
 from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key
 from yura_chess.domain.results import TurnResult
 from yura_chess.presentation import help_speech
-from yura_chess.presentation.response_composer import BoardCard, TextCard, compose_board_card
+from yura_chess.presentation.response_composer import (
+    CARD_DESCRIPTION_LIMIT,
+    CARD_ITEMS_LIMIT,
+    BoardCard,
+    TextCard,
+    compose_board_card,
+)
 from yura_chess.storage.game_repository import ReplayFingerprintConflictError
 from yura_chess.storage.models import FINGERPRINT_LENGTH
 
@@ -249,6 +261,54 @@ def _state_update(result: TurnResult | None) -> GameStateUpdate | None:
     return update
 
 
+_PENDING_KINDS: dict[CommandKind, Literal["new_game", "resign", "continue", "rematch", "review", "puzzle"]] = {
+    CommandKind.NEW_GAME: "new_game",
+    CommandKind.RESIGN: "resign",
+    CommandKind.CONTINUE: "continue",
+    CommandKind.REMATCH: "rematch",
+    CommandKind.REVIEW: "review",
+    CommandKind.PUZZLE: "puzzle",
+}
+
+
+def _pending_action(raw: object) -> PendingAction | None:
+    """Restore a confirmation the client is answering; anything unknown is dropped.
+
+    A confirmation must come back as the very action that was asked about:
+    reading an unrecognised kind as a plain «продолжить» would silently answer
+    «да» to a different question than the one the player heard.
+    """
+    if not isinstance(raw, dict):
+        return None
+    kind = raw.get("kind")
+    utterance = raw.get("utterance")
+    if not isinstance(kind, str) or not isinstance(utterance, str):
+        return None
+    try:
+        command = CommandKind(kind)
+    except ValueError:
+        return None
+    if command not in _PENDING_KINDS:
+        return None
+    rematch_raw = raw.get("rematch")
+    rematch = None
+    if isinstance(rematch_raw, dict):
+        color_raw = rematch_raw.get("color")
+        try:
+            color = RematchColor(color_raw) if isinstance(color_raw, str) else RematchColor.SAME
+        except ValueError:
+            color = RematchColor.SAME
+        rematch = RematchRequest(color=color, harder=rematch_raw.get("harder") is True)
+    review_raw = raw.get("review")
+    review = None
+    if isinstance(review_raw, str):
+        try:
+            review = ReviewRequest(ReviewQuestion(review_raw))
+        except ValueError:
+            review = None
+    return PendingAction(command, utterance[:255], rematch=rematch, review=review)
+
+
 def _conversation_state(payload: AliceRequest) -> ConversationState:
     raw = payload.state.session
     clarification_raw = raw.get("clarification")
@@ -257,16 +317,13 @@ def _conversation_state(payload: AliceRequest) -> ConversationState:
         heard = clarification_raw.get("heard")
         candidates = clarification_raw.get("candidates", [])
         if isinstance(heard, str) and isinstance(candidates, list):
-            clarification = PendingClarification(heard[:255], tuple(str(item) for item in candidates[:16]))
-    pending_action_raw = raw.get("pending_action")
-    pending_action = None
-    if isinstance(pending_action_raw, dict):
-        kind = pending_action_raw.get("kind")
-        utterance = pending_action_raw.get("utterance")
-        if kind in {CommandKind.NEW_GAME.value, CommandKind.RESIGN.value, CommandKind.CONTINUE.value} and isinstance(
-            utterance, str
-        ):
-            pending_action = PendingAction(CommandKind(kind), utterance[:255])
+            # Every candidate is a move phrase this skill produced; anything
+            # else in the client state is foreign input and is not carried on.
+            clarification = PendingClarification(
+                heard[:255],
+                tuple(item[:64] for item in candidates[:16] if isinstance(item, str)),
+            )
+    pending_action = _pending_action(raw.get("pending_action"))
     last_reply_raw = raw.get("last_reply")
     page = raw.get("position_page", 0)
     help_raw = raw.get("help")
@@ -299,16 +356,16 @@ def _session_state_update(state: ConversationState) -> ConversationSessionState:
     )
     pending_action = None
     if state.pending_action is not None:
-        pending_kind: Literal["new_game", "resign", "continue"]
-        if state.pending_action.kind is CommandKind.NEW_GAME:
-            pending_kind = "new_game"
-        elif state.pending_action.kind is CommandKind.RESIGN:
-            pending_kind = "resign"
-        else:
-            pending_kind = "continue"
+        pending = state.pending_action
         pending_action = PendingActionState(
-            kind=pending_kind,
-            utterance=state.pending_action.utterance[:255],
+            kind=_PENDING_KINDS[pending.kind],
+            utterance=pending.utterance[:255],
+            rematch=(
+                RematchState(color=pending.rematch.color, harder=pending.rematch.harder)
+                if pending.rematch is not None
+                else None
+            ),
+            review=pending.review.question if pending.review is not None else None,
         )
     session_state = ConversationSessionState(
         game_id=state.game_id,

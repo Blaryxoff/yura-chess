@@ -234,9 +234,9 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (
         CommandKind.POSITION_QUERY,
         re.compile(
-            r"кака(я|ю) позици|позици(я|ю)|\bгде\b|что на|покажи доску|какие фигуры|прочитай|"
+            r"кака(я|ю) позици|позици(я|ю)|\bгде\b|что на|покажи доску|какие фигуры|сколько фигур|прочитай|"
             r"чей ход|кто ходит|кому ходить|моя очередь|есть ли шах|кто под шахом|шах сейчас|"
-            r"последн(ий|его) ход|как (ты|я) походил|ход(а|ов)? назад|раз(а)? назад|"
+            r"последн(ий|его) ход|как (ты|я) походил|ход(а|ов)? назад|раз(а)? назад|повтори координат|"
             r"что (сделали|делали) (белые|черные)|^(дальше|далее)$"
         ),
     ),
@@ -316,7 +316,8 @@ _TRAINING_PATTERNS: tuple[tuple[TrainingQuestion, re.Pattern[str]], ...] = (
     (TrainingQuestion.THREAT, re.compile(r"чем ты угрожа|какая угроза|есть ли угроза|что ты задумала")),
     (TrainingQuestion.PREVIEW, re.compile(r"что будет,? если|что если я|стоит ли (мне )?(играть|ходить)")),
     (TrainingQuestion.CANDIDATES, re.compile(r"хорошие ходы|какие ходы|что мне сыграть|как мне (лучше )?сыграть")),
-    (TrainingQuestion.HINT, re.compile(r"подсказ|дай совет|посоветуй|помоги с ходом")),
+    # «подскажи» — the imperative the help advertises — carries the ж stem.
+    (TrainingQuestion.HINT, re.compile(r"подсказ|подскаж|дай совет|посоветуй|помоги с ходом")),
 )
 
 # Review phrases are read before the control table: «продолжить разбор» would

@@ -22,7 +22,14 @@ from yura_chess.adapters.alice.models import (
     AliceRequest,
 )
 from yura_chess.adapters.alice.webhook import _conversation_state, _session_state_update
-from yura_chess.application.command_router import CommandKind, PendingClarification
+from yura_chess.application.command_router import (
+    CommandKind,
+    PendingClarification,
+    RematchColor,
+    RematchRequest,
+    ReviewQuestion,
+    ReviewRequest,
+)
 from yura_chess.application.conversation import ConversationState, PendingAction
 from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key
 from yura_chess.domain.game import PlayerColor
@@ -703,6 +710,33 @@ def test_the_review_page_flag_survives_the_alice_session_state() -> None:
     assert sent.reviewing is True
     assert restored.reviewing is True
     assert _conversation_state(AliceRequest.model_validate(alice_request(3))).reviewing is False
+
+
+@pytest.mark.parametrize(
+    "pending",
+    [
+        PendingAction(CommandKind.NEW_GAME, "новая игра"),
+        PendingAction(CommandKind.RESIGN, "сдаюсь"),
+        PendingAction(CommandKind.CONTINUE, "продолжить"),
+        PendingAction(CommandKind.REMATCH, "реванш", rematch=RematchRequest(RematchColor.SWAP, harder=True)),
+        PendingAction(CommandKind.REVIEW, "сыграть заново", review=ReviewRequest(ReviewQuestion.REPLAY_POSITION)),
+        PendingAction(CommandKind.PUZZLE, ""),
+    ],
+)
+def test_a_confirmation_comes_back_as_the_very_action_it_was_asked_about(pending: PendingAction) -> None:
+    """«да» must confirm the question the player heard, not a different one."""
+    sent = _session_state_update(ConversationState(pending_action=pending))
+    payload = alice_request(2, session_state=sent.model_dump(exclude_none=True))
+
+    restored = _conversation_state(AliceRequest.model_validate(payload))
+
+    assert restored.pending_action == pending
+
+
+def test_an_unknown_pending_kind_is_dropped_rather_than_read_as_another_action() -> None:
+    payload = alice_request(2, session_state={"pending_action": {"kind": "не команда", "utterance": "да"}})
+
+    assert _conversation_state(AliceRequest.model_validate(payload)).pending_action is None
 
 
 def test_no_durable_identifier_other_than_the_game_reaches_the_client() -> None:
