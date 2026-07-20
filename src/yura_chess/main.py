@@ -19,6 +19,7 @@ from yura_chess.presentation.website import (
     WEBMASTER_VERIFICATION_PATH,
 )
 from yura_chess.settings import Settings, get_settings
+from yura_chess.storage.analysis_repository import AnalysisRepository
 from yura_chess.storage.database import (
     check_connection,
     check_schema,
@@ -27,6 +28,7 @@ from yura_chess.storage.database import (
     session_scope,
 )
 from yura_chess.storage.game_repository import GameRepository
+from yura_chess.storage.review_repository import ReviewRepository
 from yura_chess.storage.transcript_repository import TranscriptRepository
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,8 @@ def _purge_retained_data(app: FastAPI) -> None:
     with session_scope(app.state.session_factory) as session:
         TranscriptRepository(session).purge_expired(now, app.state.settings.asr_transcript_retention_days)
         GameRepository(session).purge_request_replays(now, app.state.settings.request_replay_retention_days)
+        AnalysisRepository(session).purge_expired(now, app.state.settings.analysis_checkpoint_retention_days)
+        ReviewRepository(session).purge_expired(now, app.state.settings.review_state_retention_days)
     app.state.board_images.maintain_cache()
 
 

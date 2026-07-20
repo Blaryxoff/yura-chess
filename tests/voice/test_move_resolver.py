@@ -379,6 +379,10 @@ def test_questions_are_not_mistaken_for_settings(utterance: str) -> None:
     assert route(utterance, chess.Board()).kind is not CommandKind.PREFERENCE
 
 
+def test_a_board_question_does_not_persist_orientation() -> None:
+    assert route("где на доске черные слоны", chess.Board()).kind is CommandKind.POSITION_QUERY
+
+
 @pytest.mark.parametrize(
     ("utterance", "expected"),
     [

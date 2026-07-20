@@ -78,7 +78,10 @@ _PATTERNS: tuple[tuple[GameFact, re.Pattern[str]], ...] = (
     ),
     (
         GameFact.MOVES_PLAYED,
-        re.compile(r"сколько (полных )?ходов|сколько мы сыграли|сколько (я|ты) (сделал|сыграл)"),
+        re.compile(
+            r"сколько (полных )?ходов|сколько мы сыграли|"
+            r"сколько (я|ты) (сделал\w*|сыграл\w*)|сколько ходов (сделал\w*|сыграл\w*) (я|ты)"
+        ),
     ),
     (
         GameFact.MOVE_NUMBER,
@@ -120,6 +123,8 @@ def answer_game_fact(utterance: str, board: chess.Board, player: chess.Color) ->
     text = normalize(utterance).text
     for fact, pattern in _PATTERNS:
         if pattern.search(text):
+            if fact is GameFact.MOVES_PLAYED:
+                return GameFactAnswer(fact, describe_moves_played(board, player, text))
             return GameFactAnswer(fact, _ANSWERS[fact](board, player))
     return None
 
@@ -136,7 +141,13 @@ def describe_move_number(board: chess.Board, player: chess.Color) -> Speech:
     return Speech.of(f"Сейчас {board.fullmove_number}-й ход, и он {side}.")
 
 
-def describe_moves_played(board: chess.Board, player: chess.Color) -> Speech:
+def describe_moves_played(board: chess.Board, player: chess.Color, question: str = "") -> Speech:
+    subject = _move_subject(question)
+    if subject is not None:
+        color = player if subject == "я" else not player
+        count = _moves_by_color(board)[color]
+        lead = "Вы сделали" if subject == "я" else "Я сделала"
+        return Speech.of(f"{lead} {count} {_plural(count, _MOVE_FORMS)}.")
     plies = len(board.move_stack)
     if plies == 0:
         return Speech.of("Ходов еще не было.")
@@ -192,7 +203,11 @@ def describe_last_move_changes(board: chess.Board, player: chess.Color) -> Speec
     captured = _captured_piece_type(before, move)
     if captured is not None:
         taker = "вы взяли" if before.turn == player else "я взяла"
-        changes.append(f"{taker} {PIECE_NAMES_ACCUSATIVE[captured]}")
+        square = _captured_square(before, move)
+        changes.append(
+            f"{taker} {PIECE_NAMES_ACCUSATIVE[captured]}"
+            + (f" на {chess.square_name(square)}" if square is not None else "")
+        )
     if before.is_castling(move):
         changes.append("ладья перешла через короля")
     # Promotion and check are already spoken by `describe_last_move`; listing
@@ -266,6 +281,12 @@ def _captured_piece_type(before: chess.Board, move: chess.Move) -> int | None:
     return None if piece is None else piece.piece_type
 
 
+def _captured_square(before: chess.Board, move: chess.Move) -> chess.Square | None:
+    if before.is_en_passant(move):
+        return move.to_square - 8 if before.turn == chess.WHITE else move.to_square + 8
+    return move.to_square if before.is_capture(move) else None
+
+
 def _piece_listing(piece_types: list[int]) -> str:
     parts = []
     for piece_type in _CAPTURE_ORDER:
@@ -273,8 +294,30 @@ def _piece_listing(piece_types: list[int]) -> str:
         if count == 0:
             continue
         forms = _PIECE_COUNT_FORMS[piece_type]
-        parts.append(forms[0] if count == 1 else f"{count} {_plural(count, forms)}")
+        parts.append(PIECE_NAMES_ACCUSATIVE[piece_type] if count == 1 else f"{count} {_plural(count, forms)}")
     return ", ".join(parts)
+
+
+def _move_subject(question: str) -> str | None:
+    for subject in ("я", "ты"):
+        if re.search(
+            rf"сколько {subject} (сделал\w*|сыграл\w*)|сколько ходов (сделал\w*|сыграл\w*) {subject}",
+            question,
+        ):
+            return subject
+    return None
+
+
+def _moves_by_color(board: chess.Board) -> dict[chess.Color, int]:
+    moves = tuple(board.move_stack)
+    replay = board.copy(stack=True)
+    while replay.move_stack:
+        replay.pop()
+    counts = {chess.WHITE: 0, chess.BLACK: 0}
+    for move in moves:
+        counts[replay.turn] += 1
+        replay.push(move)
+    return counts
 
 
 def _plural(count: int, forms: tuple[str, str, str]) -> str:

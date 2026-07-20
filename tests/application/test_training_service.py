@@ -187,6 +187,44 @@ async def test_preview_analyses_a_suggested_move_without_playing_it(
     assert load(session_factory, game_id).moves == ()
 
 
+async def test_preview_waits_until_the_engine_has_answered(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    service = TrainingService(session_factory, FakeEngine(), offline_settings)
+    game_id = start_training_game(session_factory)
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        game = repository.load(game_id, OWNER)
+        game = repository.begin_engine_turn(game.id, OWNER, game.revision, "e2e4", "pending")
+
+    reply = await service.answer(
+        OWNER,
+        game,
+        TrainingRequest(TrainingQuestion.PREVIEW, move_text="конь эф три"),
+        context(1),
+    )
+
+    assert "сначала" in reply.text.lower() or "мой ход" in reply.text.lower()
+
+
+async def test_mode_cannot_change_during_a_pending_engine_turn(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    service = TrainingService(session_factory, FakeEngine(), offline_settings)
+    game_id = start_training_game(session_factory)
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        game = repository.load(game_id, OWNER)
+        game = repository.begin_engine_turn(game.id, OWNER, game.revision, "e2e4", "pending")
+
+    reply = await service.answer(OWNER, game, TrainingRequest(TrainingQuestion.DISABLE), context(1))
+
+    assert "сначала" in reply.text.lower() or "мой ход" in reply.text.lower()
+    assert load(session_factory, game_id).mode is GameMode.TRAINING
+
+
 async def test_preview_of_an_impossible_move_uses_the_existing_explainer(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
@@ -230,6 +268,22 @@ async def test_a_threat_is_named_only_when_the_free_move_would_win_material(
     reply = await quiet.answer(OWNER, game, TrainingRequest(TrainingQuestion.THREAT), context(1))
 
     assert "Ясной угрозы сейчас нет." == reply.text
+
+
+async def test_threat_waits_until_the_engine_has_answered(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    service = TrainingService(session_factory, FakeEngine(), offline_settings)
+    game_id = start_training_game(session_factory)
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        game = repository.load(game_id, OWNER)
+        game = repository.begin_engine_turn(game.id, OWNER, game.revision, "e2e4", "pending")
+
+    reply = await service.answer(OWNER, game, TrainingRequest(TrainingQuestion.THREAT), context(1))
+
+    assert "сначала" in reply.text.lower() or "мой ход" in reply.text.lower()
 
 
 async def test_hint_climbs_one_stage_per_request_and_repeats_on_replay(

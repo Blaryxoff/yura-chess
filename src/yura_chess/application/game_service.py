@@ -14,6 +14,7 @@ debt recorded by A. The player's move is never applied twice.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
@@ -51,7 +52,7 @@ class MoveSearch(Protocol):
 
 
 class PlayerMoveObserver(Protocol):
-    """Notified after a player move is committed and before the engine answers.
+    """Notified after a player move is committed without delaying the reply.
 
     It runs with no transaction open and must never raise: what it records is a
     cache, while the turn it watches has already happened.
@@ -82,6 +83,7 @@ class GameService:
         self._session_factory = session_factory
         self._engine = engine
         self._observer = observer
+        self._background: set[asyncio.Task[None]] = set()
 
     async def start_game(
         self,
@@ -150,6 +152,11 @@ class GameService:
         """Find the most recent game of this player, finished ones included."""
         with session_scope(self._session_factory) as session:
             return GameRepository(session).find_latest(owner_key)
+
+    def find_latest_finished_game(self, owner_key: str) -> GameState | None:
+        """Find the latest game that can be reviewed."""
+        with session_scope(self._session_factory) as session:
+            return GameRepository(session).find_latest_finished(owner_key)
 
     def request_was_seen(self, owner_key: str, request: RequestContext) -> bool:
         """Check a replay key before conversation-only behavior can bypass it."""
@@ -221,6 +228,9 @@ class GameService:
         move_uci: str,
         request: RequestContext,
     ) -> TurnResult:
+        terminal_result: TurnResult | None = None
+        token: str | None = None
+        player_move: str | None = None
         with session_scope(self._session_factory) as session:
             repository = GameRepository(session)
             state = repository.load(game_id, owner_key)
@@ -228,7 +238,9 @@ class GameService:
             if not created and replay.response_payload is not None:
                 return TurnResult.from_payload(replay.response_payload)
 
-            # Which ply the observer is owed; a resumed turn was already observed.
+            # Which ply the optional observer is owed. Re-observation is safe:
+            # checkpoints are idempotent, and a retry may be the first request
+            # that survives long enough to schedule it.
             observed: int | None = None
             if self._engine_to_move(state):
                 # An earlier move of this game is still owed an answer. Resume it
@@ -236,6 +248,7 @@ class GameService:
                 pending = state.pending_engine_turn
                 token = pending.token if pending else None
                 player_move = pending.player_move_uci if pending else None
+                observed = len(state.moves) - 1 if player_move is not None else None
             else:
                 if state.status is not GameStatus.ACTIVE:
                     return self._finalize(
@@ -256,15 +269,27 @@ class GameService:
                     result = TurnResult.from_state(
                         state, TurnStatus.GAME_OVER, board=board, player_move=move_uci, outcome=outcome
                     )
-                    return self._finalize(repository, replay, result)
+                    terminal_result = self._finalize(repository, replay, result)
+                    player_move = move_uci
+                    observed = len(state.moves) - 1
 
-                token = str(uuid.uuid4())
-                player_move = move_uci
-                state = repository.begin_engine_turn(game_id, owner_key, state.revision, move_uci, token)
-                observed = len(state.moves) - 1
+                if terminal_result is None:
+                    token = str(uuid.uuid4())
+                    player_move = move_uci
+                    state = repository.begin_engine_turn(game_id, owner_key, state.revision, move_uci, token)
+                    observed = len(state.moves) - 1
+        if terminal_result is not None:
+            if player_move is not None and observed is not None:
+                self._schedule_observe(owner_key, state, observed, player_move)
+                await asyncio.sleep(0)
+            return terminal_result
         if player_move is not None and observed is not None:
-            await self._observe(owner_key, state, observed, player_move)
-        return await self._play_engine_move(owner_key, state, token, player_move, request)
+            self._schedule_observe(owner_key, state, observed, player_move)
+        result = await self._play_engine_move(owner_key, state, token, player_move, request)
+        # Give a fast observer one event-loop turn to persist its checkpoint,
+        # without waiting for slow analysis before answering Alice.
+        await asyncio.sleep(0)
+        return result
 
     async def resign(self, owner_key: str, game_id: str, request: RequestContext) -> TurnResult:
         with session_scope(self._session_factory) as session:
@@ -345,6 +370,16 @@ class GameService:
         except Exception:  # noqa: BLE001 - the move is already played and must stand
             logger.warning("player move observer failed for game %s ply %s", state.id, ply, exc_info=True)
 
+    def _schedule_observe(self, owner_key: str, state: GameState, ply: int, move_uci: str) -> None:
+        if self._observer is None:
+            return
+        task = asyncio.create_task(
+            self._observe(owner_key, state, ply, move_uci),
+            name=f"observe-player-move-{state.id}-{ply}",
+        )
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
     async def _play_engine_move(
         self,
         owner_key: str,
@@ -382,11 +417,19 @@ class GameService:
                 # instead of applying a reply computed for a stale position. The
                 # replay still has to be finalized or the same delivery searches
                 # again and can produce a different answer.
-                result = TurnResult.from_state(
-                    current,
-                    TurnStatus.OK if current.status is GameStatus.ACTIVE else TurnStatus.GAME_ALREADY_FINISHED,
-                    player_move=player_move,
-                )
+                if current.pending_engine_turn is not None:
+                    result = TurnResult.from_state(
+                        current,
+                        TurnStatus.ENGINE_UNAVAILABLE,
+                        player_move=player_move,
+                        detail="position changed while the engine was searching",
+                    )
+                else:
+                    result = TurnResult.from_state(
+                        current,
+                        TurnStatus.OK if current.status is GameStatus.ACTIVE else TurnStatus.GAME_ALREADY_FINISHED,
+                        player_move=player_move,
+                    )
                 return self._finalize(repository, replay, result)
 
             board = current.board()

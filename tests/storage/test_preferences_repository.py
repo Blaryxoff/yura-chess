@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import inspect, select, text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from yura_chess.domain.game import PlayerColor
@@ -21,6 +21,7 @@ from yura_chess.domain.preferences import (
     PauseStyle,
     PlayerPreferences,
 )
+from yura_chess.storage.database import run_transaction_with_deadlock_retry
 from yura_chess.storage.models import PlayerPreferencesRow
 from yura_chess.storage.preferences_repository import PreferencesRepository
 
@@ -37,6 +38,26 @@ DOMAIN_ENUMS = {
     "board_orientation": BoardOrientation,
     "default_mode": GameMode,
 }
+
+
+class _RecordingSession:
+    def __init__(self) -> None:
+        self.committed = False
+        self.rolled_back = False
+        self.closed = False
+
+    def commit(self) -> None:
+        self.committed = True
+
+    def rollback(self) -> None:
+        self.rolled_back = True
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _operational_error(code: int) -> OperationalError:
+    return OperationalError("INSERT", {}, Exception(code, "database failure"))
 
 
 @pytest.fixture
@@ -75,6 +96,49 @@ def test_documented_defaults_are_the_dataclass_defaults() -> None:
     assert DEFAULT_NOTATION_STYLE is NotationStyle.FULL
     assert DEFAULT_BOARD_ORIENTATION is BoardOrientation.PLAYER
     assert DEFAULT_GAME_MODE is GameMode.GAME
+
+
+def test_a_mariadb_deadlock_retries_once_in_a_fresh_transaction() -> None:
+    sessions: list[_RecordingSession] = []
+    calls = 0
+
+    def factory() -> _RecordingSession:
+        session = _RecordingSession()
+        sessions.append(session)
+        return session
+
+    def operation(session: _RecordingSession) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise _operational_error(1213)
+        assert session is sessions[1]
+        return "saved"
+
+    assert run_transaction_with_deadlock_retry(factory, operation) == "saved"  # type: ignore[arg-type]
+    assert len(sessions) == 2
+    assert (sessions[0].rolled_back, sessions[0].closed) == (True, True)
+    assert (sessions[1].committed, sessions[1].closed) == (True, True)
+
+
+def test_a_non_deadlock_operational_error_is_not_retried() -> None:
+    sessions: list[_RecordingSession] = []
+
+    def factory() -> _RecordingSession:
+        session = _RecordingSession()
+        sessions.append(session)
+        return session
+
+    def operation(_session: _RecordingSession) -> None:
+        raise _operational_error(1205)
+
+    with pytest.raises(OperationalError):
+        run_transaction_with_deadlock_retry(
+            factory,  # type: ignore[arg-type]
+            operation,  # type: ignore[arg-type]
+        )
+
+    assert len(sessions) == 1
 
 
 def test_unset_owner_reads_defaults_without_writing_a_row(session: Session, preferences: PreferencesRepository) -> None:

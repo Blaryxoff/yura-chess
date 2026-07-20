@@ -30,14 +30,14 @@ from yura_chess.application.command_router import (
     ReviewQuestion,
     ReviewRequest,
 )
-from yura_chess.application.conversation import ConversationState, PendingAction
+from yura_chess.application.conversation import ConversationService, ConversationState, PendingAction
 from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key
 from yura_chess.domain.game import PlayerColor
 from yura_chess.main import create_app
 from yura_chess.presentation.help_speech import HelpState, HelpTopic
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
-from yura_chess.storage.game_repository import GameRepository
+from yura_chess.storage.game_repository import GameRepository, RevisionConflictError
 
 pytestmark = pytest.mark.anyio
 
@@ -757,6 +757,24 @@ def test_an_unknown_pending_kind_is_dropped_rather_than_read_as_another_action()
     assert _conversation_state(AliceRequest.model_validate(payload)).pending_action is None
 
 
+def test_live_confirmations_are_signed_for_the_exact_next_message() -> None:
+    salt = SecretStr(TEST_IDENTITY_SALT)
+    pending = PendingAction(CommandKind.RESIGN, "сдаюсь")
+    prompt = AliceRequest.model_validate(alice_request(1))
+    sent = _session_state_update(ConversationState(pending_action=pending), prompt, salt)
+    state = sent.model_dump(exclude_none=True)
+
+    confirmed = AliceRequest.model_validate(alice_request(2, session_state=state))
+    assert _conversation_state(confirmed, salt).pending_action == pending
+
+    state["pending_action"]["utterance"] = "новая игра"
+    tampered = AliceRequest.model_validate(alice_request(2, session_state=state))
+    assert _conversation_state(tampered, salt).pending_action is None
+
+    stale = AliceRequest.model_validate(alice_request(3, session_state=sent.model_dump(exclude_none=True)))
+    assert _conversation_state(stale, salt).pending_action is None
+
+
 def test_no_durable_identifier_other_than_the_game_reaches_the_client() -> None:
     """The review and the puzzle attempt stay server-side; only the game is claimed."""
     sent = _session_state_update(ConversationState(game_id="game-1", revision=2, reviewing=True, position_page=1))
@@ -796,3 +814,62 @@ def test_the_session_state_is_kept_inside_the_platform_limit() -> None:
     assert trimmed.reviewing is True
     # What was dropped is exactly what the next request can be told again.
     assert trimmed.last_reply is None
+
+
+def test_multibyte_last_heard_can_never_overflow_session_state() -> None:
+    state = ConversationState(
+        game_id="1" * 36,
+        revision=99,
+        last_heard="😀" * 255,
+        last_reply="я" * 512,
+        clarification=PendingClarification("я" * 255, ("к" * 100,) * 16),
+        pending_action=PendingAction(CommandKind.NEW_GAME, "я" * 255),
+        position_page=3,
+        help=HelpState(topic=HelpTopic.ALL, page=2),
+        reviewing=True,
+    )
+
+    trimmed = _session_state_update(state)
+
+    assert len(trimmed.model_dump_json(exclude_none=True).encode("utf-8")) <= STATE_LIMIT_BYTES
+    assert trimmed.game_id == state.game_id
+
+
+def test_clarification_candidates_are_bounded_before_round_trip() -> None:
+    sent = _session_state_update(ConversationState(clarification=PendingClarification("ход", ("к" * 100,))))
+    payload = alice_request(2, session_state=sent.model_dump(exclude_none=True))
+
+    restored = _conversation_state(AliceRequest.model_validate(payload))
+
+    assert restored.clarification is not None
+    assert restored.clarification.candidates == ("к" * 64,)
+
+
+async def test_a_replay_cache_write_failure_does_not_discard_the_answer(
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_store(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("cache unavailable")
+
+    monkeypatch.setattr(ConversationService, "store_response", fail_store)
+    async with build_client(session_factory) as client:
+        response = await client.post("/alice/webhook", json=alice_request(1, command="новая игра"))
+
+    assert response.status_code == 200
+    assert "Новая партия" in response.json()["response"]["text"]
+
+
+async def test_a_revision_race_returns_a_spoken_retry_instead_of_http_500(
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def conflict(*args: object, **kwargs: object):  # noqa: ANN202
+        raise RevisionConflictError("lost race")
+
+    monkeypatch.setattr(ConversationService, "handle", conflict)
+    async with build_client(session_factory) as client:
+        response = await client.post("/alice/webhook", json=alice_request(1, command="продолжаем"))
+
+    assert response.status_code == 200
+    assert "Повторите" in response.json()["response"]["text"]

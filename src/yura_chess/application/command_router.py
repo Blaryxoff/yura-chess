@@ -154,6 +154,7 @@ class PuzzleQuestion(StrEnum):
     NEXT = "next"
     SOLUTION = "solution"
     STREAK = "streak"
+    REPEAT = "repeat"
     EXIT = "exit"
 
 
@@ -278,15 +279,26 @@ _PREFERENCE_PATTERNS: tuple[tuple[PreferenceChange, re.Pattern[str]], ...] = (
     # the orientation setting.
     (
         PreferenceChange(board_orientation=BoardOrientation.PLAYER),
-        re.compile(r"(доск\w*|ориентаци\w*) (всегда )?(как я играю|мо(им|ему) цвет\w*|по (моему )?цвету)"),
+        re.compile(
+            r"(доск\w*|ориентаци\w*) (всегда )?(как я играю|мо(им|ему) цвет\w*|по (моему )?цвету)"
+            r"|^(по )?моему цвету$"
+        ),
     ),
     (
         PreferenceChange(board_orientation=BoardOrientation.WHITE),
-        re.compile(r"(доск\w*|ориентаци\w*) (всегда )?(за |со стороны )?бел\w+|бел\w+ снизу"),
+        re.compile(
+            r"(доск\w*|ориентаци\w*) (всегда (за )?|за |со стороны )бел\w+"
+            r"|(покажи|показывай|разверни|поверни)\w*( доск\w*)? (за |со стороны )?бел\w+"
+            r"|бел\w+ снизу"
+        ),
     ),
     (
         PreferenceChange(board_orientation=BoardOrientation.BLACK),
-        re.compile(r"(доск\w*|ориентаци\w*) (всегда )?(за |со стороны )?черн\w+|черн\w+ снизу"),
+        re.compile(
+            r"(доск\w*|ориентаци\w*) (всегда (за )?|за |со стороны )черн\w+"
+            r"|(покажи|показывай|разверни|поверни)\w*( доск\w*)? (за |со стороны )?черн\w+"
+            r"|черн\w+ снизу"
+        ),
     ),
 )
 
@@ -356,10 +368,21 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
         re.compile(r"кака(я|ю)( у меня)? серия|сколько( задач)? подряд|мо(я|ю) серия"),
     ),
     (
+        PuzzleQuestion.REPEAT,
+        re.compile(r"(повтори|напомни)( мне)? (задачу|позицию)|еще раз (задачу|позицию)"),
+    ),
+    (
         PuzzleQuestion.NEXT,
         re.compile(r"следующ\w* задач|еще( одну)? задач|друг(ую|ая) задач|нов(ая|ую) задач"),
     ),
-    (PuzzleQuestion.START, re.compile(r"задач|головоломк")),
+    (
+        PuzzleQuestion.START,
+        re.compile(
+            r"(дай|покажи|предложи|начни|запусти|хочу|решать|решить|порешаем)\w*.*(задач|головоломк)"
+            r"|^(шахматн\w* )?(задач|головоломк)\w* (на|моего|по)"
+            r"|^мат в (один|два)$|одноходов|двуходов"
+        ),
+    ),
 )
 
 # Themes the shipped catalogue actually carries, named the way a player names them.

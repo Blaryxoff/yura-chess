@@ -100,20 +100,41 @@ def test_periodic_maintenance_includes_remote_board_cleanup(monkeypatch: pytest.
         def purge_request_replays(self, now: object, retention_days: int) -> None:
             calls.append("replays")
 
+    class AnalysisRepository:
+        def __init__(self, session: object) -> None:
+            return None
+
+        def purge_expired(self, now: object, retention_days: int) -> None:
+            calls.append("analysis")
+
+    class ReviewRepository:
+        def __init__(self, session: object) -> None:
+            return None
+
+        def purge_expired(self, now: object, retention_days: int) -> None:
+            calls.append("reviews")
+
     monkeypatch.setattr("yura_chess.main.session_scope", fake_session_scope)
     monkeypatch.setattr("yura_chess.main.TranscriptRepository", TranscriptRepository)
     monkeypatch.setattr("yura_chess.main.GameRepository", GameRepository)
+    monkeypatch.setattr("yura_chess.main.AnalysisRepository", AnalysisRepository)
+    monkeypatch.setattr("yura_chess.main.ReviewRepository", ReviewRepository)
     app = SimpleNamespace(
         state=SimpleNamespace(
             session_factory=object(),
-            settings=SimpleNamespace(asr_transcript_retention_days=30, request_replay_retention_days=7),
+            settings=SimpleNamespace(
+                asr_transcript_retention_days=30,
+                request_replay_retention_days=7,
+                analysis_checkpoint_retention_days=180,
+                review_state_retention_days=30,
+            ),
             board_images=SimpleNamespace(maintain_cache=lambda: calls.append("images")),
         )
     )
 
     _purge_retained_data(app)
 
-    assert calls == ["transcripts", "replays", "images"]
+    assert calls == ["transcripts", "replays", "analysis", "reviews", "images"]
 
 
 def test_a_missing_stockfish_binary_does_not_block_startup(offline_settings: Settings) -> None:

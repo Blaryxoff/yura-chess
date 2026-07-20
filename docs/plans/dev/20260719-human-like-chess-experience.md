@@ -149,7 +149,7 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 - [x] Реализовать словесную/числовую оценку, цель последнего хода, угрозу и до трёх кандидатов
 - [x] Анализировать предложенный legal move на копии board; illegal/ambiguous обрабатывать существующим resolver/explainer
 - [x] Реализовать четыре ступени подсказки и идемпотентное продвижение ровно на одну ступень
-- [x] После принятого пользовательского хода в training анализировать вне DB-транзакции и идемпотентно сохранять checkpoint до ответа движка
+- [x] После принятого пользовательского хода в training запускать идемпотентный анализ вне DB-транзакции параллельно ответу движка; анализ не занимает последний свободный worker и никогда не задерживает ход, а готовый checkpoint доступен предупреждению и следующим вопросам
 - [x] Реализовать «где я ошибся» как последний checkpoint с потерей не менее 100 сантипешек, а также предупреждение, «оставить мой ход» и «вернуть ход» без скрытой замены хода
 - [x] Покрыть busy, timeout, replay и отсутствие мутаций UCI/revision/pending turn
 - [x] Mark completed
@@ -279,11 +279,29 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Create `docs/qa/20260719-human-like-experience-e2e.md`; Read `pyproject.toml`, `alembic.ini`, `docker-compose.yml`, `deploy/compose.staging.yml`
 
-- [x] Выполнить все `Validation Commands` без пропуска полного `tests/e2e` (779 passed, 4 skipped; `tests/e2e` впервые реально выполнен — до этого молча пропускался без DSN и выявил 6 настоящих дефектов, все исправлены. Не выполнена только staging webhook команда: staging deploy из Task 18.5 закрыт как ручной, эндпоинта не существует)
+- [x] Выполнить все `Validation Commands` без пропуска полного `tests/e2e` (повторный gate после review: 883 passed, 4 staging-only skipped; локальные MariaDB, CLI и real Stockfish проверки зелёные)
 - [x] Записать команды, окружение, результаты, длительности и известные ограничения в QA report (`docs/qa/20260719-human-like-experience-e2e.md`)
 - [x] Зафиксировать ручной real-device checklist как дополнительный gate, не заменяющий автоматический E2E
 - [x] Не выполнять production deploy без отдельного подтверждения после окончания модерации (deploy не выполнялся; `deploy/compose.production.yml` не изменялся)
 - [x] Mark completed
+
+### Task 20: Закрыть findings глубокого review перед staging
+
+**Files:** Modify application, storage, Alice adapter, migrations, focused tests and release docs
+
+- [x] Сделать puzzle claim/effect/reply одной транзакцией, сохранить точный terminal replay и сериализовать profile updates по owner
+- [x] Исправить case-sensitive Lichess PuzzleId, deterministic resume indexes и database-managed `updated_at`
+- [x] Убрать analysis из критического пути хода, зарезервировать worker для реальных ходов и анализировать на фиксированном уровне 20
+- [x] Исправить puzzle routing/repeat/skip, board-orientation collisions, en passant/capture speech и персональный счёт ходов
+- [x] Сделать partial review честным, long PGN явно сокращённым, review resume детерминированным и branch доступным только после полного анализа
+- [x] Ограничить Alice state по UTF-8 bytes, подписать confirmations на следующий message id и преобразовать revision races в голосовой retry
+- [x] Добавить retention для derived analysis/review state и синхронизировать справку с реальными командами
+- [x] Повторно выполнить static checks, полный MariaDB suite и shell fixtures последовательно и конкурентно в обеих ориентациях (883 passed, 4 staging-only skipped; все четыре shell-прогона exit 0)
+- [x] Добавить один bounded retry только для MariaDB deadlock 1213 в новой транзакции при первой записи preferences и puzzle profile; прочие DB errors не повторять
+- [ ] Опубликовать immutable full-SHA image и развернуть его только в staging
+- [ ] Выполнить staging webhook E2E и real Stockfish latency checks через SSH tunnel
+- [ ] Подтвердить Alembic `0013`, два Stockfish workers и неизменность production
+- [ ] Mark completed
 
 ## Verification notes
 

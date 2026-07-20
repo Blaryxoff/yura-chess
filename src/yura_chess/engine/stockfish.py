@@ -115,9 +115,19 @@ class _Worker:
                 configure(skill_level)
             return process.best_move(board, search_time)
 
-    def analyse(self, board: chess.Board, search_time: float, multipv: int) -> PositionAnalysis:
+    def analyse(
+        self,
+        board: chess.Board,
+        search_time: float,
+        multipv: int,
+        skill_level: int,
+    ) -> PositionAnalysis:
         with self._lock:
-            return self._ready().analyse(board, search_time, multipv)
+            process = self._ready()
+            configure = getattr(process, "set_skill_level", None)
+            if configure is not None:
+                configure(skill_level)
+            return process.analyse(board, search_time, multipv)
 
     def _ready(self) -> EngineProcess:
         process = self._process
@@ -195,13 +205,49 @@ class StockfishPool:
         search_time: float | None = None,
         candidates: int | None = None,
     ) -> PositionAnalysis:
-        """Value a copy of the position without touching the game or the worker's skill level."""
+        """Value a copy at the configured deterministic analysis strength."""
         deadline = self._settings.engine_analysis_deadline_seconds
         limit = min(search_time if search_time is not None else self._settings.engine_analysis_time_seconds, deadline)
         multipv = candidates if candidates is not None else self._settings.engine_analysis_candidates
-        worker = await self._acquire()
+        # With more than one worker, analysis never consumes the last idle one:
+        # a real move always has a process left to answer with.
+        worker = await self._acquire(reserve_idle=1 if len(self._workers) > 1 else 0)
         position = board.copy(stack=False)
-        return await self._guarded(worker, deadline, partial(worker.analyse, position, limit, multipv))
+        return await self._guarded(
+            worker,
+            deadline,
+            partial(
+                worker.analyse,
+                position,
+                limit,
+                multipv,
+                self._settings.engine_analysis_skill_level,
+            ),
+        )
+
+    async def analyse_background(
+        self,
+        board: chess.Board,
+        search_time: float | None = None,
+        candidates: int | None = None,
+    ) -> PositionAnalysis:
+        """Run optional observation work only when a worker is immediately idle."""
+        deadline = self._settings.engine_analysis_deadline_seconds
+        limit = min(search_time if search_time is not None else self._settings.engine_analysis_time_seconds, deadline)
+        multipv = candidates if candidates is not None else self._settings.engine_analysis_candidates
+        worker = await self._acquire(wait=False)
+        position = board.copy(stack=False)
+        return await self._guarded(
+            worker,
+            deadline,
+            partial(
+                worker.analyse,
+                position,
+                limit,
+                multipv,
+                self._settings.engine_analysis_skill_level,
+            ),
+        )
 
     async def _guarded(self, worker: _Worker, deadline: float, call: Callable[[], _T]) -> _T:
         """Await one blocking worker call; any failure takes the worker out of rotation."""
@@ -230,13 +276,16 @@ class StockfishPool:
         self._idle.put_nowait(worker)
         return result
 
-    async def _acquire(self) -> _Worker:
+    async def _acquire(self, reserve_idle: int = 0, wait: bool = True) -> _Worker:
         if not self._running:
             raise EngineUnavailableError("engine pool is not running")
+        if reserve_idle and self._idle.qsize() <= reserve_idle:
+            raise EngineUnavailableError("engine workers are reserved for moves")
         try:
             return self._idle.get_nowait()
         except asyncio.QueueEmpty:
-            pass
+            if not wait:
+                raise EngineUnavailableError("no engine worker is immediately idle") from None
         # Bounded queue: past one waiter per worker the caller fails immediately.
         if self._waiting >= len(self._workers):
             raise EngineUnavailableError("engine pool is saturated")

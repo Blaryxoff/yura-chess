@@ -61,6 +61,9 @@ class FakeProcess:
     def best_move(self, board: chess.Board, search_time: float) -> str:
         return next(iter(board.legal_moves)).uci()
 
+    def set_skill_level(self, skill_level: int) -> None:
+        self.registry.skill_levels.append(skill_level)
+
     def analyse(self, board: chess.Board, search_time: float, multipv: int) -> PositionAnalysis:
         self.registry.requests.append((search_time, multipv))
         if self.registry.block is not None:
@@ -80,6 +83,7 @@ class FakeRegistry:
     def __init__(self) -> None:
         self.processes: list[FakeProcess] = []
         self.requests: list[tuple[float, int]] = []
+        self.skill_levels: list[int] = []
         self.block: threading.Event | None = None
         self.failure: Exception | None = None
 
@@ -171,6 +175,39 @@ async def test_analysis_asks_for_the_requested_number_of_candidates() -> None:
 
     assert registry.requests == [(0.05, 3)]
     assert len(analysis.candidates) == 3
+
+
+async def test_analysis_uses_a_fixed_full_strength_level() -> None:
+    registry = FakeRegistry()
+    pool = StockfishPool(analysis_settings(engine_analysis_skill_level=20), registry)
+    await pool.start()
+
+    try:
+        await pool.best_move(chess.Board(), skill_level=4)
+        await pool.analyse(chess.Board())
+        await pool.best_move(chess.Board(), skill_level=7)
+    finally:
+        await pool.stop()
+
+    assert registry.skill_levels == [4, 20, 7]
+
+
+async def test_analysis_never_takes_the_last_idle_worker_from_moves() -> None:
+    registry = FakeRegistry()
+    registry.block = threading.Event()
+    pool = StockfishPool(analysis_settings(engine_pool_size=2), registry)
+    await pool.start()
+
+    first = asyncio.create_task(pool.analyse(chess.Board()))
+    await asyncio.sleep(0.05)
+    try:
+        with pytest.raises(EngineUnavailableError):
+            await pool.analyse(chess.Board())
+        assert await pool.best_move(chess.Board())
+    finally:
+        registry.block.set()
+        await first
+        await pool.stop()
 
 
 async def test_analysis_time_is_capped_by_its_own_deadline() -> None:

@@ -121,11 +121,10 @@ def compose_help_card() -> TextCard:
 
 
 def compose_pgn_card(export: str) -> TextCard:
-    """The export as it would be copied off the screen; the voice reads the moves.
+    """The PGN text or its explicitly labelled preview, repeated on screen.
 
-    PGN is whitespace-insensitive, so the export is split across the card items
-    on token boundaries: every item stays readable and the whole card still
-    re-imports as one game.
+    Text is split on token boundaries so the card never cuts a token in half.
+    The review service labels long exports as previews before they reach here.
     """
     return TextCard("PGN", _packed(tuple(export.split()), " "))
 

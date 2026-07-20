@@ -100,7 +100,7 @@ def test_the_cursor_is_absolute(reviews: ReviewRepository, repository: GameRepos
     again = reviews.set_cursor(game_id, OWNER, moved.revision, ReviewSection.MISTAKES, ply=3, page=1)
 
     assert (again.section, again.ply, again.page) == (ReviewSection.MISTAKES, 3, 1)
-    assert again.revision == review.revision + 2
+    assert again.revision == review.revision + 1
 
 
 @pytest.mark.parametrize(("ply", "page"), [(-1, 0), (0, -1)])

@@ -11,6 +11,8 @@ rather than another player's analysis.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -80,6 +82,13 @@ class AnalysisRepository:
             .order_by(AnalysisCheckpointRow.ply)
         )
         return tuple(_to_checkpoint(row) for row in self._session.scalars(statement))
+
+    def purge_expired(self, now: datetime, retention_days: int) -> int:
+        """Drop old derived evaluations; they are recomputed if requested again."""
+        cutoff = now - timedelta(days=retention_days)
+        removed = self._session.query(AnalysisCheckpointRow).filter(AnalysisCheckpointRow.updated_at < cutoff).delete()
+        self._session.flush()
+        return removed
 
     def _insert(self, checkpoint: AnalysisCheckpoint) -> AnalysisCheckpointRow:
         row = AnalysisCheckpointRow(

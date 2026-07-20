@@ -6,6 +6,7 @@ import random
 
 import chess
 import pytest
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from yura_chess.application.command_router import CommandKind, PuzzleQuestion, PuzzleRequest, route
@@ -256,6 +257,33 @@ def test_the_solution_is_read_out_and_closes_the_attempt(
     assert attempt(session_factory, MATE_IN_TWO).status is PuzzleAttemptStatus.FAILED
 
 
+def test_a_replayed_solution_repeats_the_solution_text(
+    session_factory: sessionmaker[Session],
+) -> None:
+    puzzles = service(session_factory, MATE_IN_TWO)
+    start(puzzles, 1)
+    request = context(2)
+    first = puzzles.answer(OWNER, PuzzleRequest(PuzzleQuestion.SOLUTION), request, open_puzzle(puzzles))
+
+    replayed = puzzles.answer(OWNER, PuzzleRequest(PuzzleQuestion.SOLUTION), request, None)
+
+    assert replayed == first
+
+
+def test_a_replayed_final_move_repeats_the_solved_answer(
+    session_factory: sessionmaker[Session],
+) -> None:
+    puzzles = service(session_factory, MATE_IN_ONE)
+    start(puzzles, 1)
+    current = open_puzzle(puzzles)
+    request = context(2)
+    first = puzzles.play(OWNER, current, "d7e8", request)
+
+    replayed = puzzles.play(OWNER, current, "d7e8", request)
+
+    assert replayed == first
+
+
 def test_three_clean_solves_raise_the_difficulty_by_one_step(
     session_factory: sessionmaker[Session],
 ) -> None:
@@ -373,6 +401,68 @@ def test_the_next_puzzle_is_a_different_one(session_factory: sessionmaker[Sessio
     assert open_puzzle(puzzles).puzzle.id != first
 
 
+def test_skipping_after_a_wrong_move_does_not_count_as_a_failure(
+    session_factory: sessionmaker[Session],
+) -> None:
+    puzzles = service(session_factory, MATE_IN_TWO, MATE_IN_ONE)
+    start(puzzles, 1)
+    puzzles.play(OWNER, open_puzzle(puzzles), "b3b4", context(2))
+
+    puzzles.answer(OWNER, PuzzleRequest(PuzzleQuestion.NEXT), context(3), open_puzzle(puzzles))
+
+    skipped = attempt(session_factory, MATE_IN_TWO)
+    assert skipped.status is PuzzleAttemptStatus.ABANDONED
+    assert profile(session_factory).failure_streak == 0
+
+
+def test_a_failed_selection_rolls_back_its_replay_claim(
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    puzzles = service(session_factory, MATE_IN_ONE)
+    original = PuzzleRepository.start_attempt
+
+    def fail_once(repository: PuzzleRepository, owner_key: str, puzzle_id: str):  # noqa: ANN202
+        monkeypatch.setattr(PuzzleRepository, "start_attempt", original)
+        raise RuntimeError("selection failed")
+
+    monkeypatch.setattr(PuzzleRepository, "start_attempt", fail_once)
+    request = context(1)
+
+    with pytest.raises(RuntimeError, match="selection failed"):
+        puzzles.answer(OWNER, PuzzleRequest(PuzzleQuestion.START), request, None)
+
+    replayed = puzzles.answer(OWNER, PuzzleRequest(PuzzleQuestion.START), request, None)
+    assert "Задача" in replayed.speech.text
+    assert puzzles.find_open(OWNER) is not None
+
+
+def test_a_first_puzzle_profile_deadlock_retries_the_whole_claim(
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    puzzles = service(session_factory, MATE_IN_ONE)
+    original = PuzzleRepository.start_attempt
+    attempts = 0
+
+    def deadlock_once(repository: PuzzleRepository, owner_key: str, puzzle_id: str):  # noqa: ANN202
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise OperationalError("INSERT", {}, Exception(1213, "deadlock"))
+        return original(repository, owner_key, puzzle_id)
+
+    monkeypatch.setattr(PuzzleRepository, "start_attempt", deadlock_once)
+    request = context(1)
+
+    first = puzzles.answer(OWNER, PuzzleRequest(PuzzleQuestion.START), request, None)
+    replayed = puzzles.answer(OWNER, PuzzleRequest(PuzzleQuestion.START), request, None)
+
+    assert attempts == 2
+    assert replayed == first
+    assert puzzles.find_open(OWNER) is not None
+
+
 def test_the_series_is_reported_without_touching_the_attempt(
     session_factory: sessionmaker[Session],
 ) -> None:
@@ -385,6 +475,22 @@ def test_the_series_is_reported_without_touching_the_attempt(
     assert "серия" in reply.speech.text or "решено задач" in reply.speech.text
     assert reply.active is True
     assert attempt(session_factory, MATE_IN_ONE).revision == before.revision
+
+
+def test_repeating_a_puzzle_is_read_only(session_factory: sessionmaker[Session]) -> None:
+    puzzles = service(session_factory, MATE_IN_TWO)
+    start(puzzles, 1)
+    before = attempt(session_factory, MATE_IN_TWO)
+
+    repeated = puzzles.answer(
+        OWNER,
+        PuzzleRequest(PuzzleQuestion.REPEAT),
+        context(2),
+        open_puzzle(puzzles),
+    )
+
+    assert repeated.speech.text.startswith("Повторяю. Задача")
+    assert attempt(session_factory, MATE_IN_TWO).revision == before.revision
 
 
 def test_puzzles_are_isolated_between_owners(session_factory: sessionmaker[Session]) -> None:
@@ -419,6 +525,22 @@ async def test_a_puzzle_move_never_touches_the_game(
     )
 
 
+async def test_conversation_replays_a_terminal_puzzle_move_exactly(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    puzzles = service(session_factory, MATE_IN_ONE)
+    conversation = ConversationService(session_factory, FakeEngine(), offline_settings, puzzles)
+    opened = await conversation.handle(OWNER, "дай задачу", context(1, new=True))
+    request = context(2)
+
+    first = await conversation.handle(OWNER, "слон е восемь", request, opened.state)
+    replayed = await conversation.handle(OWNER, "слон е восемь", request, opened.state)
+
+    assert replayed.speech == first.speech
+    assert "Задача решена" in replayed.speech.text
+
+
 async def test_an_illegal_puzzle_move_is_explained_and_an_ambiguous_one_asked_about(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
@@ -449,6 +571,23 @@ async def test_a_game_command_leaves_the_puzzle_and_reaches_the_game(
 
     assert "Новая партия" in started.speech.text
     assert puzzles.find_open(OWNER) is None
+
+
+async def test_declining_a_new_game_keeps_the_open_puzzle(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    puzzles = service(session_factory, MATE_IN_TWO)
+    conversation = ConversationService(session_factory, FakeEngine(), offline_settings, puzzles)
+    game = await conversation.handle(OWNER, "", context(1))
+    opened = await conversation.handle(OWNER, "дай задачу", context(2), game.state)
+
+    prompt = await conversation.handle(OWNER, "новая игра", context(3), opened.state)
+    assert puzzles.find_open(OWNER) is not None
+
+    declined = await conversation.handle(OWNER, "нет", context(4), prompt.state)
+    assert "отмен" in declined.speech.text or "Хорошо" in declined.speech.text
+    assert puzzles.find_open(OWNER) is not None
 
 
 async def test_an_unfinished_puzzle_is_resumed_as_a_puzzle_not_as_a_game(
@@ -490,6 +629,8 @@ def test_puzzle_commands_are_routed_before_the_game_commands() -> None:
     assert route("еще задачу").kind is CommandKind.PUZZLE
     assert route("выйти из задач").puzzle == PuzzleRequest(PuzzleQuestion.EXIT)
     assert route("покажи решение").puzzle == PuzzleRequest(PuzzleQuestion.SOLUTION)
+    assert route("повтори задачу").puzzle == PuzzleRequest(PuzzleQuestion.REPEAT)
+    assert route("какая задача").kind is not CommandKind.PUZZLE
     assert route("задача на мат в два").puzzle == PuzzleRequest(PuzzleQuestion.START, theme="mateIn2")
     assert route("следующая задача на вилку").puzzle == PuzzleRequest(PuzzleQuestion.NEXT, theme="fork")
     # A game command that merely mentions another game stays a game command.

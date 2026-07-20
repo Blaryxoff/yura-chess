@@ -6,7 +6,7 @@ time, and a skill that fails validation on them stops answering users.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -129,7 +129,7 @@ class GameStateUpdate(_AliceModel):
 
 class ClarificationState(_AliceModel):
     heard: str = Field(max_length=255)
-    candidates: list[str] = Field(default_factory=list, max_length=16)
+    candidates: list[Annotated[str, Field(max_length=64)]] = Field(default_factory=list, max_length=16)
 
 
 class RematchState(_AliceModel):
@@ -144,6 +144,8 @@ class PendingActionState(_AliceModel):
     # utterance after the confirmation would lose it.
     rematch: RematchState | None = None
     review: ReviewQuestion | None = None
+    expected_message_id: int | None = Field(default=None, ge=0)
+    signature: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 class HelpSessionState(_AliceModel):

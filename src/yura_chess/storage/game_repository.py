@@ -140,6 +140,7 @@ class GameRepository:
                 GameRow.last_player_move_at.is_(None),
                 GameRow.last_player_move_at.desc(),
                 GameRow.created_at.desc(),
+                GameRow.id.desc(),
             )
             .limit(1)
         )
@@ -159,6 +160,23 @@ class GameRepository:
                 GameRow.last_player_move_at.is_(None),
                 GameRow.last_player_move_at.desc(),
                 GameRow.created_at.desc(),
+                GameRow.id.desc(),
+            )
+            .limit(1)
+        )
+        row = self._session.scalars(statement).one_or_none()
+        return _to_state(row) if row is not None else None
+
+    def find_latest_finished(self, owner_key: str) -> GameState | None:
+        """Return the most recent completed or resigned game for review."""
+        statement = (
+            select(GameRow)
+            .where(GameRow.owner_key == owner_key, GameRow.status != GameStatus.ACTIVE.value)
+            .order_by(
+                GameRow.last_player_move_at.is_(None),
+                GameRow.last_player_move_at.desc(),
+                GameRow.created_at.desc(),
+                GameRow.id.desc(),
             )
             .limit(1)
         )

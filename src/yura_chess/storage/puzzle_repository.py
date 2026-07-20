@@ -19,6 +19,7 @@ pseudonymous owner key is the only subject of a row.
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -73,8 +74,12 @@ class PuzzleRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def load_profile(self, owner_key: str) -> PuzzleProfile:
-        row = self._find_profile(owner_key)
+    def load_profile(self, owner_key: str, for_update: bool = False) -> PuzzleProfile:
+        row = self._find_profile(owner_key, for_update=for_update)
+        if row is None and for_update:
+            statement = mysql_insert(PuzzleProfileRow).values(owner_key=owner_key)
+            self._session.execute(statement.on_duplicate_key_update(owner_key=statement.inserted.owner_key))
+            row = self._find_profile(owner_key, for_update=True)
         if row is None:
             return PuzzleProfile(owner_key=owner_key)
         return _to_profile(row)
@@ -92,7 +97,10 @@ class PuzzleRepository:
         that is still running is abandoned rather than left to be resumed later.
         A puzzle that was already finished starts again from the beginning.
         """
-        row = self._find_attempt(owner_key, puzzle_id)
+        # The profile row is the per-owner mutex for puzzle lifecycle changes.
+        # It prevents two sessions from leaving different attempts active.
+        self.load_profile(owner_key, for_update=True)
+        row = self._find_attempt(owner_key, puzzle_id, for_update=True)
         self._abandon_others(owner_key, puzzle_id)
         if row is None:
             row = self._insert_attempt(owner_key, puzzle_id)
@@ -178,10 +186,15 @@ class PuzzleRepository:
         return _to_attempt(row), _to_profile(stored)
 
     def _abandon_others(self, owner_key: str, puzzle_id: str) -> None:
-        statement = select(PuzzleAttemptRow).where(
-            PuzzleAttemptRow.owner_key == owner_key,
-            PuzzleAttemptRow.puzzle_id != puzzle_id,
-            PuzzleAttemptRow.status == PuzzleAttemptStatus.ACTIVE.value,
+        statement = (
+            select(PuzzleAttemptRow)
+            .where(
+                PuzzleAttemptRow.owner_key == owner_key,
+                PuzzleAttemptRow.puzzle_id != puzzle_id,
+                PuzzleAttemptRow.status == PuzzleAttemptStatus.ACTIVE.value,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         for row in self._session.scalars(statement):
             row.status = PuzzleAttemptStatus.ABANDONED.value

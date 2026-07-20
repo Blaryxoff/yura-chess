@@ -12,6 +12,8 @@ not extend it.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -74,7 +76,7 @@ class ReviewRepository:
         statement = (
             select(GameReviewRow)
             .where(GameReviewRow.owner_key == owner_key)
-            .order_by(GameReviewRow.updated_at.desc(), GameReviewRow.created_at.desc())
+            .order_by(GameReviewRow.updated_at.desc(), GameReviewRow.created_at.desc(), GameReviewRow.game_id.desc())
             .limit(1)
         )
         row = self._session.scalars(statement).one_or_none()
@@ -93,6 +95,8 @@ class ReviewRepository:
         if ply < 0 or page < 0:
             raise InvalidReviewCursorError(f"cursor ply {ply} / page {page} is negative")
         row = self._load_row(game_id, owner_key, expected_revision)
+        if (row.section, row.ply, row.page) == (section.value, ply, page):
+            return _to_review(row)
         row.section = section.value
         row.ply = ply
         row.page = page
@@ -108,6 +112,13 @@ class ReviewRepository:
         self._session.delete(row)
         self._session.flush()
         return True
+
+    def purge_expired(self, now: datetime, retention_days: int) -> int:
+        """Forget stale cursors; finished games and their analysis remain available."""
+        cutoff = now - timedelta(days=retention_days)
+        removed = self._session.query(GameReviewRow).filter(GameReviewRow.updated_at < cutoff).delete()
+        self._session.flush()
+        return removed
 
     def _insert(self, game_id: str, owner_key: str) -> GameReviewRow:
         row = GameReviewRow(

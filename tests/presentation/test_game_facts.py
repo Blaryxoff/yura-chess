@@ -63,18 +63,27 @@ def test_moves_played_counts_plies_and_full_moves() -> None:
     assert answer("сколько ходов сыграно", board_of(*SCOTCH))[1] == "Сыграно 6 ходов, это 3 полных хода."
 
 
+def test_moves_played_can_count_only_the_asked_side() -> None:
+    board = board_of("e2e4", "e7e5", "g1f3")
+
+    assert answer("сколько ходов сделал я", board, chess.WHITE)[1] == "Вы сделали 2 хода."
+    assert answer("сколько ходов сделала ты", board, chess.WHITE)[1] == "Я сделала 1 ход."
+    assert answer("сколько ходов сделал я", board, chess.BLACK)[1] == "Вы сделали 1 ход."
+
+
 def test_captures_are_read_from_the_history_of_both_sides() -> None:
     assert "никто не снял" in answer("какие фигуры съедены", board_of(*SCOTCH))[1]
 
     board = board_of("e2e4", "d7d5", "e4d5", "d8d5", "b1c3", "d5e5", "c3b5", "e5e2", "f1e2")
     _, text = answer("какие фигуры съедены", board)
-    assert "Вы взяли: ферзь, пешка." in text
-    assert "Я взяла: пешка." in text
+    assert "Вы взяли: ферзя, пешку." in text
+    assert "Я взяла: пешку." in text
 
 
 def test_en_passant_capture_is_counted_even_though_the_target_is_empty() -> None:
     board = board_of("e2e4", "a7a6", "e4e5", "d7d5", "e5d6")
-    assert "Вы взяли: пешка." in answer("какие фигуры съедены", board)[1]
+    assert "Вы взяли: пешку." in answer("какие фигуры съедены", board)[1]
+    assert "вы взяли пешку на d5" in answer("что изменилось", board)[1]
 
 
 def test_castling_reports_the_concrete_reason_it_is_unavailable() -> None:
@@ -135,7 +144,7 @@ def test_opening_and_stage_questions_are_recognized(utterance: str, expected: Ga
 
 
 def test_the_opening_answer_names_the_line_or_admits_it_is_unknown() -> None:
-    assert "Italian Game" in answer("как называется дебют", board_of(*SCOTCH))[1]
+    assert "Итальянская партия" in answer("как называется дебют", board_of(*SCOTCH))[1]
     unknown = chess.Board("4k3/8/8/8/8/8/8/4K1N1 w - - 0 40")
     assert answer("как называется дебют", unknown)[1] == "Дебют не определён."
 

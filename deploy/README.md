@@ -51,7 +51,7 @@ stay compatible with the previous release**. That is what makes an application-o
 rollback safe.
 
 The human-like experience release adds `0007_player_preferences` …
-`0011_puzzles` on top of `0006_alice_response_replay`. They are additive and run
+`0013_query_order_and_timestamps` on top of `0006_alice_response_replay`. They are additive and run
 in that order as one `alembic upgrade head`, so the previously deployed image
 keeps working against the migrated schema.
 

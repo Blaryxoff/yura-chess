@@ -34,7 +34,16 @@ class Base(DeclarativeBase):
 
 class GameRow(Base):
     __tablename__ = "games"
-    __table_args__ = (Index("ix_games_owner_status_last_player_move", "owner_key", "status", "last_player_move_at"),)
+    __table_args__ = (
+        Index(
+            "ix_games_owner_status_last_player_move",
+            "owner_key",
+            "status",
+            "last_player_move_at",
+            "created_at",
+            "id",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(CHAR(36), primary_key=True)
     owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), index=True)
@@ -199,6 +208,7 @@ class GameReviewRow(Base):
     """
 
     __tablename__ = "game_reviews"
+    __table_args__ = (Index("ix_game_reviews_owner_updated", "owner_key", "updated_at", "created_at", "game_id"),)
 
     game_id: Mapped[str] = mapped_column(CHAR(36), ForeignKey("games.id", ondelete="CASCADE"), primary_key=True)
     owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), index=True)
@@ -244,9 +254,22 @@ class PuzzleAttemptRow(Base):
     """
 
     __tablename__ = "puzzle_attempts"
+    __table_args__ = (
+        Index(
+            "ix_puzzle_attempts_owner_status_updated",
+            "owner_key",
+            "status",
+            "updated_at",
+            "created_at",
+            "puzzle_id",
+        ),
+    )
 
     owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), primary_key=True)
-    puzzle_id: Mapped[str] = mapped_column(String(PUZZLE_ID_LENGTH), primary_key=True)
+    puzzle_id: Mapped[str] = mapped_column(
+        String(PUZZLE_ID_LENGTH, collation="utf8mb4_bin"),
+        primary_key=True,
+    )
     # Absolute index into the puzzle's solution line, never an increment.
     node: Mapped[int] = mapped_column(SmallInteger, server_default="0")
     mistakes: Mapped[int] = mapped_column(SmallInteger, server_default="0")

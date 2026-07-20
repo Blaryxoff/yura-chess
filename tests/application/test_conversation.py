@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import chess
 import pytest
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from yura_chess.application.command_router import CommandKind, PendingClarification, route
@@ -25,6 +26,7 @@ from yura_chess.presentation.response_composer import BoardCard
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
+from yura_chess.storage.preferences_repository import PreferencesRepository
 from yura_chess.storage.review_repository import ReviewRepository
 
 pytestmark = pytest.mark.anyio
@@ -106,6 +108,29 @@ async def test_illegal_move_explains_the_rule_without_changing_the_game(
     with session_scope(session_factory) as session:
         state = GameRepository(session).load(started.state.game_id or "", OWNER)
     assert state.moves == ()
+
+
+async def test_a_move_during_a_pending_engine_turn_resumes_before_explaining_legality(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    game_id = started.state.game_id or ""
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        game = repository.load(game_id, OWNER)
+        pending = repository.begin_engine_turn(game.id, OWNER, game.revision, "e2e4", "pending")
+
+    reply = await conversation.handle(
+        OWNER,
+        "конь эф три",
+        context(2),
+        ConversationState(game_id=game_id, revision=pending.revision),
+    )
+
+    assert "Теперь повторите новый ход" in reply.speech.text
+    assert "нельзя" not in reply.speech.text.lower()
 
 
 async def test_position_and_repeat_heard_are_available_without_alice(
@@ -917,6 +942,31 @@ async def test_preferences_are_isolated_per_owner(
 
     assert other.preferences is not None
     assert other.preferences.detail_level is DetailLevel.NORMAL
+
+
+async def test_a_first_preference_deadlock_is_retried(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    original = PreferencesRepository.load
+    attempts = 0
+
+    def deadlock_once(repository: PreferencesRepository, owner_key: str, for_update: bool = False):  # noqa: ANN202
+        nonlocal attempts
+        if for_update and attempts == 0:
+            attempts += 1
+            raise OperationalError("INSERT", {}, Exception(1213, "deadlock"))
+        return original(repository, owner_key, for_update)
+
+    monkeypatch.setattr(PreferencesRepository, "load", deadlock_once)
+
+    reply = await conversation.handle(OWNER, "говори кратко", context(1))
+
+    assert reply.preferences is not None
+    assert reply.preferences.detail_level is DetailLevel.BRIEF
+    assert attempts == 1
 
 
 async def test_rematch_keeps_the_colour_and_level_of_the_finished_game(

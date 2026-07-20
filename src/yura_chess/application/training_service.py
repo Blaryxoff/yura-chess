@@ -129,11 +129,11 @@ class TrainingService:
         for uci in state.moves[:ply]:
             board.push(chess.Move.from_uci(uci))
         mover = PlayerColor.WHITE if board.turn == chess.WHITE else PlayerColor.BLACK
-        before = await self._analyse(board)
+        before = await self._analyse(board, background=True)
         if before is None:
             return
         score_before = before.score_for(mover)
-        after = await self._score_after(board, move_uci, before, mover)
+        after = await self._score_after(board, move_uci, before, mover, background=True)
         if score_before is None or after is None:
             return
         checkpoint = AnalysisCheckpoint(
@@ -147,7 +147,7 @@ class TrainingService:
             engine=AnalysisEngineSettings(
                 depth=before.depth,
                 search_time_ms=round(self._settings.engine_analysis_time_seconds * 1000),
-                skill_level=state.engine.skill_level,
+                skill_level=self._settings.engine_analysis_skill_level,
             ),
         )
         with session_scope(self._session_factory) as session:
@@ -202,6 +202,8 @@ class TrainingService:
             )
         if game.status is not GameStatus.ACTIVE:
             return Speech.of("Партия уже закончена. Режим можно выбрать в новой партии.")
+        if game.pending_engine_turn is not None:
+            return Speech.of("Сначала я должна ответить на ваш ход. Скажите «продолжаем».")
         with session_scope(self._session_factory) as session:
             GameRepository(session).set_mode(game.id, owner_key, game.revision, mode)
         if mode is GameMode.TRAINING:
@@ -233,6 +235,8 @@ class TrainingService:
 
     async def _threat(self, game: GameState) -> Speech:
         board = game.board()
+        if board.turn != game.player_color.to_chess():
+            return Speech.of("Сначала я должна ответить на ваш ход. Скажите «продолжаем».")
         if board.is_check():
             return Speech.of("Прямо сейчас вам шах — это и есть угроза.")
         if board.is_game_over():
@@ -271,6 +275,8 @@ class TrainingService:
     async def _preview(self, game: GameState, move_text: str) -> Speech:
         """Value a suggested move on a copy; the game never sees it."""
         board = game.board()
+        if board.turn != game.player_color.to_chess():
+            return Speech.of("Сначала я должна ответить на ваш ход. Скажите «продолжаем».")
         normalized = normalize(move_text)
         if not normalized.has_move_tokens:
             return Speech.of("Назовите ход, который разобрать, например «что будет, если я сыграю конь эф три».")
@@ -346,6 +352,7 @@ class TrainingService:
         move_uci: str,
         before: PositionAnalysis,
         mover: PlayerColor,
+        background: bool = False,
     ) -> Score | None:
         """Reuse the candidate for the played move; search again only if it is missing."""
         played = _candidate_for(before, move_uci)
@@ -353,12 +360,15 @@ class TrainingService:
             return played.score if mover is before.side_to_move else played.score.inverted()
         after = board.copy(stack=False)
         after.push(chess.Move.from_uci(move_uci))
-        analysis = await self._analyse(after)
+        analysis = await self._analyse(after, background=background)
         return analysis.score_for(mover) if analysis is not None else None
 
-    async def _analyse(self, board: chess.Board) -> PositionAnalysis | None:
+    async def _analyse(self, board: chess.Board, background: bool = False) -> PositionAnalysis | None:
         """`None` means the engine could not answer in time, never a bad position."""
         try:
+            if background:
+                analyse = getattr(self._engine, "analyse_background", self._engine.analyse)
+                return await analyse(board)
             return await self._engine.analyse(board)
         except (EngineUnavailableError, EngineSearchTimeoutError):
             return None

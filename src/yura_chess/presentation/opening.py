@@ -74,6 +74,91 @@ _STAGE_NAMES: dict[GameStage, str] = {
     GameStage.ENDGAME: "эндшпиль",
 }
 
+# The source catalogue uses English names. Alice speaks Russian, so common
+# opening families are translated here; an unmapped rare family is identified
+# honestly by ECO code instead of being pronounced as broken English TTS.
+_RUSSIAN_OPENINGS: dict[str, str] = {
+    "Alekhine Defense": "Защита Алехина",
+    "Anderssen's Opening": "Дебют Андерсена",
+    "Barnes Opening": "Дебют Барнса",
+    "Benko Gambit": "Гамбит Бенко",
+    "Benko Gambit Accepted": "Принятый гамбит Бенко",
+    "Benko Gambit Declined": "Отказанный гамбит Бенко",
+    "Benoni Defense": "Защита Бенони",
+    "Bird Opening": "Дебют Бёрда",
+    "Bishop's Opening": "Дебют слона",
+    "Blackmar-Diemer Gambit": "Гамбит Блэкмара — Димера",
+    "Blackmar-Diemer Gambit Accepted": "Принятый гамбит Блэкмара — Димера",
+    "Blackmar-Diemer Gambit Declined": "Отказанный гамбит Блэкмара — Димера",
+    "Blumenfeld Countergambit": "Контргамбит Блюменфельда",
+    "Bogo-Indian Defense": "Защита Боголюбова",
+    "Caro-Kann Defense": "Защита Каро — Канн",
+    "Catalan Opening": "Каталонское начало",
+    "Center Game": "Центральный дебют",
+    "Colle System": "Система Колле",
+    "Czech Defense": "Чешская защита",
+    "Danish Gambit": "Датский гамбит",
+    "Dutch Defense": "Голландская защита",
+    "Elephant Gambit": "Гамбит слона",
+    "English Defense": "Английская защита",
+    "English Opening": "Английское начало",
+    "Englund Gambit": "Гамбит Энглунда",
+    "Four Knights Game": "Дебют четырёх коней",
+    "French Defense": "Французская защита",
+    "Grob Opening": "Дебют Гроба",
+    "Grünfeld Defense": "Защита Грюнфельда",
+    "Hippopotamus Defense": "Защита гиппопотама",
+    "Hungarian Opening": "Венгерский дебют",
+    "Indian Defense": "Индийская защита",
+    "Italian Game": "Итальянская партия",
+    "King's Gambit": "Королевский гамбит",
+    "King's Gambit Accepted": "Принятый королевский гамбит",
+    "King's Gambit Declined": "Отказанный королевский гамбит",
+    "King's Indian Attack": "Староиндийское нападение",
+    "King's Indian Defense": "Староиндийская защита",
+    "King's Knight Opening": "Дебют королевского коня",
+    "King's Pawn Game": "Дебют королевской пешки",
+    "Latvian Gambit": "Латышский гамбит",
+    "London System": "Лондонская система",
+    "Modern Defense": "Современная защита",
+    "Neo-Grünfeld Defense": "Защита Нео-Грюнфельда",
+    "Nimzo-Indian Defense": "Защита Нимцовича",
+    "Nimzo-Larsen Attack": "Дебют Нимцовича — Ларсена",
+    "Nimzowitsch Defense": "Защита Нимцовича",
+    "Old Indian Defense": "Староиндийская защита",
+    "Owen Defense": "Защита Оуэна",
+    "Petrov's Defense": "Русская партия",
+    "Philidor Defense": "Защита Филидора",
+    "Pirc Defense": "Защита Пирца — Уфимцева",
+    "Polish Defense": "Польская защита",
+    "Polish Opening": "Дебют Сокольского",
+    "Ponziani Opening": "Дебют Понциани",
+    "Queen's Gambit": "Ферзевый гамбит",
+    "Queen's Gambit Accepted": "Принятый ферзевый гамбит",
+    "Queen's Gambit Declined": "Отказанный ферзевый гамбит",
+    "Queen's Indian Defense": "Новоиндийская защита",
+    "Queen's Pawn Game": "Дебют ферзевой пешки",
+    "Réti Opening": "Дебют Рети",
+    "Ruy Lopez": "Испанская партия",
+    "Scandinavian Defense": "Скандинавская защита",
+    "Scotch Game": "Шотландская партия",
+    "Semi-Slav Defense": "Меранская система",
+    "Sicilian Defense": "Сицилианская защита",
+    "Slav Defense": "Славянская защита",
+    "Tarrasch Defense": "Защита Тарраша",
+    "Three Knights Opening": "Дебют трёх коней",
+    "Torre Attack": "Атака Торре",
+    "Trompowsky Attack": "Атака Тромповского",
+    "Vienna Game": "Венская партия",
+    "Zukertort Opening": "Дебют Цукерторта",
+}
+
+_RUSSIAN_VARIATIONS: dict[str, str] = {
+    "Classical Defense": "классическая защита",
+    "Exchange Variation": "разменный вариант",
+    "Morphy Defense": "защита Морфи",
+}
+
 
 @cache
 def _opening_index() -> dict[tuple[str, ...], OpeningName]:
@@ -113,7 +198,12 @@ def describe_opening(board: chess.Board) -> Speech:
     known = identify_opening(board)
     if known is None:
         return Speech.of("Дебют не определён.")
-    return Speech.of(f"Это {known.full_name}, код {known.eco}.")
+    translated = _RUSSIAN_OPENINGS.get(known.opening)
+    if translated is None:
+        return Speech.of(f"Дебют определён по коду {known.eco}; русского названия в справочнике пока нет.")
+    variation = _RUSSIAN_VARIATIONS.get(known.variation)
+    suffix = f", {variation}" if variation else ""
+    return Speech.of(f"Это {translated}{suffix}, код {known.eco}.")
 
 
 def describe_stage(board: chess.Board) -> Speech:

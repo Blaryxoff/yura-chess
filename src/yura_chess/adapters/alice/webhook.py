@@ -10,6 +10,7 @@ interpreter, not here.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 from hashlib import sha256
@@ -60,8 +61,15 @@ from yura_chess.presentation.response_composer import (
     TextCard,
     compose_board_card,
 )
-from yura_chess.storage.game_repository import ReplayFingerprintConflictError
+from yura_chess.storage.game_repository import (
+    PendingTurnConflictError,
+    PendingTurnMismatchError,
+    ReplayFingerprintConflictError,
+    RevisionConflictError,
+)
 from yura_chess.storage.models import FINGERPRINT_LENGTH
+from yura_chess.storage.puzzle_repository import PuzzleAttemptRevisionConflictError
+from yura_chess.storage.review_repository import ReviewRevisionConflictError
 
 logger = logging.getLogger(__name__)
 
@@ -92,12 +100,15 @@ def build_router() -> APIRouter:
                 response = await _attach_card(response, card, images, remaining)
                 if owner is not None and context is not None:
                     turn = reply.turn if reply is not None else None
-                    conversation.store_response(
-                        owner,
-                        context,
-                        response.model_dump_json(exclude_none=True),
-                        turn.game_id if turn is not None else _response_game_id(response),
-                    )
+                    try:
+                        conversation.store_response(
+                            owner,
+                            context,
+                            response.model_dump_json(exclude_none=True),
+                            turn.game_id if turn is not None else _response_game_id(response),
+                        )
+                    except Exception:  # noqa: BLE001 - the answer and chess mutation already succeeded
+                        logger.warning("alice replay response cache write failed", exc_info=True)
                 return response
         except TimeoutError:
             # Whatever was committed stays committed; the next request resumes it.
@@ -136,15 +147,24 @@ async def _handle(
         cached = conversation.cached_response(owner, context)
         if cached is not None:
             return AliceResponse.model_validate_json(cached), None, owner, context
-        reply = await conversation.handle(owner, payload.request.command, context, _conversation_state(payload))
+        reply = await conversation.handle(owner, payload.request.command, context, _conversation_state(payload, salt))
     except ReplayFingerprintConflictError:
         # Same replay key, different request: answer without touching the game.
         return _plain(payload, "Не расслышала. Повторите, пожалуйста."), None, None, None
+    except (
+        RevisionConflictError,
+        PendingTurnConflictError,
+        PendingTurnMismatchError,
+        ReviewRevisionConflictError,
+        PuzzleAttemptRevisionConflictError,
+    ):
+        logger.info("concurrent alice request lost an optimistic-lock race")
+        return _plain(payload, "Позиция уже изменилась. Повторите команду, пожалуйста."), None, None, None
     except LookupError:
         # A foreign or stale game_id must not reveal whether that game exists.
         reply = await conversation.handle(owner, "", context, ConversationState())
 
-    return _compose(payload, reply), reply, owner, context
+    return _compose(payload, reply, salt), reply, owner, context
 
 
 def _response_game_id(response: AliceResponse) -> str | None:
@@ -229,7 +249,7 @@ def _fingerprint(payload: AliceRequest) -> str:
     return sha256(significant.encode("utf-8")).hexdigest()[:FINGERPRINT_LENGTH]
 
 
-def _compose(payload: AliceRequest, reply: ConversationReply) -> AliceResponse:
+def _compose(payload: AliceRequest, reply: ConversationReply, salt: SecretStr) -> AliceResponse:
     text, pronunciation = reply.speech.text, reply.speech.tts
     return AliceResponse(
         response=ResponseBody(
@@ -239,7 +259,7 @@ def _compose(payload: AliceRequest, reply: ConversationReply) -> AliceResponse:
             end_session=False,
         ),
         user_state_update=_state_update(reply.turn),
-        session_state=_session_state_update(reply.state),
+        session_state=_session_state_update(reply.state, payload, salt),
         version=payload.version,
     )
 
@@ -271,7 +291,11 @@ _PENDING_KINDS: dict[CommandKind, Literal["new_game", "resign", "continue", "rem
 }
 
 
-def _pending_action(raw: object) -> PendingAction | None:
+def _pending_action(
+    raw: object,
+    payload: AliceRequest | None = None,
+    salt: SecretStr | None = None,
+) -> PendingAction | None:
     """Restore a confirmation the client is answering; anything unknown is dropped.
 
     A confirmation must come back as the very action that was asked about:
@@ -306,10 +330,19 @@ def _pending_action(raw: object) -> PendingAction | None:
             review = ReviewRequest(ReviewQuestion(review_raw))
         except ValueError:
             review = None
-    return PendingAction(command, utterance[:255], rematch=rematch, review=review)
+    pending = PendingAction(command, utterance[:255], rematch=rematch, review=review)
+    if payload is not None and salt is not None:
+        expected_message_id = raw.get("expected_message_id")
+        signature = raw.get("signature")
+        if expected_message_id != payload.session.message_id or not isinstance(signature, str):
+            return None
+        expected = _pending_signature(pending, payload.session.session_id, expected_message_id, salt)
+        if not hmac.compare_digest(signature, expected):
+            return None
+    return pending
 
 
-def _conversation_state(payload: AliceRequest) -> ConversationState:
+def _conversation_state(payload: AliceRequest, salt: SecretStr | None = None) -> ConversationState:
     raw = payload.state.session
     clarification_raw = raw.get("clarification")
     clarification = None
@@ -323,7 +356,12 @@ def _conversation_state(payload: AliceRequest) -> ConversationState:
                 heard[:255],
                 tuple(item[:64] for item in candidates[:16] if isinstance(item, str)),
             )
-    pending_action = _pending_action(raw.get("pending_action"))
+    pending_action = (
+        _pending_action(raw.get("pending_action"), payload, salt)
+        if salt is not None
+        else _pending_action(raw.get("pending_action"))
+    )
+    last_heard_raw = raw.get("last_heard")
     last_reply_raw = raw.get("last_reply")
     page = raw.get("position_page", 0)
     help_raw = raw.get("help")
@@ -338,7 +376,7 @@ def _conversation_state(payload: AliceRequest) -> ConversationState:
     return ConversationState(
         game_id=_claimed_game_id(payload),
         revision=raw.get("revision") if isinstance(raw.get("revision"), int) else None,
-        last_heard=raw.get("last_heard") if isinstance(raw.get("last_heard"), str) else None,
+        last_heard=last_heard_raw[:255] if isinstance(last_heard_raw, str) else None,
         last_reply=last_reply_raw[:512] if isinstance(last_reply_raw, str) else None,
         clarification=clarification,
         pending_action=pending_action,
@@ -348,25 +386,41 @@ def _conversation_state(payload: AliceRequest) -> ConversationState:
     )
 
 
-def _session_state_update(state: ConversationState) -> ConversationSessionState:
+def _session_state_update(
+    state: ConversationState,
+    payload: AliceRequest | None = None,
+    salt: SecretStr | None = None,
+) -> ConversationSessionState:
     clarification = (
-        ClarificationState(heard=state.clarification.heard[:255], candidates=list(state.clarification.candidates[:16]))
+        ClarificationState(
+            heard=state.clarification.heard[:255],
+            candidates=[candidate[:64] for candidate in state.clarification.candidates[:16]],
+        )
         if state.clarification is not None
         else None
     )
     pending_action = None
     if state.pending_action is not None:
         pending = state.pending_action
-        pending_action = PendingActionState(
-            kind=_PENDING_KINDS[pending.kind],
-            utterance=pending.utterance[:255],
-            rematch=(
-                RematchState(color=pending.rematch.color, harder=pending.rematch.harder)
-                if pending.rematch is not None
-                else None
-            ),
-            review=pending.review.question if pending.review is not None else None,
-        )
+        kind = _PENDING_KINDS.get(pending.kind)
+        if kind is not None:
+            expected_message_id = payload.session.message_id + 1 if payload is not None and salt is not None else None
+            pending_action = PendingActionState(
+                kind=kind,
+                utterance=pending.utterance[:255],
+                rematch=(
+                    RematchState(color=pending.rematch.color, harder=pending.rematch.harder)
+                    if pending.rematch is not None
+                    else None
+                ),
+                review=pending.review.question if pending.review is not None else None,
+                expected_message_id=expected_message_id,
+                signature=(
+                    _pending_signature(pending, payload.session.session_id, expected_message_id, salt)
+                    if payload is not None and salt is not None and expected_message_id is not None
+                    else None
+                ),
+            )
     session_state = ConversationSessionState(
         game_id=state.game_id,
         revision=state.revision,
@@ -374,7 +428,7 @@ def _session_state_update(state: ConversationState) -> ConversationSessionState:
         last_reply=state.last_reply[:512] if state.last_reply else None,
         clarification=clarification,
         pending_action=pending_action,
-        position_page=state.position_page,
+        position_page=max(0, min(state.position_page, 3)),
         help=HelpSessionState(topic=state.help.topic, page=state.help.page) if state.help is not None else None,
         reviewing=state.reviewing,
     )
@@ -390,8 +444,53 @@ def _within_state_limit(state: ConversationSessionState) -> ConversationSessionS
     for stripped in (state, state.model_copy(update={"last_reply": None})):
         if len(stripped.model_dump_json(exclude_none=True).encode("utf-8")) <= STATE_LIMIT_BYTES:
             return stripped
-    return state.model_copy(update={"last_reply": None, "clarification": None, "pending_action": None})
+    fallback = state.model_copy(update={"last_reply": None, "clarification": None, "pending_action": None})
+    if len(fallback.model_dump_json(exclude_none=True).encode("utf-8")) <= STATE_LIMIT_BYTES:
+        return fallback
+    if fallback.last_heard:
+        low, high, best = 0, len(fallback.last_heard), ""
+        while low <= high:
+            middle = (low + high) // 2
+            candidate = fallback.model_copy(update={"last_heard": fallback.last_heard[:middle] or None})
+            if len(candidate.model_dump_json(exclude_none=True).encode("utf-8")) <= STATE_LIMIT_BYTES:
+                best = fallback.last_heard[:middle]
+                low = middle + 1
+            else:
+                high = middle - 1
+        fitted = fallback.model_copy(update={"last_heard": best or None})
+        if len(fitted.model_dump_json(exclude_none=True).encode("utf-8")) <= STATE_LIMIT_BYTES:
+            return fitted
+    navigation = fallback.model_copy(update={"last_heard": None, "help": None, "position_page": 0, "reviewing": False})
+    if len(navigation.model_dump_json(exclude_none=True).encode("utf-8")) <= STATE_LIMIT_BYTES:
+        return navigation
+    return ConversationSessionState(game_id=state.game_id, revision=state.revision)
 
 
 def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _pending_signature(
+    pending: PendingAction,
+    session_id: str,
+    expected_message_id: int,
+    salt: SecretStr,
+) -> str:
+    body = json.dumps(
+        {
+            "kind": pending.kind.value,
+            "utterance": pending.utterance[:255],
+            "rematch": (
+                {"color": pending.rematch.color.value, "harder": pending.rematch.harder}
+                if pending.rematch is not None
+                else None
+            ),
+            "review": pending.review.question.value if pending.review is not None else None,
+            "session_id": session_id,
+            "expected_message_id": expected_message_id,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hmac.new(salt.get_secret_value().encode("utf-8"), body.encode("utf-8"), sha256).hexdigest()

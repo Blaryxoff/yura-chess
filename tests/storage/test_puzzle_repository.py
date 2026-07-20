@@ -101,6 +101,19 @@ def test_starting_twice_resumes_one_attempt(session: Session, puzzles: PuzzleRep
     assert len(session.scalars(select(PuzzleAttemptRow)).all()) == 1
 
 
+def test_lichess_ids_are_case_sensitive_for_one_owner(
+    session: Session,
+    puzzles: PuzzleRepository,
+) -> None:
+    upper = puzzles.start_attempt(OWNER, "003Jb")
+    lower = puzzles.start_attempt(OWNER, "003jb")
+
+    assert upper.puzzle_id != lower.puzzle_id
+    assert puzzles.find_attempt(OWNER, "003Jb") is not None
+    assert puzzles.find_attempt(OWNER, "003jb") is not None
+    assert len(session.scalars(select(PuzzleAttemptRow)).all()) == 2
+
+
 def test_starting_another_puzzle_abandons_the_unfinished_one(puzzles: PuzzleRepository) -> None:
     puzzles.start_attempt(OWNER, PUZZLE)
 

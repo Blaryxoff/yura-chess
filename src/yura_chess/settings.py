@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     # Analysis is asked for on top of a normal answer, so it gets a shorter deadline than a move.
     engine_analysis_deadline_seconds: float = Field(default=1.5, gt=0.0, le=2.0)
     engine_analysis_time_seconds: float = Field(default=0.5, gt=0.0)
+    engine_analysis_skill_level: int = Field(default=20, ge=0, le=20)
     engine_analysis_candidates: int = Field(default=3, ge=1, le=5)
     engine_restart_delay_seconds: float = Field(default=1.0, gt=0.0)
     # Below this the skill asks instead of moving: a misheard move is worse than a question.
@@ -57,6 +58,8 @@ class Settings(BaseSettings):
     asr_transcript_retention_days: int = Field(default=30, ge=1)
     asr_transcript_text_limit: int = Field(default=255, ge=16, le=255)
     request_replay_retention_days: int = Field(default=7, ge=1)
+    analysis_checkpoint_retention_days: int = Field(default=180, ge=1)
+    review_state_retention_days: int = Field(default=30, ge=1)
     maintenance_interval_seconds: int = Field(default=60, ge=60)
 
 

@@ -52,8 +52,9 @@ from yura_chess.presentation.response_composer import (
     compose_turn,
 )
 from yura_chess.settings import Settings
-from yura_chess.storage.database import session_scope
+from yura_chess.storage.database import run_transaction_with_deadlock_retry, session_scope
 from yura_chess.storage.preferences_repository import PreferencesRepository
+from yura_chess.storage.review_repository import ReviewRepository
 from yura_chess.storage.transcript_repository import TranscriptRepository
 
 MAX_SKILL_LEVEL = 20
@@ -173,12 +174,28 @@ class ConversationService:
     ) -> ConversationReply:
         prior_state = state or ConversationState()
         preferences = self._preferences(owner_key)
-        replayed = await self._games.resume_request(owner_key, request)
-        reply = (
-            self._replayed_turn_reply(owner_key, utterance, replayed, prior_state, preferences)
-            if replayed is not None
-            else await self._handle(owner_key, utterance, request, prior_state, preferences)
-        )
+        replayed_puzzle = self._puzzles.replayed_response(owner_key, request)
+        if replayed_puzzle is not None:
+            replay_state = replace(
+                prior_state,
+                last_heard=route(utterance).normalized.text or prior_state.last_heard,
+                clarification=None,
+                position_page=0,
+                help=None,
+                reviewing=False,
+            )
+            reply = self._with_puzzle_card(
+                owner_key,
+                ConversationReply(replayed_puzzle.speech, replay_state),
+                preferences,
+            )
+        else:
+            replayed = await self._games.resume_request(owner_key, request)
+            reply = (
+                self._replayed_turn_reply(owner_key, utterance, replayed, prior_state, preferences)
+                if replayed is not None
+                else await self._handle(owner_key, utterance, request, prior_state, preferences)
+            )
         if route(utterance).kind is not CommandKind.REPEAT_SLOW:
             # Stored before the pauses are added, so a repeat reads words rather
             # than speech markup.
@@ -191,9 +208,13 @@ class ConversationService:
         with session_scope(self._session_factory) as session:
             return PreferencesRepository(session).load(owner_key)
 
-    def _save_preferences(self, preferences: PlayerPreferences) -> PlayerPreferences:
-        with session_scope(self._session_factory) as session:
-            return PreferencesRepository(session).save(preferences)
+    def _save_preference(self, owner_key: str, change: PreferenceChange) -> PlayerPreferences:
+        def save(session: Session) -> PlayerPreferences:
+            repository = PreferencesRepository(session)
+            current = repository.load(owner_key, for_update=True)
+            return repository.save(change.apply(current))
+
+        return run_transaction_with_deadlock_retry(self._session_factory, save)
 
     def cached_response(self, owner_key: str, request: RequestContext) -> str | None:
         return self._games.cached_alice_response(owner_key, request)
@@ -314,6 +335,9 @@ class ConversationService:
             if confirmed.kind is CommandKind.NEW_GAME:
                 return await self._start(owner_key, confirmed.utterance, request, next_state, preferences)
             if confirmed.kind is CommandKind.RESIGN and game is not None:
+                unsolved = self._puzzles.find_open(owner_key)
+                if unsolved is not None:
+                    self._puzzles.abandon(owner_key, unsolved)
                 result = await self._games.resign(owner_key, game.id, request)
                 return self._turn_reply(owner_key, result, next_state, preferences)
             if confirmed.kind is CommandKind.CONTINUE:
@@ -356,7 +380,7 @@ class ConversationService:
 
         # Settings and rematch answer the same way with or without a game open.
         if routed.kind is CommandKind.PREFERENCE and routed.preference is not None:
-            updated = self._save_preferences(routed.preference.apply(preferences))
+            updated = self._save_preference(owner_key, routed.preference)
             return ConversationReply(
                 Speech.of(_preference_confirmation(routed.preference)),
                 self._with_game(next_state, game) if game is not None else next_state,
@@ -457,6 +481,13 @@ class ConversationService:
                 answer.speech,
                 replace(self._with_game(next_state, game), position_page=answer.page),
             )
+        if game.pending_engine_turn is not None and routed.normalized.has_move_tokens:
+            result = await self._games.continue_game(owner_key, game.id, request)
+            reply = self._turn_reply(owner_key, result, next_state, preferences)
+            return replace(
+                reply,
+                speech=Speech.of(reply.speech.text + " Теперь повторите новый ход."),
+            )
         if routed.kind is CommandKind.CANCEL_CLARIFY:
             return ConversationReply(
                 Speech.of("Хорошо, ход не делаю. Назовите другой ход."),
@@ -495,13 +526,6 @@ class ConversationService:
             result = await self._games.continue_game(owner_key, game.id, request)
             return self._turn_reply(owner_key, result, next_state, preferences)
         if routed.kind is CommandKind.MOVE and routed.move is not None:
-            if game.pending_engine_turn is not None:
-                result = await self._games.continue_game(owner_key, game.id, request)
-                reply = self._turn_reply(owner_key, result, next_state, preferences)
-                return replace(
-                    reply,
-                    speech=Speech.of(reply.speech.text + " Теперь повторите новый ход."),
-                )
             result = await self._games.play_move(owner_key, game.id, routed.move, request)
             reply = self._turn_reply(owner_key, result, next_state, preferences)
             if result.player_move is not None:
@@ -627,8 +651,13 @@ class ConversationService:
         """The finished game a review question is about, if there is one."""
         if game is not None and game.status is not GameStatus.ACTIVE:
             return game
-        latest = self._games.find_latest_game(owner_key)
-        return latest if latest is not None and latest.status is not GameStatus.ACTIVE else None
+        with session_scope(self._session_factory) as session:
+            opened = ReviewRepository(session).find_latest(owner_key)
+        if opened is not None:
+            reviewed = self._games.load_game(owner_key, opened.game_id)
+            if reviewed.status is not GameStatus.ACTIVE:
+                return reviewed
+        return self._games.find_latest_finished_game(owner_key)
 
     async def _start(
         self,
@@ -638,6 +667,9 @@ class ConversationService:
         state: ConversationState,
         preferences: PlayerPreferences,
     ) -> ConversationReply:
+        unsolved = self._puzzles.find_open(owner_key)
+        if unsolved is not None:
+            self._puzzles.abandon(owner_key, unsolved)
         player_color = PlayerColor.BLACK if _BLACK.search(utterance.lower()) else PlayerColor.WHITE
         level_match = _LEVEL.search(utterance.lower())
         level_value = level_match.group("value") if level_match else None
@@ -683,6 +715,9 @@ class ConversationService:
         preferences: PlayerPreferences,
     ) -> ConversationReply:
         """Start the next game from the colour and level of the previous one."""
+        unsolved = self._puzzles.find_open(owner_key)
+        if unsolved is not None:
+            self._puzzles.abandon(owner_key, unsolved)
         player_color = _rematch_color(base.player_color, rematch.color)
         level = base.engine.skill_level
         if rematch.harder:
@@ -871,11 +906,7 @@ class ConversationService:
 # Commands that are about a game, not about the puzzle that happens to be open.
 _LEAVES_PUZZLE = frozenset(
     {
-        CommandKind.START,
-        CommandKind.NEW_GAME,
         CommandKind.CONTINUE,
-        CommandKind.REMATCH,
-        CommandKind.RESIGN,
         CommandKind.UNDO,
         CommandKind.CLAIM_DRAW,
     }

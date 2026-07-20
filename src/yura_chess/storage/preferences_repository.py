@@ -11,6 +11,7 @@ only subject of a row.
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -42,8 +43,14 @@ class PreferencesRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def load(self, owner_key: str) -> PlayerPreferences:
-        row = self._find_row(owner_key)
+    def load(self, owner_key: str, for_update: bool = False) -> PlayerPreferences:
+        row = self._find_row(owner_key, for_update=for_update)
+        if row is None and for_update:
+            # MariaDB serialises this per primary key without the deadlock-prone
+            # insert/savepoint race that two first-time Alice sessions can hit.
+            statement = mysql_insert(PlayerPreferencesRow).values(owner_key=owner_key)
+            self._session.execute(statement.on_duplicate_key_update(owner_key=statement.inserted.owner_key))
+            row = self._find_row(owner_key, for_update=True)
         if row is None:
             return PlayerPreferences(owner_key=owner_key)
         return _to_preferences(row)

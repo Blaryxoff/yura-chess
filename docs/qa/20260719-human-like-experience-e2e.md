@@ -8,15 +8,15 @@
 | Параметр | Значение |
 |---|---|
 | Дата прогона | 2026-07-20 |
-| Git SHA (до фиксов этого отчёта) | `ceb7f744b88475ec87c77d9ff5157888f788ed4a`, ветка `human-like-chess-experience` |
-| Проверенное состояние кода | коммит, содержащий этот отчёт, — в нём же исправления из раздела ниже; именно он прошёл верификацию, `ceb7f74` давал 6 падений |
-| Worktree | чистый на момент старта прогона |
+| Git base повторного прогона | `d82de48635121ff12ecc8648855a21803366471c`, ветка `human-like-chess-experience` |
+| Проверенное состояние кода | рабочее дерево после Task 20; итоговый immutable SHA фиксируется перед staging deploy |
+| Worktree | содержит только изменения human-like-experience review |
 | Хост | macOS 26.5.2, arm64 |
 | Python | 3.12.10 (`uv`) |
 | Ключевые библиотеки | python-chess 1.11.2, SQLAlchemy 2.0.51 |
 | БД | MariaDB 11.4.12 в контейнере `yura-chess-mariadb-1`, `127.0.0.1:3307` |
 | Тестовая БД | `yura_chess_test` (отдельная от dev-схемы) |
-| Alembic head | `0011` |
+| Alembic head | `0013` |
 | Stockfish | `/opt/homebrew/bin/stockfish` (unit-тесты используют fake engine) |
 
 Переменные окружения прогона:
@@ -31,18 +31,20 @@ YURA_CHESS_IMAGE=ghcr.io/blaryxoff/yura-chess:<sha> # только для docker
 
 | # | Команда | Результат | Длительность |
 |---|---|---|---|
-| 1 | `uv sync --all-extras` | ✅ 45 пакетов, изменений нет | 0.1 s |
+| 1 | `uv sync --all-extras` | ✅ 45 пакетов, изменений нет | <1 s |
 | 2 | `uv run ruff check .` | ✅ All checks passed | 0.1 s |
-| 3 | `uv run ruff format --check .` | ✅ 106 файлов отформатированы | 0.03 s |
+| 3 | `uv run ruff format --check .` | ✅ 108 файлов отформатированы | <1 s |
 | 4 | `uv run mypy src` | ✅ 51 файл, ошибок нет | 0.3 s |
-| 5 | `uv run pytest tests/application tests/voice tests/presentation tests/storage tests/engine` | ✅ всё зелено, пропусков нет | 9.2 s |
-| 6 | `uv run pytest tests/adapters tests/golden tests/e2e` | ✅ зелено, 4 пропуска (staging webhook) | 34.6 s |
-| 7 | `uv run pytest` | ✅ **779 passed, 4 skipped** | 44.6 s |
-| 8 | `uv run alembic check` | ✅ No new upgrade operations detected | 0.6 s |
-| 9 | `docker compose config` | ✅ валиден | 0.8 s |
-| 10 | `docker compose -f deploy/compose.staging.yml config` | ✅ валиден при заданном `YURA_CHESS_IMAGE` | 0.2 s |
-| 11 | `yura-chess-shell --script tests/e2e/fixtures/full_help_and_modes.txt --show-board --orientation white` | ✅ весь сценарий отвечен, exit 0 | 3.6 s |
-| 12 | то же с `--orientation black` | ✅ весь сценарий отвечен, exit 0 | 3.4 s |
+| 5 | `uv run pytest tests/application tests/voice tests/presentation tests/storage tests/engine` | ✅ 747 passed, пропусков нет | 9.03 s |
+| 6 | `uv run pytest tests/adapters tests/golden tests/e2e` | ✅ 82 passed, 4 staging-only skipped | 56.88 s |
+| 7 | `uv run pytest` | ✅ **883 passed, 4 skipped** | 69.91 s |
+| 8 | `uv run alembic check` / `alembic current` | ✅ schema matches models; `0013 (head)` | 0.6 s |
+| 9 | `docker compose config` | ✅ валиден | <1 s |
+| 10 | `docker compose -f deploy/compose.staging.yml config` | ✅ валиден при заданном `YURA_CHESS_IMAGE` | <1 s |
+| 11 | `yura-chess-shell --script tests/e2e/fixtures/full_help_and_modes.txt --show-board --orientation white` | ✅ весь сценарий отвечен, Unicode-доска `a…h`, exit 0 | 4.93 s |
+| 12 | то же с `--orientation black` | ✅ весь сценарий отвечен, Unicode-доска `h…a`, exit 0 | 3.91 s |
+| 12a | Оба shell-сценария одновременно для одного owner | ✅ оба exit 0; first-write deadlock не повторился | 4.65 / 5.12 s |
+| 12b | Расширенный shell-аудит команд | ✅ факты, история, уровень, illegal move, настройки, справка, confirmations и puzzle repeat | 1.73 s |
 | 13 | `YURA_CHESS_STAGING_URL=... pytest tests/e2e/test_staging_webhook.py` | ⏭️ не выполнена — см. «Известные ограничения» | — |
 
 ## Дефекты, найденные этим прогоном
@@ -66,6 +68,11 @@ YURA_CHESS_IMAGE=ghcr.io/blaryxoff/yura-chess:<sha> # только для docker
    Изоляция при этом не нарушалась, но игрок молча терял свою партию. Теперь
    выполняется откат к последней активной партии владельца — так же, как это уже
    делал путь возобновления новой сессии.
+4. Два одновременных shell-сеанса одного владельца выявили MariaDB deadlock 1213
+   при первой записи `player_preferences`. Добавлен один точечный retry всей
+   короткой транзакции в новой Session; тот же механизм защищает первую блокировку
+   puzzle profile. Ошибки с другими кодами не повторяются, replay claim задачи
+   после rollback создаётся заново и сохраняется ровно один раз.
 
 ## Известные ограничения
 

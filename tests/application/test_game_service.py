@@ -50,6 +50,16 @@ class FakeEngine:
         return self.script.pop(0) if self.script else next(iter(board.legal_moves)).uci()
 
 
+class BlockingObserver:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def observe_player_move(self, owner_key: str, state, ply: int, move_uci: str) -> None:  # noqa: ANN001
+        self.started.set()
+        await self.release.wait()
+
+
 def request(message_id: str, session_id: str = "session", fingerprint: str | None = None) -> RequestContext:
     body = fingerprint or message_id
     return RequestContext(SKILL, session_id, message_id, body.ljust(64, "0")[:64])
@@ -184,6 +194,21 @@ async def test_engine_failure_keeps_a_resumable_pending_turn(session_factory: se
     assert state.pending_engine_turn.player_move_uci == "e2e4"
 
 
+async def test_optional_observation_never_delays_the_engine_reply(
+    session_factory: sessionmaker[Session],
+) -> None:
+    engine = FakeEngine(("e7e5",))
+    observer = BlockingObserver()
+    subject = GameService(session_factory, engine, observer=observer)
+    game_id = (await subject.start_game(OWNER, request("m1"))).game_id
+
+    result = await asyncio.wait_for(subject.play_move(OWNER, game_id, "e2e4", request("m2")), timeout=0.5)
+    await asyncio.wait_for(observer.started.wait(), timeout=0.5)
+
+    assert result.engine_move == "e7e5"
+    observer.release.set()
+
+
 async def test_retry_of_a_timed_out_request_resumes_without_replaying_the_move(
     session_factory: sessionmaker[Session],
 ) -> None:
@@ -254,6 +279,38 @@ async def test_a_turn_settled_mid_search_is_not_applied_twice(session_factory: s
     assert result.status is TurnStatus.OK
     assert replay.replayed is True
     assert load(session_factory, game_id).moves == ("e2e4", "e7e5")
+
+
+async def test_a_revision_change_that_leaves_the_debt_reports_continue(
+    session_factory: sessionmaker[Session],
+) -> None:
+    class ModeChangingEngine(FakeEngine):
+        def __init__(self) -> None:
+            super().__init__(("e7e5",))
+            self.game_id: str | None = None
+
+        async def best_move(
+            self,
+            board: chess.Board,
+            search_time: float | None = None,
+            skill_level: int | None = None,
+        ) -> str:
+            assert self.game_id is not None
+            with session_scope(session_factory) as session:
+                repository = GameRepository(session)
+                state = repository.load(self.game_id, OWNER)
+                repository.set_mode(self.game_id, OWNER, state.revision, state.mode)
+            return await super().best_move(board, search_time, skill_level)
+
+    engine = ModeChangingEngine()
+    subject = service(session_factory, engine)
+    game_id = (await subject.start_game(OWNER, request("m1"))).game_id
+    engine.game_id = game_id
+
+    result = await subject.play_move(OWNER, game_id, "e2e4", request("m2"))
+
+    assert result.status is TurnStatus.ENGINE_UNAVAILABLE
+    assert load(session_factory, game_id).pending_engine_turn is not None
 
 
 async def test_exact_replay_returns_the_stored_response(session_factory: sessionmaker[Session]) -> None:

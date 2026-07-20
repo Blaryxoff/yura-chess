@@ -49,9 +49,10 @@ def test_a_game_that_did_not_start_from_the_initial_position_has_no_opening() ->
 
 
 def test_the_spoken_opening_names_the_variation_and_the_eco_code() -> None:
-    speech = describe_opening(board_of(*RUY_LOPEZ))
-    assert "Ruy Lopez" in speech.text
-    assert "код C6" in speech.text
+    speech = describe_opening(board_of(*RUY_LOPEZ, "a7a6"))
+    assert "Испанская партия" in speech.text
+    assert "защита Морфи" in speech.text
+    assert "код C7" in speech.text
 
 
 def test_naming_the_opening_does_not_touch_the_board() -> None:

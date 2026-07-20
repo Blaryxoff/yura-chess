@@ -262,8 +262,26 @@ async def test_a_busy_engine_gives_an_honest_partial_review(
 
     assert "продолжить разбор" in reply.text
     assert "Вы проиграли." in reply.text
+    assert "не нашла" not in reply.text
     after = load(session_factory, game.id)
     assert (after.moves, after.revision) == (game.moves, game.revision)
+
+
+async def test_an_incomplete_review_cannot_start_a_training_branch(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    service = ReviewService(
+        session_factory,
+        FakeEngine(analysis_error=EngineUnavailableError("busy")),
+        offline_settings,
+    )
+    game = finished_game(session_factory)
+
+    branch_id, speech = await service.start_branch(OWNER, game)
+
+    assert branch_id is None
+    assert "продолжить разбор" in speech.text
 
 
 async def test_a_timeout_halfway_keeps_the_moves_it_managed_to_value(
@@ -355,6 +373,22 @@ async def test_the_pgn_round_trips_into_the_same_final_position(
     assert parsed is not None
     assert parsed.headers["Result"] == "0-1"
     assert parsed.end().board().fen() == game.board().fen()
+
+
+async def test_a_long_pgn_is_explicitly_a_preview_instead_of_silent_truncation(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    moves = ("g1f3", "g8f6", "f3g1", "f6g8") * 50
+    service = ReviewService(session_factory, FakeEngine(), offline_settings)
+    game = finished_game(session_factory, moves=moves, status=GameStatus.RESIGNED)
+
+    reply = await service.answer(OWNER, game, ReviewRequest(ReviewQuestion.PGN))
+
+    assert len(pgn.export(game, None)) > 1024
+    assert "сокращ" in reply.text.lower()
+    assert "продиктуй партию" in reply.text.lower()
+    assert len(reply.text) <= 1024
 
 
 def test_the_pgn_of_a_game_from_a_custom_position_carries_the_setup_tags() -> None:

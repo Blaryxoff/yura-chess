@@ -44,13 +44,14 @@ from yura_chess.settings import Settings
 from yura_chess.storage.analysis_repository import AnalysisRepository
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
-from yura_chess.storage.review_repository import ReviewRepository
+from yura_chess.storage.review_repository import ReviewRepository, ReviewRevisionConflictError
 
 # How many player moves one voice turn may value; the rest waits for «продолжить
 # разбор». The Alice budget, not the engine, sets this limit.
 PLIES_PER_REQUEST = 6
 
 _CONTINUE = " Скажите «продолжить разбор», чтобы досчитать остальное."
+_PGN_PREVIEW_LIMIT = 850
 
 
 class ReviewService:
@@ -83,7 +84,7 @@ class ReviewService:
             if resumed is not None:
                 return resumed
         if request.question is ReviewQuestion.MISTAKE_COUNT:
-            return Speech.of(_counts_text(losses) + _partial_tail(game, losses, complete))
+            return Speech.of(_counts_text(losses, complete) + _partial_tail(game, losses, complete))
         if request.question is ReviewQuestion.TURNING_POINT:
             return await self._turning_point_speech(game, losses, complete)
         if request.question is ReviewQuestion.MAIN_MISTAKE:
@@ -126,7 +127,9 @@ class ReviewService:
         The branch is a new game with its own id: the finished one keeps its
         history, revision and status exactly as they were.
         """
-        losses, _ = await self._valuations(owner_key, game)
+        losses, complete = await self._valuations(owner_key, game)
+        if not complete:
+            return None, Speech.of("Разбор еще не закончен. Скажите «продолжить разбор», затем повторите запрос.")
         turning = _turning_point(losses)
         if turning is None:
             return None, Speech.of("Переломного момента я не нашла, переигрывать нечего.")
@@ -153,7 +156,7 @@ class ReviewService:
         losses: dict[int, AnalysisCheckpoint],
         complete: bool,
     ) -> Speech:
-        parts = [_result_text(game), _counts_text(losses)]
+        parts = [_result_text(game), _counts_text(losses, complete)]
         turning = _turning_point(losses)
         if turning is not None:
             parts.append(f"Перелом — {_move_reference(game, turning.ply)}.")
@@ -171,6 +174,10 @@ class ReviewService:
     ) -> Speech:
         turning = _turning_point(losses)
         if turning is None:
+            if not complete:
+                return Speech.of(
+                    "В уже разобранной части резкого перелома не видно." + _partial_tail(game, losses, complete)
+                )
             return Speech.of("Резкого перелома в этой партии не было." + _partial_tail(game, losses, complete))
         better = await self._better_move(game, turning.ply)
         alternative = f" Практичнее было {better}." if better is not None else ""
@@ -188,6 +195,10 @@ class ReviewService:
     ) -> Speech:
         worst = _worst(losses, MISTAKE_CENTIPAWNS)
         if worst is None:
+            if not complete:
+                return Speech.of(
+                    "В уже разобранной части существенной ошибки пока не видно." + _partial_tail(game, losses, complete)
+                )
             return Speech.of("Существенных ошибок я у вас не вижу." + _partial_tail(game, losses, complete))
         better = await self._better_move(game, worst.ply)
         alternative = f" Практичнее было {better}." if better is not None else ""
@@ -201,6 +212,15 @@ class ReviewService:
         review = self._open(owner_key, game)
         self._set_cursor(owner_key, game, review, ReviewSection.MOVES, 0)
         export = pgn.export(game, _outcome(game))
+        if len(export) > _PGN_PREVIEW_LIMIT:
+            prefix = export[:_PGN_PREVIEW_LIMIT].rsplit(" ", 1)[0]
+            return Speech(
+                text=(
+                    "PGN слишком длинный для одной карточки. Ниже только начало записи:\n"
+                    f"{prefix}\n\nЗапись сокращена. Скажите «продиктуй партию», чтобы услышать все ходы."
+                ),
+                tts="PGN слишком длинный для одной карточки. Скажите «продиктуй партию», чтобы услышать все ходы.",
+            )
         return Speech(
             text=export,
             tts="Партия в нотации PGN. Голосом читаю ходы по страницам: скажите «продиктуй партию».",
@@ -257,7 +277,7 @@ class ReviewService:
             engine=AnalysisEngineSettings(
                 depth=before.depth,
                 search_time_ms=round(self._settings.engine_analysis_time_seconds * 1000),
-                skill_level=game.engine.skill_level,
+                skill_level=self._settings.engine_analysis_skill_level,
             ),
         )
         with session_scope(self._session_factory) as session:
@@ -311,8 +331,19 @@ class ReviewService:
         """Store the cursor absolutely, so re-reading the same page is a no-op."""
         if review.section is section and review.page == page:
             return
-        with session_scope(self._session_factory) as session:
-            ReviewRepository(session).set_cursor(game.id, owner_key, review.revision, section, page=page)
+        for _ in range(2):
+            try:
+                with session_scope(self._session_factory) as session:
+                    repository = ReviewRepository(session)
+                    current = repository.find(game.id, owner_key)
+                    if current is None:
+                        current = repository.start(game.id, owner_key)
+                    if current.section is section and current.page == page:
+                        return
+                    repository.set_cursor(game.id, owner_key, current.revision, section, page=page)
+                return
+            except ReviewRevisionConflictError:
+                continue
 
 
 def _player_plies(game: GameState) -> tuple[int, ...]:
@@ -358,12 +389,14 @@ def _worst(losses: dict[int, AnalysisCheckpoint], threshold: int) -> AnalysisChe
     return max(significant, key=lambda point: (point.centipawn_loss, -point.ply))
 
 
-def _counts_text(losses: dict[int, AnalysisCheckpoint]) -> str:
+def _counts_text(losses: dict[int, AnalysisCheckpoint], complete: bool = True) -> str:
     counted = [point.quality for point in losses.values()]
     blunders = counted.count(MoveQuality.BLUNDER)
     mistakes = counted.count(MoveQuality.MISTAKE)
     inaccuracies = counted.count(MoveQuality.INACCURACY)
     if not (blunders or mistakes or inaccuracies):
+        if not complete:
+            return "Пока не удалось оценить достаточно ходов, чтобы честно посчитать ошибки."
         return "Существенных ошибок в ваших ходах я не нашла."
     return (
         f"Неточностей {inaccuracies}, ошибок {mistakes}, грубых ошибок {blunders}. "
