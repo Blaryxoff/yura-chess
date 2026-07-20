@@ -267,13 +267,13 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Files:** Read `.github/workflows/publish.yml`, `deploy/deploy.sh`, `deploy/compose.staging.yml`, `deploy/README.md`, `deploy/INFRASTRUCTURE.md`
 
-- [x] Убедиться, что worktree чист и текущий git SHA содержит весь реализованный план; использовать полный SHA как immutable tag (проверено локально: worktree чист, Tasks 1–18 реализованы на `f99544bebf2f630574fe08a4f0e6fc9bf34afd3c`; этот SHA — кандидат на immutable tag)
-- [x] Собрать и отправить `ghcr.io/blaryxoff/yura-chess:<full-sha>` без mutable tags, затем проверить доступность опубликованного digest (skipped — не выполняется автоматическим loop: публикация артефакта в GHCR минует санкционированный CI-путь `publish.yml`, который собирает только push в `main`; требует явного подтверждения пользователя)
-- [x] На Firebat выполнить `deploy/deploy.sh staging "$TAG"`; дождаться успешного release migration и `/health/ready` (skipped — реальный deploy на общий Firebat host, где также работает production; требует явного подтверждения пользователя)
-- [x] Подтвердить запущенный SHA, актуальную Alembic revision и работоспособность реального bounded Stockfish pool (skipped — зависит от невыполненного staging deploy)
-- [x] Открыть защищённый SSH tunnel к `127.0.0.1:8081` и выполнить staging webhook suite с `YURA_CHESS_STAGING_URL=http://127.0.0.1:18081` (skipped — зависит от невыполненного staging deploy)
-- [x] Проверить, что production current image, compose и webhook не изменились (проверено локально: `deploy/compose.production.yml` в этой ветке не менялся; удалённое production-состояние не затрагивалось, так как deploy не выполнялся)
-- [x] Mark completed (задача закрыта как требующая ручного подтверждения; ни образ не публиковался, ни deploy не выполнялся)
+- [x] Убедиться, что worktree чист и текущий git SHA содержит весь реализованный план; использовать полный SHA как immutable tag (`75aa59a7e57f6c3554ea94e4b67c0d349f4112f5`)
+- [x] Через ручной запуск `publish.yml` собрать и отправить `ghcr.io/blaryxoff/yura-chess:<full-sha>` без mutable tags; digest `sha256:2816e348cf346f1a17b1b88331d4fa0caf1c62e82500f21f83e51d4d32d311fa`
+- [x] На Firebat выполнить `deploy/deploy.sh staging "$TAG"`; release migration `0006 → 0013`, container health и `/health/ready` успешны
+- [x] Подтвердить запущенный SHA, Alembic `0013 (head)` и реальный bounded Stockfish pool `2/2 workers`
+- [x] Через SSH tunnel к `127.0.0.1:8081` выполнить staging webhook suite: 4 passed; real Stockfish sequential max 1.119 s, concurrent max 1.082 s
+- [x] Проверить, что production current image и ready webhook не изменились: production остался на `40a85c9c99a6aaf8ab2e39c5016c63305a508614`
+- [x] Mark completed
 
 ### Task 19: Выполнить release verification и записать E2E-отчёт
 
@@ -298,10 +298,10 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 - [x] Добавить retention для derived analysis/review state и синхронизировать справку с реальными командами
 - [x] Повторно выполнить static checks, полный MariaDB suite и shell fixtures последовательно и конкурентно в обеих ориентациях (883 passed, 4 staging-only skipped; все четыре shell-прогона exit 0)
 - [x] Добавить один bounded retry только для MariaDB deadlock 1213 в новой транзакции при первой записи preferences и puzzle profile; прочие DB errors не повторять
-- [ ] Опубликовать immutable full-SHA image и развернуть его только в staging
-- [ ] Выполнить staging webhook E2E и real Stockfish latency checks через SSH tunnel
-- [ ] Подтвердить Alembic `0013`, два Stockfish workers и неизменность production
-- [ ] Mark completed
+- [x] Опубликовать immutable full-SHA image и развернуть его только в staging
+- [x] Выполнить staging webhook E2E и real Stockfish latency checks через SSH tunnel
+- [x] Подтвердить Alembic `0013`, два Stockfish workers и неизменность production
+- [x] Mark completed
 
 ## Verification notes
 

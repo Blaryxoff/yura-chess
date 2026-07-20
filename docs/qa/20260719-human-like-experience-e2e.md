@@ -8,9 +8,9 @@
 | Параметр | Значение |
 |---|---|
 | Дата прогона | 2026-07-20 |
-| Git base повторного прогона | `d82de48635121ff12ecc8648855a21803366471c`, ветка `human-like-chess-experience` |
-| Проверенное состояние кода | рабочее дерево после Task 20; итоговый immutable SHA фиксируется перед staging deploy |
-| Worktree | содержит только изменения human-like-experience review |
+| Deployed Git SHA | `75aa59a7e57f6c3554ea94e4b67c0d349f4112f5`, ветка `human-like-chess-experience` |
+| Published image | `ghcr.io/blaryxoff/yura-chess:75aa59a7e57f6c3554ea94e4b67c0d349f4112f5`, digest `sha256:2816e348…11fa` |
+| Проверенное состояние кода | immutable image из feature-коммита после Task 20 |
 | Хост | macOS 26.5.2, arm64 |
 | Python | 3.12.10 (`uv`) |
 | Ключевые библиотеки | python-chess 1.11.2, SQLAlchemy 2.0.51 |
@@ -45,7 +45,10 @@ YURA_CHESS_IMAGE=ghcr.io/blaryxoff/yura-chess:<sha> # только для docker
 | 12 | то же с `--orientation black` | ✅ весь сценарий отвечен, Unicode-доска `h…a`, exit 0 | 3.91 s |
 | 12a | Оба shell-сценария одновременно для одного owner | ✅ оба exit 0; first-write deadlock не повторился | 4.65 / 5.12 s |
 | 12b | Расширенный shell-аудит команд | ✅ факты, история, уровень, illegal move, настройки, справка, confirmations и puzzle repeat | 1.73 s |
-| 13 | `YURA_CHESS_STAGING_URL=... pytest tests/e2e/test_staging_webhook.py` | ⏭️ не выполнена — см. «Известные ограничения» | — |
+| 13 | `YURA_CHESS_STAGING_URL=... pytest tests/e2e/test_staging_webhook.py` | ✅ 4 passed через SSH tunnel | 1.50 s |
+| 14 | Real Stockfish latency, 5 sequential moves | ✅ все получили engine reply; p50 1.057 s, max 1.119 s | 5.34 s |
+| 15 | Real Stockfish latency, 4 concurrent games | ✅ все получили engine reply; max 1.082 s | 1.08 s |
+| 16 | Firebat release verification | ✅ image SHA совпадает; Alembic `0013`; readiness `2/2 workers`; recent logs без errors | — |
 
 ## Дефекты, найденные этим прогоном
 
@@ -76,14 +79,11 @@ YURA_CHESS_IMAGE=ghcr.io/blaryxoff/yura-chess:<sha> # только для docker
 
 ## Известные ограничения
 
-- **Staging webhook suite не выполнялась.** Task 18.5 закрыт как требующий ручного
-  подтверждения: образ в GHCR не публиковался и `deploy/deploy.sh staging` не
-  запускался, поэтому staging-эндпоинта и SSH-туннеля не существует. Команда
-  остаётся обязательным ручным gate: после подтверждённого staging deploy открыть
-  туннель к `127.0.0.1:8081` и выполнить
-  `YURA_CHESS_STAGING_URL=http://127.0.0.1:18081 uv run pytest tests/e2e/test_staging_webhook.py`.
-  Без неё реальный bounded Stockfish pool на staging не проверен — локальные
-  unit-тесты используют fake engine.
+- Staging намеренно не содержит Yandex image credentials, поэтому staging
+  проверен как полноценный voice-only контур. Генерация, ориентация, cache,
+  eviction/regeneration и quota fallback экранной доски покрыты локальными
+  adapter/presentation tests; окончательный upload/card остаётся пунктом
+  real-device проверки в Alice console.
 - Прогон выполнен на macOS/arm64, тогда как production-образ — linux/amd64.
 - Тестовая БД `yura_chess_test` пересоздаётся миграциями на каждый прогон; dev- и
   production-данные не затрагивались.
@@ -108,6 +108,7 @@ YURA_CHESS_IMAGE=ghcr.io/blaryxoff/yura-chess:<sha> # только для docker
 ## Production deploy
 
 Production deploy **не выполняется** этим прогоном и не разрешается им. Текущий
-production продолжает работать на модерируемом immutable SHA; `deploy/compose.production.yml`
-в этой ветке не изменялся. Выпуск новой версии — только после окончания модерации
-и отдельного явного подтверждения пользователя.
+production проверен после staging deploy и продолжает работать на immutable SHA
+`40a85c9c99a6aaf8ab2e39c5016c63305a508614`; readiness сообщает database ready и
+Stockfish `2/2 workers`. Выпуск новой версии — только после окончания модерации и
+отдельного явного подтверждения пользователя.
