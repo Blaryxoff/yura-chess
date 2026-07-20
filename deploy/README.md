@@ -7,7 +7,6 @@ Operational runbook. The topology, ports and secrets themselves are described in
 
 | File | Purpose |
 | --- | --- |
-| `compose.staging.yml` | Firebat staging; joins the existing `staging-mariadb` |
 | `compose.production.yml` | Firebat production; own MariaDB 11.4 in the `yura-chess` Incus stack |
 | `deploy.sh` | Idempotent deploy of one immutable tag, with migrations and health smoke |
 | `rollback.sh` | Put the previous application image back |
@@ -32,14 +31,13 @@ Only immutable tags are deployable. `deploy.sh` refuses `latest`.
 ## Deploy
 
 ```bash
-deploy/deploy.sh staging "$TAG"
 deploy/deploy.sh production "$TAG"
 ```
 
 The script always runs the same steps, in this order:
 
 1. validate the Compose file and pull the image;
-2. bring the database up (production only) and wait for its health check;
+2. bring the database up and wait for its health check;
 3. run `alembic upgrade head` as a one-shot `migrate` container **to completion**;
 4. start the application and wait for its health check;
 5. poll `/health/ready` — on failure it puts the previously recorded image back and exits non-zero.
@@ -55,69 +53,19 @@ The human-like experience release adds `0007_player_preferences` …
 in that order as one `alembic upgrade head`, so the previously deployed image
 keeps working against the migrated schema.
 
-## Staging
+## Deployed smoke
 
-Staging exists to run the full release once before production sees it. It shares
-the `staging-mariadb` server with other projects, so it is isolated by data, not
-by host: its own database `yura_chess_staging`, its own user, and — in
-`/srv/yura-chess/staging.env` — its own `YURA_CHESS_IDENTITY_SALT`. A staging
-owner key therefore cannot resolve to a production player, and staging games are
-test data by construction.
+There is no separately maintained staging environment. Before a release, CI runs
+the complete local and MariaDB suites. After deployment, an opt-in smoke talks to
+the public webhook with throwaway Alice identities:
 
 ```bash
-deploy/deploy.sh staging "$TAG"     # same order: validate, pull, migrate, start, /health/ready
-deploy/rollback.sh staging          # application only, previous recorded tag
+YURA_CHESS_DEPLOYED_URL=https://chess.waxim.ru \
+  uv run pytest tests/e2e/test_deployed_webhook.py
 ```
 
-Staging has no public name. The automated webhook suite reaches it through an
-SSH tunnel to the Firebat host loopback:
-
-```bash
-ssh -N -L 18081:127.0.0.1:8081 firebat &
-YURA_CHESS_STAGING_URL=http://127.0.0.1:18081 uv run pytest tests/e2e/test_staging_webhook.py
-```
-
-Deploying staging never touches production: different Compose file, project name,
-container, database and recorded image tag. Production keeps serving the
-moderated image until a production deploy is confirmed separately.
-
-### Clearing staging test data
-
-**Destructive.** Only ever inside `yura_chess_staging`, and only with the staging
-user — the same server holds other projects' databases, so a server-wide `DROP`
-or a `mariadb` shell without an explicit database is never acceptable here.
-
-```bash
-# Verify first: this must print exactly yura_chess_staging.
-docker compose --project-name yura-chess-staging exec app \
-  python -c "import os,urllib.parse as u; print(u.urlparse(os.environ['YURA_CHESS_DATABASE_URL']).path)"
-
-# Then, with the app stopped, delete the owner-scoped rows. Deleting a game
-# cascades to its moves, pending engine turns, analysis checkpoints and review
-# state, and to the request replays that referenced it; preferences, puzzle
-# profiles and attempts, transcripts, game-less replays and the image cache are
-# separate roots.
-docker compose --project-name yura-chess-staging stop app
-mariadb --user=yura-chess --password --database=yura_chess_staging -e "
-  DELETE FROM games;
-  DELETE FROM player_preferences;
-  DELETE FROM puzzle_attempts;
-  DELETE FROM puzzle_profiles;
-  DELETE FROM asr_transcripts;
-  DELETE FROM request_replays;
-  DELETE FROM board_image_cache;"
-docker compose --project-name yura-chess-staging start app
-```
-
-Clearing `board_image_cache` forgets the mapping without deleting the remote
-Dialogs resources, so do it only when staging runs without an OAuth token or
-after the maintenance pass has drained; every evicted position is rendered and
-uploaded again on demand.
-
-Re-running the migrations is not needed afterwards; the schema is untouched. To
-start from an empty schema instead, drop and recreate the `yura_chess_staging`
-database only, then run `deploy/deploy.sh staging "$TAG"` again so the release
-migration rebuilds it.
+This creates disposable production games, so it is a release check rather than
+part of every local test run.
 
 ## Rollback
 
@@ -165,8 +113,8 @@ systemctl enable --now yura-chess-backup.timer yura-chess-restore-smoke.timer
 
 1. `deploy/mariadb/backup.sh` and confirm the off-host copy exists.
 2. `deploy/mariadb/restore-smoke.sh` passes.
-3. `deploy/deploy.sh staging "$TAG"` and `/health/ready` is `ready` on staging.
-4. `deploy/deploy.sh production "$TAG"`.
+3. `deploy/deploy.sh production "$TAG"`.
+4. `YURA_CHESS_DEPLOYED_URL=https://chess.waxim.ru uv run pytest tests/e2e/test_deployed_webhook.py`.
 5. External check through nginx: `curl -sS https://chess.waxim.ru/alice/webhook -X POST -d '{}'`
    returns 422 (the endpoint is reachable and validating), not 502.
 6. Voice-only and screen-device QA in the Alice console before submitting for moderation.

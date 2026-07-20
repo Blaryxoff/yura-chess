@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # Idempotent deploy of one immutable image tag.
 #
-#   deploy/deploy.sh <staging|production> <image-tag>
+#   deploy/deploy.sh production <image-tag>
 #
 # Order matters: migrations run to completion as a separate release step before
 # any new application container starts, so the running code never meets a schema
 # it was not built for. A failed health smoke rolls back to the previous tag.
 set -Eeuo pipefail
 
-ENVIRONMENT="${1:?usage: deploy.sh <staging|production> <image-tag>}"
-IMAGE_TAG="${2:?usage: deploy.sh <staging|production> <image-tag>}"
+ENVIRONMENT="${1:?usage: deploy.sh production <image-tag>}"
+IMAGE_TAG="${2:?usage: deploy.sh production <image-tag>}"
 
-case "$ENVIRONMENT" in
-  staging) DEFAULT_PORT=8081 ;;
-  production) DEFAULT_PORT=8082 ;;
-  *) echo "unknown environment: $ENVIRONMENT" >&2; exit 2 ;;
-esac
+if [[ "$ENVIRONMENT" != "production" ]]; then
+  echo "unknown environment: $ENVIRONMENT; only production is maintained" >&2
+  exit 2
+fi
+DEFAULT_PORT=8082
 
 if [[ ! "$IMAGE_TAG" =~ ^([0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
   echo "refusing a mutable tag: use a git sha or vMAJOR.MINOR.PATCH" >&2
@@ -24,13 +24,13 @@ fi
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_DIR="${YURA_CHESS_STATE_DIR:-/srv/yura-chess}"
-COMPOSE_FILE="$DEPLOY_DIR/compose.$ENVIRONMENT.yml"
-PROJECT="yura-chess-$ENVIRONMENT"
+COMPOSE_FILE="$DEPLOY_DIR/compose.production.yml"
+PROJECT="yura-chess-production"
 IMAGE_REPOSITORY="${YURA_CHESS_IMAGE_REPOSITORY:-ghcr.io/blaryxoff/yura-chess}"
 HEALTH_URL="${YURA_CHESS_HEALTH_URL:-http://127.0.0.1:${YURA_CHESS_PORT:-$DEFAULT_PORT}/health/ready}"
 HEALTH_ATTEMPTS="${YURA_CHESS_HEALTH_ATTEMPTS:-30}"
-CURRENT_FILE="$STATE_DIR/$ENVIRONMENT.current-image"
-PREVIOUS_FILE="$STATE_DIR/$ENVIRONMENT.previous-image"
+CURRENT_FILE="$STATE_DIR/production.current-image"
+PREVIOUS_FILE="$STATE_DIR/production.previous-image"
 
 install -d -m 0750 "$STATE_DIR"
 exec 9>"$STATE_DIR/$ENVIRONMENT.deploy.lock"

@@ -17,10 +17,10 @@ def anyio_backend() -> str:
 def clean_tables(request: pytest.FixtureRequest) -> Iterator[None]:
     """Empty the local tables after every test that uses them.
 
-    The staging module talks to a deployment over HTTP and owns no local
+    The deployed-webhook module talks to production over HTTP and owns no local
     database, so it opts out instead of being skipped for a missing test DSN.
     """
-    if request.node.get_closest_marker("staging") is not None:
+    if request.node.get_closest_marker("deployed") is not None:
         yield
         return
     engine = request.getfixturevalue("database_engine")

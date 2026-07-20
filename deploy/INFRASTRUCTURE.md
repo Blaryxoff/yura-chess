@@ -1,7 +1,7 @@
 # Infrastructure
 
-Topology, configuration sources, secrets, ports and diagnostics for the two
-Firebat environments. The step-by-step runbook is in [README.md](README.md).
+Topology, configuration sources, secrets, ports and diagnostics for the Firebat
+production environment. The step-by-step runbook is in [README.md](README.md).
 
 ## Topology
 
@@ -11,53 +11,42 @@ Firebat environments. The step-by-step runbook is in [README.md](README.md).
                 ┌──────▼──────────────────────┐
                 │ Firebat host                │
                 │  nginx  (TLS, SNI, limits)  │
-                └──┬──────────────────┬───────┘
-       127.0.0.1:8082         127.0.0.1:8081
-                   │                  │
-      Incus proxy-device   Incus proxy-device
-                   │                  │
-   ┌───────────────▼──────┐  ┌────────▼─────────────────┐
-   │ container: yura-chess│  │ container: staging       │
-   │  app  (compose)      │  │  app  (compose)          │
-   │  mariadb 11.4        │  │  staging-mariadb (shared)│
-   │  internal network    │  │  own db + own user       │
-   └──────────────────────┘  └──────────────────────────┘
+                └──────────┬───────────┘
+                    127.0.0.1:8082
+                           │
+                  Incus proxy-device
+                           │
+              ┌────────────▼─────────┐
+              │ container: yura-chess│
+              │  app  (compose)      │
+              │  mariadb 11.4        │
+              │  internal network    │
+              └──────────────────────┘
 ```
 
 Host nginx owns TLS for `chess.waxim.ru` and is the only public listener.
 Neither MariaDB is published beyond its container network.
 
-## Environments
+## Environment
 
-| | staging | production |
-| --- | --- | --- |
-| Incus container | `staging` (shared) | `yura-chess` (dedicated) |
-| Compose file | `deploy/compose.staging.yml` | `deploy/compose.production.yml` |
-| Compose project | `yura-chess-staging` | `yura-chess-production` |
-| Database | existing `staging-mariadb`, own db `yura_chess_staging` and own user `yura-chess` | own MariaDB 11.4, volume `mariadb-data` |
-| App port (container loopback) | 8000 → published `127.0.0.1:8081` | 8000 → published `127.0.0.1:8082` |
-| Host port via proxy-device | `127.0.0.1:8081` | `127.0.0.1:8082` |
-| Public name | none (host-local only) | `https://chess.waxim.ru` |
-| `YURA_CHESS_ENVIRONMENT` | `test` | `production` |
-
-Staging shares a MariaDB server with other projects; it therefore gets its own
-database and its own user with rights on that database only. Production runs its
-own server so a staging incident cannot reach real games.
-
-The shared staging database and application join the existing external Docker
-network `lemp-shared`. Override `STAGING_DB_NETWORK` only if the Firebat network
-is deliberately renamed.
+| Item | Production |
+| --- | --- |
+| Incus container | `yura-chess` (dedicated) |
+| Compose file | `deploy/compose.production.yml` |
+| Compose project | `yura-chess-production` |
+| Database | MariaDB 11.4, volume `mariadb-data` |
+| App port | container `8000` → loopback `127.0.0.1:8082` |
+| Public name | `https://chess.waxim.ru` |
+| `YURA_CHESS_ENVIRONMENT` | `production` |
 
 ## Incus proxy-devices
 
-The application never listens on a host interface. Each container forwards its
-loopback port to the host loopback:
+The application never listens on a public host interface. Its dedicated
+container forwards the app port to the host loopback:
 
 ```bash
 incus config device add yura-chess app-proxy proxy \
   listen=tcp:127.0.0.1:8082 connect=tcp:127.0.0.1:8082
-incus config device add staging yura-chess-proxy proxy \
-  listen=tcp:127.0.0.1:8081 connect=tcp:127.0.0.1:8081
 ```
 
 ## Configuration sources
@@ -67,7 +56,6 @@ incus config device add staging yura-chess-proxy proxy \
 | `.env.example` | names of every variable, no real values | repository |
 | `/srv/yura-chess/production.env` | application settings and secrets | Firebat, `0600`, root |
 | `/srv/yura-chess/production-db.env` | `MARIADB_*` for the production database | Firebat, `0600`, root |
-| `/srv/yura-chess/staging.env` | staging application settings | Firebat, `0600`, root |
 | `/srv/yura-chess/backup.env` | backup and restore credentials, S3 target | Firebat, `0600`, root |
 | `/srv/yura-chess/*.current-image`, `*.previous-image` | tag recorded by `deploy.sh` | Firebat |
 
@@ -86,7 +74,6 @@ Secrets that exist only on Firebat and never in git:
 | 443/tcp | public | nginx TLS for `chess.waxim.ru` |
 | 80/tcp | public | ACME challenge and redirect to 443 |
 | 127.0.0.1:8082 | host loopback | production application via proxy-device |
-| 127.0.0.1:8081 | host loopback | staging application via proxy-device |
 | 3306/tcp | container network only | MariaDB; never published |
 
 ## Runtime guarantees
@@ -107,9 +94,9 @@ Secrets that exist only on Firebat and never in git:
 
 ## Deploy and rollback
 
-`deploy/deploy.sh <env> <tag>` — validate, pull, migrate as a separate release
+`deploy/deploy.sh production <tag>` — validate, pull, migrate as a separate release
 step, start, health smoke, auto-revert on failure.
-`deploy/rollback.sh <env> [tag]` — restore the previous application image.
+`deploy/rollback.sh production [tag]` — restore the previous application image.
 Details and the cutover checklist: [README.md](README.md).
 
 ## Backup and restore

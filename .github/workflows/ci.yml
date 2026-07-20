@@ -70,7 +70,7 @@ jobs:
         run: |
           # Skipped rather than failed when a compose file is absent, so the job
           # stays honest about what it actually validated.
-          for file in docker-compose.yml deploy/compose.staging.yml deploy/compose.production.yml; do
+          for file in docker-compose.yml deploy/compose.production.yml; do
             if [ -f "$file" ]; then
               echo "validating $file"
               profile=app

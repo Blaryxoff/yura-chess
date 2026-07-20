@@ -42,7 +42,7 @@ yura_chess = ["data/*.tsv", "data/*.json", "data/*.jsonl"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-markers = ["staging: talks to a deployed staging webhook over HTTP and uses no local database"]
+markers = ["deployed: talks to the public deployed webhook over HTTP and uses no local database"]
 
 [tool.ruff]
 target-version = "py312"

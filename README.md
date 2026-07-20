@@ -8,12 +8,10 @@ Screen-capable devices additionally receive an updated board image.
 
 ## Status
 
-The MVP is implemented and deployed to production, and is awaiting public Yandex
-moderation. The human-like experience release — topical help, game facts, saved
-preferences, the coach mode, restrained commentary, game review with PGN, and
-voice puzzles — is implemented on top of it and goes to staging first; it is
-released to production as a single version only after moderation ends and the
-deploy is confirmed separately.
+The complete human-like experience release is deployed to production and is
+awaiting public Yandex moderation. CI, the MariaDB integration suite, local shell
+flows and an opt-in public-webhook smoke replace a separately maintained staging
+environment.
 
 The plans are:
 
