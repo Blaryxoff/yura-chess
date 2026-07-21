@@ -209,6 +209,41 @@ async def test_a_new_session_recovers_and_confirms_the_latest_unfinished_game(
     assert games_count(database_engine) == 1
 
 
+@pytest.mark.parametrize("command", ["помощь", "что ты умеешь"])
+async def test_returning_moderator_can_request_help_during_resume_confirmation(
+    command: str,
+    session_factory: sessionmaker[Session],
+    database_engine: Engine,
+) -> None:
+    async with build_client(session_factory) as client:
+        await client.post("/alice/webhook", json=alice_request(1, new=True))
+        prompted = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(1, session_id="moderation-return", new=True),
+            )
+        ).json()
+        helped = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    2,
+                    session_id="moderation-return",
+                    command=command,
+                    session_state=prompted["session_state"],
+                ),
+            )
+        ).json()
+
+    assert "Шахматы с Юрой" in prompted["response"]["text"]
+    assert "скажите «помощь»" in prompted["response"]["text"].lower()
+    assert "Идет партия" in helped["response"]["text"]
+    assert "пешка е два е четыре" in helped["response"]["text"]
+    assert "pending_action" not in helped["session_state"]
+    assert helped["session_state"]["help"] == {"page": 0}
+    assert games_count(database_engine) == 1
+
+
 async def test_a_spoken_move_uses_the_real_router_and_response_composer(
     session_factory: sessionmaker[Session],
 ) -> None:

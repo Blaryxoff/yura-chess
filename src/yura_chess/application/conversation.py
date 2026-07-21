@@ -100,6 +100,11 @@ _MONTHS = {
     11: "ноября",
     12: "декабря",
 }
+_SKILL_INTRO = "Это навык «Шахматы с Юрой». Здесь вы играете в шахматы голосом против компьютера."
+
+
+def _new_session_welcome(speech: Speech) -> Speech:
+    return Speech.of(f"{_SKILL_INTRO} {speech.text} Скажите «помощь», чтобы услышать инструкцию и команды.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,7 +258,7 @@ class ConversationService:
                 return self._with_puzzle_card(
                     owner_key,
                     ConversationReply(
-                        self._puzzles.resume_prompt(unsolved),
+                        _new_session_welcome(self._puzzles.resume_prompt(unsolved)),
                         replace(state, pending_action=PendingAction(CommandKind.PUZZLE, "")),
                     ),
                     preferences,
@@ -265,7 +270,10 @@ class ConversationService:
                     self._with_game(state, candidate),
                     pending_action=PendingAction(CommandKind.CONTINUE, ""),
                 )
-                return ConversationReply(self._resume_prompt(candidate, request.timezone), prompt_state)
+                return ConversationReply(
+                    _new_session_welcome(self._resume_prompt(candidate, request.timezone)),
+                    prompt_state,
+                )
 
         board = game.board() if game is not None else None
         routed = route(
@@ -287,6 +295,15 @@ class ConversationService:
             help=None,
             reviewing=False,
         )
+
+        if state.pending_action is not None and routed.kind is CommandKind.HELP:
+            open_puzzle = self._puzzles.find_open(owner_key)
+            mode = _help_mode(game, open_puzzle is not None)
+            return self._help_reply(
+                help_speech.answer_help(utterance, mode, state.help),
+                replace(next_state, pending_action=None),
+                game,
+            )
 
         if state.pending_action is not None:
             confirmation = confirmation_answer(utterance)
@@ -694,10 +711,11 @@ class ConversationService:
         if request.is_new_session and not utterance.strip():
             return replace(
                 reply,
-                speech=Speech.of(
-                    f"Это навык «Шахматы с Юрой». Здесь вы играете в шахматы голосом против компьютера. "
-                    f"Новая партия уже началась: вы играете {side}, уровень {level}. "
-                    f"Назовите ход, например «пешка е два е четыре», или скажите «помощь». {reply.speech.text}"
+                speech=_new_session_welcome(
+                    Speech.of(
+                        f"Новая партия уже началась: вы играете {side}, уровень {level}. "
+                        f"Назовите ход, например «пешка е два е четыре». {reply.speech.text}"
+                    )
                 ),
             )
         return replace(

@@ -99,3 +99,39 @@ async def test_deployed_service_explains_itself_for_moderation(
     assert "шахмат" in text.lower()
     assert "новая игра" in text.lower()
     assert "пешка е два е четыре" in text.lower()
+
+
+@pytest.mark.parametrize("command", ["помощь", "что ты умеешь"])
+async def test_deployed_returning_moderator_can_request_help_during_resume_confirmation(
+    deployed: httpx.AsyncClient,
+    command: str,
+) -> None:
+    suffix = str(uuid4())
+    user_id = f"deployed-moderator-{suffix}"
+    await deployed.post(
+        "/alice/webhook",
+        json=alice_request(1, session_id=f"first-{suffix}", user_id=user_id, new=True),
+    )
+    prompted = (
+        await deployed.post(
+            "/alice/webhook",
+            json=alice_request(1, session_id=f"return-{suffix}", user_id=user_id, new=True),
+        )
+    ).json()
+    helped = (
+        await deployed.post(
+            "/alice/webhook",
+            json=alice_request(
+                2,
+                session_id=f"return-{suffix}",
+                user_id=user_id,
+                command=command,
+                session_state=prompted["session_state"],
+            ),
+        )
+    ).json()
+
+    assert "шахмат" in prompted["response"]["text"].lower()
+    assert "помощь" in prompted["response"]["text"].lower()
+    assert "пешка е два е четыре" in helped["response"]["text"].lower()
+    assert "да» или «нет" not in helped["response"]["text"].lower()

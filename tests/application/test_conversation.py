@@ -262,6 +262,9 @@ async def test_new_session_offers_the_latest_unfinished_game_and_last_two_moves(
     assert prompt.state.game_id == game.id
     assert prompt.state.pending_action is not None
     assert prompt.state.pending_action.kind is CommandKind.CONTINUE
+    assert "Шахматы с Юрой" in prompt.speech.text
+    assert "шахматы голосом" in prompt.speech.text
+    assert "скажите «помощь»" in prompt.speech.text.lower()
     assert "Последние два хода" in prompt.speech.text
     assert "пешка e2 e4" in prompt.speech.text
     assert "пешка e7 e5" in prompt.speech.text
@@ -270,6 +273,43 @@ async def test_new_session_offers_the_latest_unfinished_game_and_last_two_moves(
 
     assert resumed.turn is not None
     assert resumed.turn.game_id == game.id
+
+
+@pytest.mark.parametrize("utterance", ["помощь", "что ты умеешь"])
+async def test_help_replaces_a_returning_users_resume_confirmation(
+    utterance: str,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    opened = await conversation.handle(OWNER, "", context(1, new=True))
+    prompted = await conversation.handle(OWNER, "", context(2, new=True), ConversationState())
+
+    helped = await conversation.handle(OWNER, utterance, context(3), prompted.state)
+
+    assert "Идет партия" in helped.speech.text
+    assert "пешка е два е четыре" in helped.speech.text
+    assert "Скажите «да» или «нет»" not in helped.speech.text
+    assert helped.state.pending_action is None
+    assert helped.state.help == HelpState(topic=None, page=0)
+    assert helped.state.game_id == opened.state.game_id
+
+
+async def test_new_session_greeting_explains_the_skill_when_resuming_a_puzzle(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    await conversation.handle(OWNER, "дай задачу", context(1, new=True))
+
+    prompted = await conversation.handle(OWNER, "", context(2, new=True), ConversationState())
+
+    assert "Шахматы с Юрой" in prompted.speech.text
+    assert "шахматы голосом" in prompted.speech.text
+    assert "нерешенная задача" in prompted.speech.text
+    assert "скажите «помощь»" in prompted.speech.text.lower()
+    assert prompted.state.pending_action is not None
+    assert prompted.state.pending_action.kind is CommandKind.PUZZLE
 
 
 async def test_unplayed_game_is_not_described_as_played_today(
