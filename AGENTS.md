@@ -36,6 +36,8 @@ Before implementation, read the active product and dev plans under `docs/plans/`
 - Production webhook: `https://chess.waxim.ru/alice/webhook`.
 - Host nginx owns TLS; the application exposes only a loopback port through an Incus proxy-device.
 - Production secrets stay on Firebat with restrictive permissions.
+- Production deploys require green CI, an immutable image, health checks, and the public webhook smoke. Backup and
+  restore-smoke status is monitored separately and never blocks an application deploy.
 
 <!-- devkit-toolkit:start -->
 ## devkit-toolkit

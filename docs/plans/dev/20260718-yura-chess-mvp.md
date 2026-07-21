@@ -167,7 +167,7 @@ Firebat test использует существующий `staging-mariadb` в 
 - [x] Публиковать приложение только на container loopback и описать Incus proxy-device до host loopback
 - [x] Настроить публичный `chess.waxim.ru` без basic-auth, с TLS, body/time limits и rate limiting
 - [x] Реализовать идемпотентный deploy с immutable image tag, preflight migrations, health smoke и документированным rollback на предыдущий tag
-- [x] Добавить регулярный `mariadb-dump`, копию в настроенное внешнее S3-совместимое хранилище, retention, контроль свободного места, alert при сбое и restore-smoke в отдельную временную базу; задокументировать восстановление перед cutover
+- [x] Добавить регулярный `mariadb-dump`, копию в настроенное внешнее S3-совместимое хранилище, retention, контроль свободного места, alert при сбое и restore-smoke в отдельную временную базу; держать backup/restore как независимый операционный контроль, не блокирующий application deploy
 - [x] Описать в `deploy/INFRASTRUCTURE.md` топологию test/production, источники конфигурации, секреты, порты, deploy/rollback, backup/restore и диагностические команды
 - [x] Добавить CI lint/type/test, MariaDB integration service, migration check, условную Compose validation и запрет секретов в репозитории
 - [x] Провести двадцать golden games, тест параллельных пользователей и насыщения pool (`tests/golden/test_full_games.py`); voice-only QA и screen-device QA до публичной модерации (skipped — ручная проверка на устройстве Алисы, чек-лист в `deploy/README.md`)

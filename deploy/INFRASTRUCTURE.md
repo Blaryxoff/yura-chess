@@ -108,7 +108,8 @@ Details and the cutover checklist: [README.md](README.md).
   `YURA_CHESS_COMPOSE_FILE`, so timers do not depend on their working directory.
 - `deploy/mariadb/restore-smoke.sh` — restore the latest archive into
   `yura_chess_restore_smoke`, assert every canonical table and the Alembic
-  revision, then drop it. Run before every cutover.
+  revision, then drop it. Run on its schedule or manually as an independent
+  operations check; backup and restore status never blocks an application deploy.
 - `deploy/systemd/yura-chess-backup.timer` runs daily and
   `yura-chess-restore-smoke.timer` verifies the latest archive weekly. Install
   both during provisioning, but enable them only after the off-host target and

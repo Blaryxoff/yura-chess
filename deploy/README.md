@@ -91,7 +91,7 @@ free space is below the configured floor, and it alerts through
 The S3-compatible bucket must also have a lifecycle expiration matching
 `YURA_CHESS_BACKUP_RETENTION_DAYS`; local pruning cannot remove remote objects.
 
-Verify restorability regularly and always before a cutover:
+Verify restorability regularly as an independent operations check:
 
 ```bash
 deploy/mariadb/restore-smoke.sh
@@ -99,6 +99,11 @@ deploy/mariadb/restore-smoke.sh
 
 It restores into `yura_chess_restore_smoke`, checks every canonical table and the
 Alembic revision, then drops it. It refuses to touch the live database.
+
+Backup availability, off-host copy status and restore-smoke results do not gate an
+application deploy. Their failures remain alerts that operators should resolve
+separately; `deploy.sh` relies on immutable images, health checks and automatic
+application rollback for the release path.
 
 Install the units during provisioning, but enable them only after
 `YURA_CHESS_BACKUP_S3_TARGET` and the matching credentials are configured:
@@ -111,10 +116,9 @@ systemctl enable --now yura-chess-backup.timer yura-chess-restore-smoke.timer
 
 ## Cutover checklist
 
-1. `deploy/mariadb/backup.sh` and confirm the off-host copy exists.
-2. `deploy/mariadb/restore-smoke.sh` passes.
-3. `deploy/deploy.sh production "$TAG"`.
-4. `YURA_CHESS_DEPLOYED_URL=https://chess.waxim.ru uv run pytest tests/e2e/test_deployed_webhook.py`.
-5. External check through nginx: `curl -sS https://chess.waxim.ru/alice/webhook -X POST -d '{}'`
+1. Confirm green CI and the published immutable image for `$TAG`.
+2. `deploy/deploy.sh production "$TAG"`.
+3. `YURA_CHESS_DEPLOYED_URL=https://chess.waxim.ru uv run pytest tests/e2e/test_deployed_webhook.py`.
+4. External check through nginx: `curl -sS https://chess.waxim.ru/alice/webhook -X POST -d '{}'`
    returns 422 (the endpoint is reachable and validating), not 502.
-6. Voice-only and screen-device QA in the Alice console before submitting for moderation.
+5. Voice-only and screen-device QA in the Alice console before submitting for moderation.

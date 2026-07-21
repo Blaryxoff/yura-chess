@@ -115,7 +115,7 @@ optional, and deployment can be restored after failure.
 - `S11-01` CI passes before image publication; image tag equals the Git commit used to build it.
 - `S11-02` staging deploy runs migrations, readiness and external webhook smoke.
 - `S11-03` failed application health automatically restores the previous immutable image.
-- `S11-04` backup and restore-smoke pass immediately before production cutover.
+- `S11-04` backup and restore-smoke report their health independently and never block production cutover.
 - `S11-05` production deploy preserves existing unfinished games and transcript retention.
 - `S11-06` public webhook returns validation errors rather than nginx 4xx/5xx for reachable malformed requests.
 
@@ -135,7 +135,7 @@ optional, and deployment can be restored after failure.
 | Fast PR | Every change | S01 lint/types, pure S02–S08 unit tests, focused regression |
 | Full CI | Every push to `main` | All automated S01–S10, clean MariaDB migration, Docker build |
 | Nightly soak | Nightly while in beta | randomized S02, corpus S03, concurrency/timing S06, retention S09 |
-| Release candidate | Before Firebat production | S01–S11 on staging plus backup/restore |
+| Release candidate | Before Firebat production | S01–S11; backup/restore health is reported separately |
 | Manual acceptance | Before public moderation | S12 on actual Alice devices |
 
 ## Public-release gates
@@ -145,8 +145,7 @@ Do not submit for public moderation until all are true:
 1. The release is committed, pushed and represented by a green CI commit and matching immutable image.
 2. All automated suites pass on a clean MariaDB and the release image passes staging smoke.
 3. CLI orientation gap `S08-06` is resolved or explicitly accepted as developer-only non-scope.
-4. Backup plus restore-smoke passes immediately before cutover.
+4. Backup and restore-smoke failures are tracked as independent operations alerts, not release blockers.
 5. Twenty real-ASR games pass, including voice-only and screen devices, both colors and session resume.
 6. No unresolved critical/high correctness, privacy, security or data-loss defect remains.
 7. The skill privacy text discloses pseudonymous normalized-command analytics and retention.
-
