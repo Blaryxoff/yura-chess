@@ -140,7 +140,7 @@ async def test_position_and_repeat_heard_are_available_without_alice(
     conversation = subject(session_factory, offline_settings)
     started = await conversation.handle(OWNER, "", context(1))
     position = await conversation.handle(OWNER, "что на е два", context(2), started.state)
-    repeated = await conversation.handle(OWNER, "что ты услышала", context(3), position.state)
+    repeated = await conversation.handle(OWNER, "что ты услышал", context(3), position.state)
 
     assert "пешка белых" in position.speech.text
     assert "что на е два" in repeated.speech.text
@@ -155,7 +155,7 @@ async def test_last_reply_can_be_repeated_more_slowly_without_changing_the_game(
     position = await conversation.handle(OWNER, "что на е два", context(2), started.state)
 
     repeated = await conversation.handle(OWNER, "повтори медленно", context(3), position.state)
-    heard = await conversation.handle(OWNER, "что ты услышала", context(4), repeated.state)
+    heard = await conversation.handle(OWNER, "что ты услышал", context(4), repeated.state)
 
     assert repeated.speech.text == "Повторяю: На е два — пешка белых."
     assert repeated.speech.tts is not None
@@ -432,9 +432,25 @@ async def test_help_before_a_game_offers_topics_without_starting_anything(
 
     assert "Партия еще не начата" in reply.speech.text
     assert "Разделы справки" in reply.speech.text
+    assert "Разделы справки. Ходы, позиция, факты, партия." in reply.speech.spoken()
+    assert "Настройки, тренер, разбор, задачи, речь." in reply.speech.spoken()
+    assert "Назовите раздел. Или скажите: «все команды»." in reply.speech.spoken()
     assert reply.state.help == HelpState(topic=None, page=0)
     assert reply.state.game_id is None
     assert reply.turn is None
+
+
+async def test_help_uses_short_sentences_for_tts_intonation(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, "справка по ходам", context(1))
+
+    spoken = reply.speech.spoken()
+    assert "Ход можно назвать так. Например:" in spoken
+    assert "ответьте «да» или «нет». Либо назовите ход точнее." in spoken
 
 
 @pytest.mark.parametrize(
@@ -442,13 +458,13 @@ async def test_help_before_a_game_offers_topics_without_starting_anything(
     [
         ("справка по ходам", HelpTopic.MOVES, "«пешка е два е четыре»"),
         ("справка по позиции", HelpTopic.POSITION, "две горизонтали"),
-        ("справка про факты", HelpTopic.FACTS, "За кого я играю"),
+        ("справка про факты", HelpTopic.FACTS, "за кого я играю"),
         ("справка про партию", HelpTopic.GAME, "уровень десять"),
-        ("справка про настройки", HelpTopic.SETTINGS, "Говори кратко"),
+        ("справка про настройки", HelpTopic.SETTINGS, "говори кратко"),
         ("справка про тренера", HelpTopic.TRAINING, "режим тренера"),
-        ("справка про разбор", HelpTopic.REVIEW, "Разбери партию"),
-        ("справка про задачи", HelpTopic.PUZZLES, "Дай задачу"),
-        ("справка про речь", HelpTopic.SPEECH, "Что ты услышала"),
+        ("справка про разбор", HelpTopic.REVIEW, "разбери партию"),
+        ("справка про задачи", HelpTopic.PUZZLES, "дай задачу"),
+        ("справка про речь", HelpTopic.SPEECH, "что ты услышал"),
         ("все команды", HelpTopic.ALL, "Все команды."),
     ],
 )
@@ -632,7 +648,7 @@ _CATEGORY_PHRASES = (
     "выключи тренера",
     "оцени позицию",
     "назови оценку числом",
-    "почему ты так сходила",
+    "почему ты так сходил",
     "чем ты угрожаешь",
     "какие ходы хорошие",
     "что будет, если я сыграю",
@@ -656,7 +672,7 @@ _CATEGORY_PHRASES = (
     "какая у меня серия",
     "вернуться к партии",
     # Speech.
-    "что ты услышала",
+    "что ты услышал",
     "повтори медленно",
     "повтори координаты по буквам",
 )

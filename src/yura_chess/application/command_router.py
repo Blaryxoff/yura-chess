@@ -41,7 +41,7 @@ class CommandKind(StrEnum):
     # A question about the game itself: colour, move number, captures, castling.
     GAME_FACT = "game_fact"
     POSITION_QUERY = "position_query"
-    # «что ты услышала» — replays the previous normalised utterance.
+    # «что ты услышал» — replays the previous normalised utterance.
     REPEAT_HEARD = "repeat_heard"
     REPEAT_SLOW = "repeat_slow"
     HELP = "help"
@@ -180,7 +180,7 @@ class RoutedCommand:
     resolution: MoveResolution | None = None
     # Carried into the next turn; `None` clears a clarification that is over.
     clarification: PendingClarification | None = None
-    # What «что ты услышала» answers with, i.e. the previous turn's utterance.
+    # What «что ты услышал» answers with, i.e. the previous turn's utterance.
     heard: str | None = None
     # Why the described move cannot be played; set only for `ILLEGAL_MOVE`.
     explanation: Explanation | None = None
@@ -211,7 +211,7 @@ _HELP_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
 )
 
 _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
-    (CommandKind.REPEAT_HEARD, re.compile(r"что (ты )?(услышал|поняла|понял|разобрал)|что я сказал")),
+    (CommandKind.REPEAT_HEARD, re.compile(r"что (ты )?(услышал[аи]?|понял[аи]?|разобрал[аи]?)|что я сказал")),
     (
         CommandKind.REPEAT_SLOW,
         re.compile(r"^повтори( еще раз)? медленн(о|ее)|^повтори (последнюю фразу|ответ)$"),
@@ -324,8 +324,11 @@ _TRAINING_PATTERNS: tuple[tuple[TrainingQuestion, re.Pattern[str]], ...] = (
         TrainingQuestion.EVALUATION,
         re.compile(r"как оценива|оцени позици|какая оценка|кто (сейчас )?лучше стоит|у кого (сейчас )?лучше"),
     ),
-    (TrainingQuestion.WHY_MOVE, re.compile(r"почему ты (так )?(сходила|пошла|ходила)|зачем ты (так )?(сходила|пошла)")),
-    (TrainingQuestion.THREAT, re.compile(r"чем ты угрожа|какая угроза|есть ли угроза|что ты задумала")),
+    (
+        TrainingQuestion.WHY_MOVE,
+        re.compile(r"почему ты (так )?(сходил[а]?|пошел|пошла|ходил[а]?)|зачем ты (так )?(сходил[а]?|пошел|пошла)"),
+    ),
+    (TrainingQuestion.THREAT, re.compile(r"чем ты угрожа|какая угроза|есть ли угроза|что ты задумал[а]?")),
     (TrainingQuestion.PREVIEW, re.compile(r"что будет,? если|что если я|стоит ли (мне )?(играть|ходить)")),
     (TrainingQuestion.CANDIDATES, re.compile(r"хорошие ходы|какие ходы|что мне сыграть|как мне (лучше )?сыграть")),
     # «подскажи» — the imperative the help advertises — carries the ж stem.

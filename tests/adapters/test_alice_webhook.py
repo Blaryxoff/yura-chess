@@ -574,7 +574,7 @@ async def test_a_reused_replay_key_with_another_command_is_rejected_without_chan
         conflict = await client.post("/alice/webhook", json=conflict_payload)
 
     assert conflict.status_code == 200
-    assert conflict.json()["response"]["text"] == "Не расслышала. Повторите, пожалуйста."
+    assert conflict.json()["response"]["text"] == "Не расслышал. Повторите, пожалуйста."
     assert conflict.json().get("user_state_update") is None
     assert games_count(database_engine) == 1
     assert engine.searches == 1

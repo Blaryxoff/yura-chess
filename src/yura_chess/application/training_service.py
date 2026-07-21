@@ -203,7 +203,7 @@ class TrainingService:
         if game.status is not GameStatus.ACTIVE:
             return Speech.of("Партия уже закончена. Режим можно выбрать в новой партии.")
         if game.pending_engine_turn is not None:
-            return Speech.of("Сначала я должна ответить на ваш ход. Скажите «продолжаем».")
+            return Speech.of("Сначала я должен ответить на ваш ход. Скажите «продолжаем».")
         with session_scope(self._session_factory) as session:
             GameRepository(session).set_mode(game.id, owner_key, game.revision, mode)
         if mode is GameMode.TRAINING:
@@ -228,7 +228,7 @@ class TrainingService:
         """The purpose of the engine's last move, read from the position itself."""
         board = game.board()
         if not board.move_stack or board.turn != game.player_color.to_chess():
-            return Speech.of("Я еще не ходила в этой позиции.")
+            return Speech.of("Я еще не ходил в этой позиции.")
         move = board.peek()
         board.pop()
         return Speech.of(f"Мой ход {_move_phrase(board, move.uci())}. {_purpose(board, move)}")
@@ -236,7 +236,7 @@ class TrainingService:
     async def _threat(self, game: GameState) -> Speech:
         board = game.board()
         if board.turn != game.player_color.to_chess():
-            return Speech.of("Сначала я должна ответить на ваш ход. Скажите «продолжаем».")
+            return Speech.of("Сначала я должен ответить на ваш ход. Скажите «продолжаем».")
         if board.is_check():
             return Speech.of("Прямо сейчас вам шах — это и есть угроза.")
         if board.is_game_over():
@@ -276,7 +276,7 @@ class TrainingService:
         """Value a suggested move on a copy; the game never sees it."""
         board = game.board()
         if board.turn != game.player_color.to_chess():
-            return Speech.of("Сначала я должна ответить на ваш ход. Скажите «продолжаем».")
+            return Speech.of("Сначала я должен ответить на ваш ход. Скажите «продолжаем».")
         normalized = normalize(move_text)
         if not normalized.has_move_tokens:
             return Speech.of("Назовите ход, который разобрать, например «что будет, если я сыграю конь эф три».")
@@ -285,7 +285,7 @@ class TrainingService:
             return Speech.of(explain(resolution.recognized, board).text)
         if resolution.status is not ResolutionStatus.RESOLVED or resolution.move is None:
             choices = ", или ".join(resolution.candidates[:6])
-            return Speech.of(f"Не поняла, какой ход разобрать. Уточните: {choices}.")
+            return Speech.of(f"Не понял, какой ход разобрать. Уточните: {choices}.")
         move = chess.Move.from_uci(resolution.move)
         preview = board.copy(stack=False)
         preview.push(move)
@@ -382,7 +382,7 @@ def _candidate_for(analysis: PositionAnalysis, move_uci: str) -> MoveCandidate |
 
 
 def _busy() -> Speech:
-    return Speech.of("Не успела посчитать позицию. Спросите еще раз чуть позже. Партия не изменилась.")
+    return Speech.of("Не успел посчитать позицию. Спросите еще раз чуть позже. Партия не изменилась.")
 
 
 def _verbal(score: Score) -> str:

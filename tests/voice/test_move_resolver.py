@@ -15,6 +15,7 @@ from yura_chess.application.command_router import (
     PreferenceChange,
     RematchColor,
     RematchRequest,
+    TrainingQuestion,
     route,
 )
 from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle, PauseStyle
@@ -224,7 +225,7 @@ def test_utterance_without_move_tokens_is_unmatched() -> None:
         ("ход назад", CommandKind.UNDO),
         ("чей ход", CommandKind.POSITION_QUERY),
         ("есть ли шах сейчас", CommandKind.POSITION_QUERY),
-        ("что ты услышала", CommandKind.REPEAT_HEARD),
+        ("что ты услышал", CommandKind.REPEAT_HEARD),
         ("повтори медленно", CommandKind.REPEAT_SLOW),
     ],
 )
@@ -236,7 +237,7 @@ def test_control_commands_are_separated_before_move_resolution(utterance: str, e
 
 
 def test_repeat_heard_answers_with_the_previous_utterance() -> None:
-    routed = route("что ты услышала", chess.Board(), last_heard="пешка е два е четыре")
+    routed = route("что ты услышал", chess.Board(), last_heard="пешка е два е четыре")
 
     assert routed.kind is CommandKind.REPEAT_HEARD
     assert routed.heard == "пешка е два е четыре"
@@ -341,6 +342,21 @@ def test_help_commands_never_reach_move_resolution(utterance: str, expected: Com
     assert routed.kind is expected
     assert routed.move is None
     assert routed.resolution is None
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("почему ты так сходил", TrainingQuestion.WHY_MOVE),
+        ("что ты задумал", TrainingQuestion.THREAT),
+    ],
+)
+def test_male_trainer_phrases_are_routed(utterance: str, expected: TrainingQuestion) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.TRAINING
+    assert routed.training is not None
+    assert routed.training.question is expected
 
 
 def test_help_navigation_is_matched_before_the_new_game_command() -> None:

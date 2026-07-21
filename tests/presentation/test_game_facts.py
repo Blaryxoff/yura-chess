@@ -67,7 +67,7 @@ def test_moves_played_can_count_only_the_asked_side() -> None:
     board = board_of("e2e4", "e7e5", "g1f3")
 
     assert answer("сколько ходов сделал я", board, chess.WHITE)[1] == "Вы сделали 2 хода."
-    assert answer("сколько ходов сделала ты", board, chess.WHITE)[1] == "Я сделала 1 ход."
+    assert answer("сколько ходов сделал ты", board, chess.WHITE)[1] == "Я сделал 1 ход."
     assert answer("сколько ходов сделал я", board, chess.BLACK)[1] == "Вы сделали 1 ход."
 
 
@@ -77,7 +77,7 @@ def test_captures_are_read_from_the_history_of_both_sides() -> None:
     board = board_of("e2e4", "d7d5", "e4d5", "d8d5", "b1c3", "d5e5", "c3b5", "e5e2", "f1e2")
     _, text = answer("какие фигуры съедены", board)
     assert "Вы взяли: ферзя, пешку." in text
-    assert "Я взяла: пешку." in text
+    assert "Я взял: пешку." in text
 
 
 def test_en_passant_capture_is_counted_even_though_the_target_is_empty() -> None:

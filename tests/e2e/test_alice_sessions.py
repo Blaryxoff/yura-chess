@@ -142,7 +142,7 @@ async def test_a_reused_replay_key_with_another_command_changes_nothing(
 
         conflicting = await dialogue.resend(dialogue.message_id, "конь ж один эф три")
 
-    assert "Не расслышала" in conflicting["response"]["text"]
+    assert "Не расслышал" in conflicting["response"]["text"]
     assert conflicting.get("user_state_update") is None
     assert stored_moves(database_engine, game_id) == before
 

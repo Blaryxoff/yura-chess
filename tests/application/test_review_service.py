@@ -262,7 +262,7 @@ async def test_a_busy_engine_gives_an_honest_partial_review(
 
     assert "продолжить разбор" in reply.text
     assert "Вы проиграли." in reply.text
-    assert "не нашла" not in reply.text
+    assert "не нашел" not in reply.text
     after = load(session_factory, game.id)
     assert (after.moves, after.revision) == (game.moves, game.revision)
 

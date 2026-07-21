@@ -150,7 +150,7 @@ async def _handle(
         reply = await conversation.handle(owner, payload.request.command, context, _conversation_state(payload, salt))
     except ReplayFingerprintConflictError:
         # Same replay key, different request: answer without touching the game.
-        return _plain(payload, "Не расслышала. Повторите, пожалуйста."), None, None, None
+        return _plain(payload, "Не расслышал. Повторите, пожалуйста."), None, None, None
     except (
         RevisionConflictError,
         PendingTurnConflictError,

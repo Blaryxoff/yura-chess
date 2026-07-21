@@ -344,5 +344,5 @@ def _name(square: int) -> str:
 def _unclear() -> Explanation:
     return Explanation(
         IllegalReason.UNCLEAR,
-        "Я не поняла ход. Назовите фигуру и поле, например «конь эф три».",
+        "Я не понял ход. Назовите фигуру и поле, например «конь эф три».",
     )

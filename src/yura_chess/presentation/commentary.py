@@ -157,7 +157,7 @@ def _candidate(
         gained = (swing > 0) == (player_color is PlayerColor.WHITE)
         return Comment(
             CommentCategory.MATERIAL,
-            "Вы выиграли материал." if gained else "Я выиграла материал.",
+            "Вы выиграли материал." if gained else "Я выиграл материал.",
         )
     if board.is_check():
         return Comment(CommentCategory.CHECK, "Вам шах." if not by_player else "Вы объявили шах.")

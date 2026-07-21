@@ -29,7 +29,7 @@ pytestmark = pytest.mark.anyio
 OWNER = "e2e-owner-modes"
 SCRIPT = Path(__file__).parent / "fixtures" / "full_help_and_modes.txt"
 # The one answer that means the skill did not understand a scripted command.
-FALLBACK = "Не поняла команду."
+FALLBACK = "Не понял команду."
 
 
 def script_commands() -> list[str]:

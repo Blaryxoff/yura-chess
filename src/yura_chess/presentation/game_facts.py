@@ -146,7 +146,7 @@ def describe_moves_played(board: chess.Board, player: chess.Color, question: str
     if subject is not None:
         color = player if subject == "я" else not player
         count = _moves_by_color(board)[color]
-        lead = "Вы сделали" if subject == "я" else "Я сделала"
+        lead = "Вы сделали" if subject == "я" else "Я сделал"
         return Speech.of(f"{lead} {count} {_plural(count, _MOVE_FORMS)}.")
     plies = len(board.move_stack)
     if plies == 0:
@@ -165,7 +165,7 @@ def describe_captured(board: chess.Board, player: chess.Color) -> Speech:
     if not mine and not theirs:
         return Speech.of("Пока никто не снял ни одной фигуры.")
     yours = f"Вы взяли: {mine}." if mine else "Вы пока ничего не взяли."
-    ours = f"Я взяла: {theirs}." if theirs else "Я пока ничего не взяла."
+    ours = f"Я взял: {theirs}." if theirs else "Я пока ничего не взял."
     return Speech.of(f"{yours} {ours}")
 
 
@@ -202,7 +202,7 @@ def describe_last_move_changes(board: chess.Board, player: chess.Color) -> Speec
         changes.append(f"на {destination} теперь {PIECE_NAMES[moved.piece_type]} {COLOUR_GENITIVE[moved.color]}")
     captured = _captured_piece_type(before, move)
     if captured is not None:
-        taker = "вы взяли" if before.turn == player else "я взяла"
+        taker = "вы взяли" if before.turn == player else "я взял"
         square = _captured_square(before, move)
         changes.append(
             f"{taker} {PIECE_NAMES_ACCUSATIVE[captured]}"

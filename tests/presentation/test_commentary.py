@@ -59,7 +59,7 @@ def test_an_even_trade_stays_silent_but_a_won_piece_does_not() -> None:
     assert given.category is CommentCategory.MATERIAL
     assert given.text == "Вы выиграли материал."
     from_black = comment(("a1h1",), PlayerColor.BLACK, fen=ROOKS)
-    assert from_black is not None and from_black.text == "Я выиграла материал."
+    assert from_black is not None and from_black.text == "Я выиграл материал."
 
 
 def test_the_first_known_opening_is_named() -> None:

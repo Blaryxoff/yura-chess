@@ -480,7 +480,7 @@ class ConversationService:
             return ConversationReply(self._slow_repeat(state.last_reply), self._with_game(next_state, game))
         if routed.kind is CommandKind.REPEAT_HEARD:
             heard = routed.heard or "пока ничего"
-            return ConversationReply(Speech.of(f"Я услышала: {heard}."), self._with_game(next_state, game))
+            return ConversationReply(Speech.of(f"Я услышал: {heard}."), self._with_game(next_state, game))
         if routed.kind is CommandKind.LEVEL_QUERY:
             level = game.engine.skill_level
             hint = _hint(preferences, "Чтобы изменить его, скажите «новая игра уровень десять».")
@@ -550,7 +550,7 @@ class ConversationService:
             return self._with_training_warning(owner_key, reply)
 
         return ConversationReply(
-            Speech.of("Не поняла команду." + _hint(preferences, "Скажите ход или попросите помощь.")),
+            Speech.of("Не понял команду." + _hint(preferences, "Скажите ход или попросите помощь.")),
             self._with_game(next_state, game),
         )
 
@@ -623,7 +623,7 @@ class ConversationService:
             return ConversationReply(answer.speech, replace(state, position_page=answer.page))
         if routed.kind is CommandKind.UNKNOWN:
             return ConversationReply(
-                Speech.of("Не поняла. Назовите ход, скажите «подскажи» или «покажи решение»."),
+                Speech.of("Не понял. Назовите ход, скажите «подскажи» или «покажи решение»."),
                 state,
             )
         return None
@@ -897,7 +897,7 @@ class ConversationService:
         if pending is None:
             return Speech.of("Уточните ход.")
         if len(pending.candidates) == 1:
-            return Speech.of(f"Я услышала «{pending.heard}». Подтвердите ход {pending.candidates[0]}.")
+            return Speech.of(f"Я услышал «{pending.heard}». Подтвердите ход {pending.candidates[0]}.")
         choices = ", или ".join(pending.candidates[:6])
         return Speech.of(f"Ход неоднозначен. Уточните: {choices}.")
 
@@ -983,7 +983,7 @@ _NOTATION_CONFIRMATIONS: dict[NotationStyle, str] = {
 # The skill cannot speed Alice up or slow her down; it only adds or drops its own pauses.
 _PAUSE_CONFIRMATIONS: dict[PauseStyle, str] = {
     PauseStyle.EXTENDED: "Добавлю паузы между фразами. Скорость речи Алисы я не меняю.",
-    PauseStyle.NORMAL: "Убрала добавленные паузы. Скорость речи Алисы я не меняю.",
+    PauseStyle.NORMAL: "Убрал добавленные паузы. Скорость речи Алисы я не меняю.",
 }
 
 _ORIENTATION_CONFIRMATIONS: dict[BoardOrientation, str] = {

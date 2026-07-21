@@ -132,7 +132,7 @@ class ReviewService:
             return None, Speech.of("Разбор еще не закончен. Скажите «продолжить разбор», затем повторите запрос.")
         turning = _turning_point(losses)
         if turning is None:
-            return None, Speech.of("Переломного момента я не нашла, переигрывать нечего.")
+            return None, Speech.of("Переломного момента я не нашел, переигрывать нечего.")
         board = _board_before(game, turning.ply)
         with session_scope(self._session_factory) as session:
             branch = GameRepository(session).create_game(
@@ -397,7 +397,7 @@ def _counts_text(losses: dict[int, AnalysisCheckpoint], complete: bool = True) -
     if not (blunders or mistakes or inaccuracies):
         if not complete:
             return "Пока не удалось оценить достаточно ходов, чтобы честно посчитать ошибки."
-        return "Существенных ошибок в ваших ходах я не нашла."
+        return "Существенных ошибок в ваших ходах я не нашел."
     return (
         f"Неточностей {inaccuracies}, ошибок {mistakes}, грубых ошибок {blunders}. "
         f"Считаю по порогам {INACCURACY_CENTIPAWNS}, {MISTAKE_CENTIPAWNS} и {BLUNDER_CENTIPAWNS} сантипешек."
@@ -413,7 +413,7 @@ def _move_reference(game: GameState, ply: int) -> str:
 def _partial_tail(game: GameState, losses: dict[int, AnalysisCheckpoint], complete: bool) -> str:
     if complete:
         return ""
-    return f" Разобрала {len(losses)} ваших ходов из {len(_player_plies(game))}.{_CONTINUE}"
+    return f" Разобрал {len(losses)} ваших ходов из {len(_player_plies(game))}.{_CONTINUE}"
 
 
 def _pawns(centipawns: int) -> str:
