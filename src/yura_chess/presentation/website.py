@@ -146,7 +146,7 @@ LANDING_PAGE_HTML = (
     .piece { color: var(--gold); font-size: clamp(72px, 12vw, 126px); line-height: 1; }
     h1 { margin: 18px 0 12px; font-size: clamp(38px, 7vw, 72px); line-height: 1.05; }
     h2 { margin: 0 0 18px; font-size: clamp(26px, 4vw, 38px); }
-    .lead { max-width: 760px; margin: 0 auto; color: var(--muted); font-size: clamp(19px, 3vw, 24px); }
+    .lead { max-width: 900px; margin: 0 auto; color: var(--muted); font-size: clamp(19px, 3vw, 24px); }
     .launch {
       display: inline-block;
       margin-top: 30px;
@@ -206,7 +206,7 @@ LANDING_PAGE_HTML = (
       <div class="piece" aria-hidden="true">♞</div>
       <h1>Шахматы с Юрой</h1>
       <p class="lead">
-        Полноценная партия голосом против сильного движка Stockfish — с естественными командами,
+        Полноценная партия голосом против сильного движка Stockfish — с&nbsp;естественными командами,
         понятными объяснениями и сохранением игры.
       </p>
       <div class="launch">Скажите: «Алиса, запусти навык Шахматы с Юрой»</div>

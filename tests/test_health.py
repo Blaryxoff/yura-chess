@@ -63,6 +63,7 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert response.headers["cache-control"] == "public, max-age=60, stale-while-revalidate=300"
     assert "Шахматы с Юрой" in response.text
     assert "Stockfish" in response.text
+    assert "с&nbsp;естественными командами" in response.text
     assert "Какой уровень сложности?" in response.text
     assert response.text.index('id="statistics"') < response.text.index("Конфиденциальность")
     assert response.text.index('id="statistics"') < response.text.index('id="support"')
