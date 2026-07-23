@@ -62,17 +62,26 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert "Шахматы с Юрой" in response.text
     assert "Stockfish" in response.text
     assert "с&nbsp;естественными командами" in response.text
-    assert "Какой уровень сложности?" in response.text
+    assert "Включи режим тренера" in response.text
+    assert "Всё, что умеет навык" in response.text
+    assert "Решайте шахматные задачи" in response.text
+    assert "Задача на мат в два" in response.text
+    assert 'class="command-list"' in response.text
+    assert response.text.index('class="support-action hero-support"') < response.text.index("Всё, что умеет навык")
     assert response.text.index('id="statistics"') < response.text.index("Конфиденциальность")
     assert response.text.index('id="statistics"') < response.text.index('id="support"')
     assert response.text.index('id="support"') < response.text.index("Конфиденциальность")
     assert 'href="https://pay.cloudtips.ru/p/f604e20f"' in response.text
+    assert response.text.count('href="https://pay.cloudtips.ru/p/f604e20f"') == 2
     assert 'rel="noopener noreferrer nofollow"' in response.text
     assert "Поддержка не предоставляет платных функций" in response.text
     assert '<link rel="icon" href="/favicon.svg"' in response.text
     assert '<link rel="canonical" href="https://chess.waxim.ru/">' in response.text
     assert '<meta property="og:type" content="website">' in response.text
     assert '<script type="application/ld+json">' in response.text
+    assert "IntersectionObserver" in response.text
+    assert "chart.scrollWidth - chart.clientWidth" in response.text
+    assert "prefers-reduced-motion: reduce" in response.text
     assert "Как играть в голосовые шахматы с Алисой" in response.text
     structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
     graph = json.loads(structured_data)["@graph"]

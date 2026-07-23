@@ -32,6 +32,7 @@ DASHBOARD_CSS = """
       border-radius: 999px;
       color: var(--muted);
       text-decoration: none;
+      transition: transform 420ms var(--spring), border-color 180ms ease, color 180ms ease, background 180ms ease;
     }
     .stats-tab.active { border-color: var(--gold); background: var(--gold); color: #241d12; font-weight: 800; }
     .stats-panel { margin-top: 18px; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: #1d1c19; }
@@ -40,13 +41,57 @@ DASHBOARD_CSS = """
     .stats-card { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: #171613; }
     .stats-value { color: var(--gold); font-size: clamp(28px, 4vw, 42px); font-weight: 850; line-height: 1; }
     .stats-label { margin-top: 8px; color: var(--muted); overflow-wrap: anywhere; }
-    .stats-chart { height: 220px; display: flex; align-items: end; gap: 8px; padding-top: 18px; overflow-x: auto; }
-    .stats-day { height: 180px; min-width: 38px; flex: 1; display: flex; flex-direction: column; justify-content: end; align-items: center; gap: 5px; }
+    .stats-chart {
+      height: 260px;
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
+      box-sizing: border-box;
+      padding: 18px 52px 58px 12px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      overscroll-behavior-inline: contain;
+      scroll-behavior: smooth;
+      scrollbar-color: #8d682d #171613;
+      scrollbar-width: thin;
+    }
+    .stats-day { position: relative; min-width: 38px; flex: 1; display: flex; flex-direction: column; justify-content: end; align-items: center; gap: 5px; }
     .stats-bar { width: min(30px, 80%); background: linear-gradient(#f2d38f, #a8792e); border-radius: 7px 7px 3px 3px; }
     .stats-bar-value { color: var(--muted); font-size: 12px; }
-    .stats-day time { margin-top: 9px; color: var(--muted); font-size: 11px; transform: rotate(-42deg); }
+    .stats-day time {
+      position: absolute;
+      top: calc(100% + 10px);
+      left: 50%;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      transform: rotate(-42deg);
+      transform-origin: top left;
+    }
+    .has-motion .stats-card { opacity: 0; transform: translateY(18px) scale(.97); }
+    .has-motion .stats-cards.is-visible .stats-card {
+      animation: stats-pop-in 720ms var(--spring) both;
+      animation-delay: var(--delay);
+    }
+    .has-motion .stats-bar { opacity: 0; transform: scaleY(0); transform-origin: bottom; }
+    .has-motion .stats-chart.is-visible .stats-bar {
+      animation: stats-bar-in 820ms var(--spring) both;
+      animation-delay: var(--delay);
+    }
+    .has-motion .stats-chart.is-visible .stats-bar-value,
+    .has-motion .stats-chart.is-visible time {
+      animation: stats-label-in 420ms ease-out both;
+      animation-delay: calc(var(--delay) + 220ms);
+    }
+    @keyframes stats-pop-in { to { opacity: 1; transform: none; } }
+    @keyframes stats-bar-in { to { opacity: 1; transform: scaleY(1); } }
+    @keyframes stats-label-in { from { opacity: 0; } to { opacity: 1; } }
     .stats-note { display: grid; grid-template-columns: auto 1fr; gap: 13px; align-items: start; }
     .stats-shield { color: var(--gold); font-size: 28px; }
+    @media (hover: hover) {
+      .stats-tab:hover { color: var(--gold); border-color: var(--gold); transform: translateY(-2px) scale(1.03); }
+      .stats-tab.active:hover { color: #241d12; }
+    }
     @media (max-width: 850px) {
       .stats-top { align-items: start; flex-direction: column; }
       .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -62,12 +107,12 @@ def render_dashboard(snapshot: DashboardSnapshot) -> str:
     peak = max((point.requests for point in snapshot.daily), default=1) or 1
     date_format = "%d.%m" if snapshot.period == "month" else "%m.%y"
     bars = "".join(
-        f"""<div class="stats-day" title="{point.day:{date_format}}: {point.requests} запросов">
+        f"""<div class="stats-day" style="--delay:{min(len(snapshot.daily) - index - 1, 20) * 28}ms" title="{point.day:{date_format}}: {point.requests} запросов">
           <div class="stats-bar-value">{point.requests}</div>
           <div class="stats-bar" style="height:{max(4, round(point.requests / peak * 150))}px"></div>
           <time datetime="{point.day.isoformat()}">{point.day:{date_format}}</time>
         </div>"""
-        for point in snapshot.daily
+        for index, point in enumerate(snapshot.daily)
     )
     periods = "".join(
         f'<a class="stats-tab{" active" if key == snapshot.period else ""}" rel="nofollow" href="/?period={key}#statistics">{label}</a>'
@@ -96,8 +141,8 @@ def _cards(totals: UsageTotals) -> str:
     return (
         '<div class="stats-cards">'
         + "".join(
-            f'<div class="stats-card"><div class="stats-value">{value:,}</div><div class="stats-label">{label}</div></div>'
-            for value, label in values
+            f'<div class="stats-card" style="--delay:{index * 45}ms"><div class="stats-value" data-count="{value}">{value:,}</div><div class="stats-label">{label}</div></div>'
+            for index, (value, label) in enumerate(values)
         )
         + "</div>"
     )

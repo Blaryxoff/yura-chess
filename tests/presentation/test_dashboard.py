@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
-from yura_chess.presentation.dashboard import render_dashboard
+from yura_chess.presentation.dashboard import DASHBOARD_CSS, render_dashboard
 from yura_chess.storage.usage_repository import DailyUsage, DashboardSnapshot, UsageTotals
 
 
@@ -27,6 +27,10 @@ def test_dashboard_is_aggregate_responsive_and_explains_pseudonymous_users() -> 
     assert "Реальные" not in html
     assert "Тесты" not in html
     assert html.count('class="stats-cards"') == 1
+    assert 'data-count="120"' in html
+    assert "--delay:0ms" in html
+    assert "overflow-y: hidden" in DASHBOARD_CSS
+    assert "top: calc(100% + 10px)" in DASHBOARD_CSS
     assert "Запросы по дням · 30 дней" in html
     assert "owner_key" not in html
     assert "session_key" not in html
