@@ -9,46 +9,83 @@ from zoneinfo import ZoneInfo
 from yura_chess.storage.usage_repository import DashboardSnapshot, UsageTotals
 
 _SOURCE_LABELS = {"real": "Реальные", "test": "Тесты", "all": "Все"}
+_PERIOD_LABELS = {"month": "Месяц", "year": "Год", "all": "Всё время"}
+_CHART_TITLES = {
+    "month": "Запросы по дням · 30 дней",
+    "year": "Запросы по месяцам · 12 месяцев",
+    "all": "Запросы по месяцам · всё время",
+}
+
+DASHBOARD_CSS = """
+    .stats { scroll-margin-top: 20px; }
+    .stats-top { display: flex; justify-content: space-between; align-items: end; gap: 24px; }
+    .stats-kicker { color: var(--gold); font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    .stats-muted { color: var(--muted); }
+    .stats-tabs { display: flex; gap: 7px; flex-wrap: wrap; }
+    .stats-tab {
+      padding: 7px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      text-decoration: none;
+    }
+    .stats-tab.active { border-color: var(--gold); background: var(--gold); color: #241d12; font-weight: 800; }
+    .stats-panel { margin-top: 18px; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: #1d1c19; }
+    .stats-panel h3 { margin: 0 0 16px; font-size: 20px; }
+    .stats-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .stats-total-panel .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stats-card { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: #171613; }
+    .stats-value { color: var(--gold); font-size: clamp(28px, 4vw, 42px); font-weight: 850; line-height: 1; }
+    .stats-label { margin-top: 8px; color: var(--muted); overflow-wrap: anywhere; }
+    .stats-windows { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+    .stats-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+    .stats-chart-head h3 { margin: 0; }
+    .stats-chart { height: 220px; display: flex; align-items: end; gap: 8px; padding-top: 18px; overflow-x: auto; }
+    .stats-day { height: 180px; min-width: 38px; flex: 1; display: flex; flex-direction: column; justify-content: end; align-items: center; gap: 5px; }
+    .stats-bar { width: min(30px, 80%); background: linear-gradient(#f2d38f, #a8792e); border-radius: 7px 7px 3px 3px; }
+    .stats-bar-value { color: var(--muted); font-size: 12px; }
+    .stats-day time { margin-top: 9px; color: var(--muted); font-size: 11px; transform: rotate(-42deg); }
+    .stats-note { display: grid; grid-template-columns: auto 1fr; gap: 13px; align-items: start; }
+    .stats-shield { color: var(--gold); font-size: 28px; }
+    @media (max-width: 850px) {
+      .stats-top { align-items: start; flex-direction: column; }
+      .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .stats-windows { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 520px) {
+      .stats-cards { grid-template-columns: minmax(0, 1fr); }
+      .stats-card { padding: 14px; }
+    }
+"""
 
 
 def render_dashboard(snapshot: DashboardSnapshot) -> str:
     peak = max((point.requests for point in snapshot.daily), default=1) or 1
+    date_format = "%d.%m" if snapshot.period == "month" else "%m.%y"
     bars = "".join(
-        f"""<div class="day" title="{point.day:%d.%m}: {point.requests} запросов">
-          <div class="bar-value">{point.requests}</div>
-          <div class="bar" style="height:{max(4, round(point.requests / peak * 150))}px"></div>
-          <time datetime="{point.day.isoformat()}">{point.day:%d.%m}</time>
+        f"""<div class="stats-day" title="{point.day:{date_format}}: {point.requests} запросов">
+          <div class="stats-bar-value">{point.requests}</div>
+          <div class="stats-bar" style="height:{max(4, round(point.requests / peak * 150))}px"></div>
+          <time datetime="{point.day.isoformat()}">{point.day:{date_format}}</time>
         </div>"""
         for point in snapshot.daily
     )
     tabs = "".join(
-        f'<a class="tab{" active" if key == snapshot.source else ""}" href="/dashboard?source={key}">{label}</a>'
+        f'<a class="stats-tab{" active" if key == snapshot.source else ""}" rel="nofollow" href="/?source={key}&amp;period={snapshot.period}#statistics">{label}</a>'
         for key, label in _SOURCE_LABELS.items()
     )
+    periods = "".join(
+        f'<a class="stats-tab{" active" if key == snapshot.period else ""}" rel="nofollow" href="/?source={snapshot.source}&amp;period={key}#statistics">{label}</a>'
+        for key, label in _PERIOD_LABELS.items()
+    )
     generated = snapshot.generated_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Moscow"))
-    return f"""<!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<meta name="robots" content="noindex,nofollow"><title>Статистика — Шахматы с Юрой</title>
-<style>
-:root{{--bg:#121412;--panel:#1d211d;--panel2:#252b25;--text:#f4f2e8;--muted:#aeb8aa;--green:#9bd36a;--gold:#e8bd66;--line:#343c34}}
-*{{box-sizing:border-box}} body{{margin:0;overflow-x:hidden;background:radial-gradient(circle at 15% 0,#27351f 0,transparent 34rem),var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,sans-serif}}
-main{{width:100%;max-width:1188px;margin:auto;padding:44px 14px 64px}} header{{display:flex;justify-content:space-between;align-items:end;gap:24px;margin-bottom:26px}}
-h1{{margin:0;font-size:clamp(30px,5vw,52px);line-height:1.05}} h2{{font-size:19px;margin:0 0 16px}} .eyebrow{{color:var(--green);font-weight:800;letter-spacing:.12em;text-transform:uppercase}}
-.muted{{color:var(--muted)}} .tabs{{display:flex;gap:7px;flex-wrap:wrap}} .tab{{color:var(--muted);text-decoration:none;border:1px solid var(--line);padding:8px 13px;border-radius:999px}}
-.tab.active{{color:#14200d;background:var(--green);border-color:var(--green);font-weight:800}} .panel{{background:linear-gradient(145deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:22px;padding:22px;margin-bottom:18px}}
-.cards{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}} .card{{min-width:0;background:#171a17;border:1px solid var(--line);border-radius:17px;padding:18px}} .value{{font-size:clamp(28px,4vw,43px);font-weight:850;line-height:1;color:var(--gold)}}
-.label{{margin-top:8px;color:var(--muted);overflow-wrap:anywhere}} .windows{{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px}} .chart{{height:205px;display:flex;align-items:end;gap:8px;padding-top:18px;overflow-x:auto}}
-.day{{height:180px;min-width:38px;flex:1;display:flex;flex-direction:column;justify-content:end;align-items:center;gap:5px}} .bar{{width:min(30px,80%);background:linear-gradient(#b7ed86,#679b43);border-radius:7px 7px 3px 3px;box-shadow:0 0 24px #75a94b33}}
-.bar-value{{font-size:12px;color:var(--muted)}} time{{font-size:11px;color:var(--muted);transform:rotate(-42deg);margin-top:9px}} .note{{display:grid;grid-template-columns:auto 1fr;gap:13px;align-items:start}}
-.shield{{font-size:28px}} a{{color:var(--green)}} @media(max-width:850px){{header{{align-items:start;flex-direction:column}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr))}}.windows{{grid-template-columns:minmax(0,1fr)}}}} @media(max-width:650px){{main{{padding-top:28px}}.cards{{grid-template-columns:minmax(0,1fr)}}.card{{padding:14px}}}}
-</style></head><body><main>
-<header><div><div class="eyebrow">Шахматы с Юрой</div><h1>Статистика навыка</h1><div class="muted">Обновлено {generated:%d.%m.%Y %H:%M} МСК</div></div><nav class="tabs" aria-label="Тип трафика">{tabs}</nav></header>
-<section class="panel"><h2>Последние 24 часа · {_SOURCE_LABELS[snapshot.source].lower()}</h2>{_cards(snapshot.last_24_hours)}</section>
-<div class="windows"><section class="panel"><h2>Запросы по дням · 14 дней</h2><div class="chart" role="img" aria-label="Дневное число запросов">{bars}</div></section>
-<section class="panel"><h2>За всё время</h2>{_cards(snapshot.all_time)}</section></div>
-<section class="panel note"><div class="shield">◈</div><div><strong>Что значит «пользователь»?</strong><br><span class="muted">Это стабильный необратимый HMAC-ключ. Исходный Alice ID не сохраняется. Запросы и сессии в этой статистике также представлены только хешами. Автоматические проверки помечаются как test до хеширования и не входят во вкладку «Реальные».</span></div></section>
-</main></body></html>"""
+    return f"""<section id="statistics" class="stats">
+      <div class="stats-top"><div><div class="stats-kicker">Использование навыка</div><h2>Статистика</h2><div class="stats-muted">Обновлено {generated:%d.%m.%Y %H:%M} МСК</div></div><nav class="stats-tabs" aria-label="Тип трафика">{tabs}</nav></div>
+      <div class="stats-panel"><h3>Последние 24 часа · {_SOURCE_LABELS[snapshot.source].lower()}</h3>{_cards(snapshot.last_24_hours)}</div>
+      <div class="stats-windows"><div class="stats-panel"><div class="stats-chart-head"><h3>{_CHART_TITLES[snapshot.period]}</h3><nav class="stats-tabs" aria-label="Период графика">{periods}</nav></div><div class="stats-chart" role="img" aria-label="Число запросов за выбранный период">{bars}</div></div>
+      <div class="stats-panel stats-total-panel"><h3>За всё время</h3>{_cards(snapshot.all_time)}</div></div>
+      <div class="stats-panel stats-note"><div class="stats-shield">◈</div><div><strong>Что значит «пользователь»?</strong><br><span class="stats-muted">Это стабильный необратимый HMAC-ключ. Исходный Alice ID не сохраняется. Запросы и сессии в этой статистике также представлены только хешами. Автоматические проверки помечаются как test до хеширования и не входят во вкладку «Реальные».</span></div></div>
+    </section>"""
 
 
 def _cards(totals: UsageTotals) -> str:
@@ -63,9 +100,9 @@ def _cards(totals: UsageTotals) -> str:
         (totals.puzzle_attempts, "шахматных задач"),
     )
     return (
-        '<div class="cards">'
+        '<div class="stats-cards">'
         + "".join(
-            f'<div class="card"><div class="value">{value:,}</div><div class="label">{label}</div></div>'
+            f'<div class="stats-card"><div class="stats-value">{value:,}</div><div class="stats-label">{label}</div></div>'
             for value, label in values
         )
         + "</div>"

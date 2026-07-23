@@ -77,8 +77,8 @@ Health endpoints:
 
 - `GET /health/live` — process liveness, independent of the database
 - `GET /health/ready` — returns 503 until the database connection and schema check pass
-- `GET /` — public product page used by players, moderators and brand verification
-- `GET /dashboard` — public aggregate usage dashboard; defaults to real traffic and can show test/all separately
+- `GET /` — canonical public product page with aggregate usage statistics before the privacy section
+- `GET /robots.txt` and `GET /sitemap.xml` — crawler rules and the canonical search index entry
 
 ### Usage analytics
 
@@ -90,7 +90,7 @@ and a `real`/`test` label. Replay payloads and normalized command text retain
 their existing short privacy windows and are not copied into analytics.
 
 Production smoke identities use reserved `deployed-*` prefixes and are marked as
-test traffic before hashing. `/dashboard?source=test` shows them separately;
+test traffic before hashing. `/?source=test#statistics` shows them separately;
 `source=all` combines both populations.
 
 ### Screen board lifecycle

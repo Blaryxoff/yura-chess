@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
@@ -64,3 +64,33 @@ def test_dashboard_separates_real_test_and_all_traffic(session: Session) -> None
     assert (real.games, real.engaged_games, real.player_moves, real.finished_games) == (1, 1, 1, 1)
     assert (test.requests, test.users, test.sessions, test.games) == (1, 1, 1, 1)
     assert (all_traffic.requests, all_traffic.users, all_traffic.sessions, all_traffic.games) == (3, 2, 2, 2)
+
+
+def test_dashboard_chart_supports_month_year_and_all_time_periods(session: Session) -> None:
+    now = datetime(2026, 7, 23, 12, 0, 0)
+    usage = UsageRepository(session)
+    usage.record_request(REAL_OWNER, "skill", "old-session", "1", "real", datetime(2025, 5, 2, 12, 0, 0))
+    usage.record_request(REAL_OWNER, "skill", "current-session", "1", "real", now)
+    session.commit()
+
+    month = usage.dashboard("real", now, period="month").daily
+    year = usage.dashboard("real", now, period="year").daily
+    all_time = usage.dashboard("real", now, period="all").daily
+
+    assert len(month) == 30
+    assert (month[0].day, month[-1].day, sum(point.requests for point in month)) == (
+        date(2026, 6, 24),
+        date(2026, 7, 23),
+        1,
+    )
+    assert len(year) == 12
+    assert (year[0].day, year[-1].day, sum(point.requests for point in year)) == (
+        date(2025, 8, 1),
+        date(2026, 7, 1),
+        1,
+    )
+    assert (all_time[0].day, all_time[-1].day, sum(point.requests for point in all_time)) == (
+        date(2025, 5, 1),
+        date(2026, 7, 1),
+        2,
+    )

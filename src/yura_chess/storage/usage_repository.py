@@ -15,6 +15,7 @@ from yura_chess.storage.models import UsageRequestRow, UsageUserRow
 
 TrafficSource = Literal["real", "test"]
 DashboardSource = Literal["real", "test", "all"]
+ChartPeriod = Literal["month", "year", "all"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +43,7 @@ class DailyUsage:
 @dataclass(frozen=True, slots=True)
 class DashboardSnapshot:
     source: DashboardSource
+    period: ChartPeriod
     generated_at: datetime
     last_24_hours: UsageTotals
     last_7_days: UsageTotals
@@ -94,15 +96,26 @@ class UsageRepository:
         )
         self._session.execute(request.on_duplicate_key_update(request_key=request.inserted.request_key))
 
-    def dashboard(self, source: DashboardSource, now: datetime | None = None) -> DashboardSnapshot:
+    def dashboard(
+        self,
+        source: DashboardSource,
+        now: datetime | None = None,
+        period: ChartPeriod = "month",
+    ) -> DashboardSnapshot:
         generated_at = now or datetime.utcnow()
+        chart = (
+            self._daily(source, generated_at.date() - timedelta(days=29), 30)
+            if period == "month"
+            else self._monthly(source, generated_at.date(), limited=period == "year")
+        )
         return DashboardSnapshot(
             source=source,
+            period=period,
             generated_at=generated_at,
             last_24_hours=self._totals(source, generated_at - timedelta(days=1)),
             last_7_days=self._totals(source, generated_at - timedelta(days=7)),
             all_time=self._totals(source, None),
-            daily=self._daily(source, generated_at.date() - timedelta(days=13)),
+            daily=chart,
         )
 
     def _totals(self, source: DashboardSource, cutoff: datetime | None) -> UsageTotals:
@@ -144,7 +157,7 @@ class UsageRepository:
         row = self._session.execute(statement, parameters).mappings().one()
         return UsageTotals(**{field: int(row[field]) for field in UsageTotals.__dataclass_fields__})
 
-    def _daily(self, source: DashboardSource, start: date) -> tuple[DailyUsage, ...]:
+    def _daily(self, source: DashboardSource, start: date, day_count: int) -> tuple[DailyUsage, ...]:
         source_filter = "" if source == "all" else " AND u.traffic_source = :source"
         parameters: dict[str, object] = {"start": start}
         if source != "all":
@@ -157,7 +170,7 @@ class UsageRepository:
                 "games": 0,
                 "player_moves": 0,
             }
-            for offset in range(14)
+            for offset in range(day_count)
         }
         requests = self._session.execute(
             text(
@@ -206,6 +219,42 @@ class UsageRepository:
                 days[row["day"]]["player_moves"] = int(row["player_moves"])
         return tuple(DailyUsage(day=day, **values) for day, values in days.items())
 
+    def _monthly(self, source: DashboardSource, end: date, *, limited: bool) -> tuple[DailyUsage, ...]:
+        source_filter = "" if source == "all" else " AND u.traffic_source = :source"
+        end_month = date(end.year, end.month, 1)
+        start = _add_months(end_month, -11) if limited else None
+        time_filter = "" if start is None else " AND r.created_at >= :start"
+        parameters: dict[str, object] = {}
+        if source != "all":
+            parameters["source"] = source
+        if start is not None:
+            parameters["start"] = start
+        rows = self._session.execute(
+            text(
+                f"""
+                SELECT YEAR(r.created_at) year, MONTH(r.created_at) month, COUNT(*) requests
+                FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
+                WHERE 1=1{source_filter}{time_filter}
+                GROUP BY YEAR(r.created_at), MONTH(r.created_at)
+                ORDER BY YEAR(r.created_at), MONTH(r.created_at)
+                """
+            ),
+            parameters,
+        ).mappings()
+        counts = {date(int(row["year"]), int(row["month"]), 1): int(row["requests"]) for row in rows}
+        first_month = start or min(counts, default=end_month)
+        months: list[DailyUsage] = []
+        month = first_month
+        while month <= end_month:
+            months.append(DailyUsage(day=month, requests=counts.get(month, 0)))
+            month = _add_months(month, 1)
+        return tuple(months)
+
 
 def _key(*parts: str) -> str:
     return sha256("\0".join(parts).encode()).hexdigest()
+
+
+def _add_months(value: date, count: int) -> date:
+    month_index = value.year * 12 + value.month - 1 + count
+    return date(month_index // 12, month_index % 12 + 1, 1)

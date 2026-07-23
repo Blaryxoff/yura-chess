@@ -134,8 +134,8 @@ docker compose --project-name yura-chess-production start app
 # Is the public endpoint alive end to end?
 curl -i -X POST https://chess.waxim.ru/alice/webhook -H 'Content-Type: application/json' -d '{}'
 
-# Aggregate usage dashboard (real traffic by default)
-curl -I https://chess.waxim.ru/dashboard
+# Landing page with aggregate usage statistics (real traffic by default)
+curl -I https://chess.waxim.ru/
 
 # Application readiness from the host (never exposed publicly)
 curl -s http://127.0.0.1:8082/health/ready | jq

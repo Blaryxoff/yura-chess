@@ -18,9 +18,13 @@ from yura_chess.presentation.dashboard import render_dashboard
 from yura_chess.presentation.website import (
     FAVICON_PATH,
     FAVICON_SVG,
-    LANDING_PAGE_HTML,
+    ROBOTS_PATH,
+    ROBOTS_TEXT,
+    SITEMAP_PATH,
+    SITEMAP_XML,
     WEBMASTER_VERIFICATION_HTML,
     WEBMASTER_VERIFICATION_PATH,
+    render_landing_page,
 )
 from yura_chess.settings import Settings, get_settings
 from yura_chess.storage.analysis_repository import AnalysisRepository
@@ -114,26 +118,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings or get_settings()
 
-    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-    async def landing_page() -> HTMLResponse:
-        return HTMLResponse(LANDING_PAGE_HTML)
+    @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
+    async def landing_page(
+        source: Literal["real", "test", "all"] = "real",
+        period: Literal["month", "year", "all"] = "month",
+    ) -> HTMLResponse:
+        def load() -> str:
+            with session_scope(app.state.session_factory) as session:
+                snapshot = UsageRepository(session).dashboard(source, period=period)
+                return render_landing_page(render_dashboard(snapshot))
+
+        return HTMLResponse(
+            await run_in_threadpool(load),
+            headers={"Cache-Control": "public, max-age=60, stale-while-revalidate=300"},
+        )
 
     @app.get(WEBMASTER_VERIFICATION_PATH, response_class=HTMLResponse, include_in_schema=False)
     async def webmaster_verification() -> HTMLResponse:
         return HTMLResponse(WEBMASTER_VERIFICATION_HTML)
 
+    @app.api_route(ROBOTS_PATH, methods=["GET", "HEAD"], include_in_schema=False)
+    async def robots() -> Response:
+        return Response(ROBOTS_TEXT, media_type="text/plain", headers={"Cache-Control": "public, max-age=86400"})
+
+    @app.api_route(SITEMAP_PATH, methods=["GET", "HEAD"], include_in_schema=False)
+    async def sitemap() -> Response:
+        return Response(SITEMAP_XML, media_type="application/xml", headers={"Cache-Control": "public, max-age=3600"})
+
     @app.api_route(FAVICON_PATH, methods=["GET", "HEAD"], include_in_schema=False)
     @app.api_route("/favicon.ico", methods=["GET", "HEAD"], include_in_schema=False)
     async def favicon() -> Response:
         return Response(FAVICON_SVG, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
-
-    @app.api_route("/dashboard", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
-    async def dashboard(source: Literal["real", "test", "all"] = "real") -> HTMLResponse:
-        def load() -> str:
-            with session_scope(app.state.session_factory) as session:
-                return render_dashboard(UsageRepository(session).dashboard(source))
-
-        return HTMLResponse(await run_in_threadpool(load), headers={"Cache-Control": "no-store"})
 
     @app.get("/health/live", response_model=HealthResponse, tags=["health"])
     async def health_live() -> HealthResponse:

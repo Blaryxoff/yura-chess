@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from yura_chess.presentation.dashboard import DASHBOARD_CSS
+
 WEBMASTER_VERIFICATION_PATH = "/yandex_67cb474818f8d2b2.html"
+ROBOTS_PATH = "/robots.txt"
+SITEMAP_PATH = "/sitemap.xml"
+PUBLIC_SITE_URL = "https://chess.waxim.ru/"
 FAVICON_PATH = "/favicon.svg"
 FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="15" fill="#171a17"/>
@@ -15,15 +20,108 @@ WEBMASTER_VERIFICATION_HTML = """<html>
     </head>
     <body>Verification: 67cb474818f8d2b2</body>
 </html>"""
+ROBOTS_TEXT = f"""User-agent: *
+Allow: /
+Disallow: /alice/
+Disallow: /health/
+Clean-param: source&period /
+Sitemap: {PUBLIC_SITE_URL}sitemap.xml
+"""
+SITEMAP_XML = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>{PUBLIC_SITE_URL}</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+"""
 
-LANDING_PAGE_HTML = """<!doctype html>
+LANDING_PAGE_HTML = (
+    """<!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Шахматы с Юрой — полноценная голосовая игра в шахматы с Алисой против Stockfish.">
+  <meta name="description"
+        content="Голосовые шахматы с Алисой против Stockfish: уровни сложности, объяснения ходов и сохранение партии.">
+  <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
+  <meta name="theme-color" content="#171613">
+  <link rel="canonical" href="https://chess.waxim.ru/">
+  <link rel="alternate" hreflang="ru-RU" href="https://chess.waxim.ru/">
+  <link rel="alternate" hreflang="x-default" href="https://chess.waxim.ru/">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <title>Шахматы с Юрой — голосовые шахматы с Алисой</title>
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="og:site_name" content="Шахматы с Юрой">
+  <meta property="og:title" content="Шахматы с Юрой — голосовые шахматы с Алисой">
+  <meta property="og:description"
+        content="Полноценная партия голосом против Stockfish с уровнями сложности и объяснениями ходов.">
+  <meta property="og:url" content="https://chess.waxim.ru/">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Шахматы с Юрой — голосовые шахматы с Алисой">
+  <meta name="twitter:description" content="Играйте в шахматы голосом против Stockfish прямо в Алисе.">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://chess.waxim.ru/#website",
+        "url": "https://chess.waxim.ru/",
+        "name": "Шахматы с Юрой",
+        "description": "Голосовые шахматы с Алисой против Stockfish",
+        "inLanguage": "ru-RU"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://chess.waxim.ru/#skill",
+        "url": "https://chess.waxim.ru/",
+        "name": "Шахматы с Юрой",
+        "description": "Голосовой навык Алисы для полноценных шахматных партий против Stockfish.",
+        "applicationCategory": "GameApplication",
+        "operatingSystem": "Яндекс Алиса",
+        "inLanguage": "ru-RU",
+        "isAccessibleForFree": true,
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "RUB"
+        }
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Как запустить голосовые шахматы с Алисой?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Скажите: Алиса, запусти навык Шахматы с Юрой."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Нужен ли экран для игры?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Нет. Вся игра доступна голосом; экран только показывает текущую позицию."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Сохраняется ли незаконченная партия?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Да. Навык сохраняет партию и предлагает продолжить её при следующем запуске."
+            }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
   <style>
     :root {
       color-scheme: dark;
@@ -69,6 +167,10 @@ LANDING_PAGE_HTML = """<!doctype html>
     .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
     .feature { padding: 22px; border-radius: 18px; background: #1d1c19; }
     .feature strong { display: block; margin-bottom: 7px; color: var(--gold); font-size: 19px; }
+    .faq { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 0; }
+    .faq div { padding: 22px; border-radius: 18px; background: #1d1c19; }
+    .faq dt { color: var(--gold); font-weight: 700; }
+    .faq dd { margin: 8px 0 0; color: var(--muted); }
     ul { margin: 0; padding-left: 22px; }
     li + li { margin-top: 8px; }
     code { color: var(--gold); font: inherit; }
@@ -78,7 +180,11 @@ LANDING_PAGE_HTML = """<!doctype html>
       header { padding-top: 46px; }
       section { padding: 24px; }
       .grid { grid-template-columns: 1fr; }
+      .faq { grid-template-columns: 1fr; }
     }
+"""
+    + DASHBOARD_CSS
+    + """
   </style>
 </head>
 <body>
@@ -137,6 +243,26 @@ LANDING_PAGE_HTML = """<!doctype html>
     </section>
 
     <section>
+      <h2>Как играть в голосовые шахматы с Алисой</h2>
+      <dl class="faq">
+        <div>
+          <dt>Как запустить навык?</dt>
+          <dd>Скажите: «Алиса, запусти навык Шахматы с Юрой».</dd>
+        </div>
+        <div>
+          <dt>Нужен ли экран?</dt>
+          <dd>Нет. Вся партия доступна голосом, а экран только дополняет игру изображением доски.</dd>
+        </div>
+        <div>
+          <dt>Сохраняется ли партия?</dt>
+          <dd>Да. Незаконченная партия сохраняется, и при следующем запуске её можно продолжить.</dd>
+        </div>
+      </dl>
+    </section>
+
+    {{ dashboard }}
+
+    <section>
       <h2>Конфиденциальность</h2>
       <p>
         Навык хранит состояние партий и технические данные, необходимые для продолжения игры и защиты от повторных
@@ -151,3 +277,8 @@ LANDING_PAGE_HTML = """<!doctype html>
   </main>
 </body>
 </html>"""
+)
+
+
+def render_landing_page(dashboard: str) -> str:
+    return LANDING_PAGE_HTML.replace("{{ dashboard }}", dashboard)

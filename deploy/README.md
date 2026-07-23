@@ -122,4 +122,4 @@ systemctl enable --now yura-chess-backup.timer yura-chess-restore-smoke.timer
 4. External check through nginx: `curl -sS https://chess.waxim.ru/alice/webhook -X POST -d '{}'`
    returns 422 (the endpoint is reachable and validating), not 502.
 5. Voice-only and screen-device QA in the Alice console before submitting for moderation.
-6. Open `https://chess.waxim.ru/dashboard` and confirm real/test filters and aggregate counts render without identifiers.
+6. Open `https://chess.waxim.ru/#statistics` and confirm real/test and period filters render aggregate counts without identifiers.

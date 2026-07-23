@@ -1,3 +1,4 @@
+import json
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -10,7 +11,15 @@ from fastapi.testclient import TestClient
 from settings_fixtures import TEST_IDENTITY_SALT
 
 from yura_chess.main import _purge_retained_data, create_app
-from yura_chess.presentation.website import FAVICON_SVG, WEBMASTER_VERIFICATION_HTML, WEBMASTER_VERIFICATION_PATH
+from yura_chess.presentation.website import (
+    FAVICON_SVG,
+    ROBOTS_PATH,
+    ROBOTS_TEXT,
+    SITEMAP_PATH,
+    SITEMAP_XML,
+    WEBMASTER_VERIFICATION_HTML,
+    WEBMASTER_VERIFICATION_PATH,
+)
 from yura_chess.settings import Settings
 from yura_chess.storage.usage_repository import DailyUsage, DashboardSnapshot, UsageTotals
 
@@ -28,16 +37,42 @@ def test_liveness_does_not_depend_on_the_database(offline_settings: Settings) ->
     }
 
 
-def test_public_landing_page_describes_the_skill_for_everyone(offline_settings: Settings) -> None:
+def test_public_landing_page_describes_the_skill_for_everyone(
+    monkeypatch: pytest.MonkeyPatch,
+    offline_settings: Settings,
+) -> None:
+    totals = UsageTotals(2, 1, 1, 1, 1, 1, 0, 0)
+    snapshot = DashboardSnapshot(
+        "real",
+        "month",
+        datetime(2026, 7, 23, 12, 0, 0),
+        totals,
+        totals,
+        totals,
+        (DailyUsage(date(2026, 7, 23), requests=2),),
+    )
+    monkeypatch.setattr(
+        "yura_chess.main.UsageRepository.dashboard",
+        lambda self, source, *, period: snapshot,
+    )
     with TestClient(create_app(offline_settings)) as client:
         response = client.get("/")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
+    assert response.headers["cache-control"] == "public, max-age=60, stale-while-revalidate=300"
     assert "Шахматы с Юрой" in response.text
     assert "Stockfish" in response.text
     assert "Какой уровень сложности?" in response.text
+    assert response.text.index('id="statistics"') < response.text.index("Конфиденциальность")
     assert '<link rel="icon" href="/favicon.svg"' in response.text
+    assert '<link rel="canonical" href="https://chess.waxim.ru/">' in response.text
+    assert '<meta property="og:type" content="website">' in response.text
+    assert '<script type="application/ld+json">' in response.text
+    assert "Как играть в голосовые шахматы с Алисой" in response.text
+    structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
+    graph = json.loads(structured_data)["@graph"]
+    assert {item["@type"] for item in graph} == {"WebSite", "SoftwareApplication", "FAQPage"}
     assert "незряч" not in response.text.lower()
 
 
@@ -47,6 +82,20 @@ def test_yandex_webmaster_verification_file_is_served_verbatim(offline_settings:
 
     assert response.status_code == 200
     assert response.text == WEBMASTER_VERIFICATION_HTML
+
+
+def test_search_engine_discovery_files_are_public_and_cacheable(offline_settings: Settings) -> None:
+    with TestClient(create_app(offline_settings)) as client:
+        robots = client.get(ROBOTS_PATH)
+        sitemap = client.get(SITEMAP_PATH)
+
+    assert robots.status_code == sitemap.status_code == 200
+    assert robots.text == ROBOTS_TEXT
+    assert "text/plain" in robots.headers["content-type"]
+    assert "Clean-param: source&period /" in robots.text
+    assert sitemap.text == SITEMAP_XML
+    assert "application/xml" in sitemap.headers["content-type"]
+    assert "https://chess.waxim.ru/" in sitemap.text
 
 
 def test_favicon_is_served_for_modern_and_legacy_browser_paths(offline_settings: Settings) -> None:
@@ -61,14 +110,15 @@ def test_favicon_is_served_for_modern_and_legacy_browser_paths(offline_settings:
     assert svg.text == ico.text == FAVICON_SVG
 
 
-def test_public_dashboard_defaults_to_real_traffic_and_accepts_test_filter(
+def test_public_landing_page_defaults_to_real_traffic_and_accepts_dashboard_filters(
     monkeypatch: pytest.MonkeyPatch,
     offline_settings: Settings,
 ) -> None:
-    sources: list[str] = []
+    queries: list[tuple[str, str]] = []
     totals = UsageTotals(2, 1, 1, 1, 1, 1, 0, 0)
     snapshot = DashboardSnapshot(
         "test",
+        "month",
         datetime(2026, 7, 23, 12, 0, 0),
         totals,
         totals,
@@ -84,22 +134,27 @@ def test_public_dashboard_defaults_to_real_traffic_and_accepts_test_filter(
         def __init__(self, session: object) -> None:
             return None
 
-        def dashboard(self, source: str) -> DashboardSnapshot:
-            sources.append(source)
+        def dashboard(self, source: str, *, period: str) -> DashboardSnapshot:
+            queries.append((source, period))
             return snapshot
 
     monkeypatch.setattr("yura_chess.main.session_scope", fake_session_scope)
     monkeypatch.setattr("yura_chess.main.UsageRepository", Repository)
     with TestClient(create_app(offline_settings)) as client:
-        default = client.get("/dashboard")
-        test = client.get("/dashboard?source=test")
-        head = client.head("/dashboard")
-        invalid = client.get("/dashboard?source=private")
+        default = client.get("/")
+        test = client.get("/?source=test&period=year")
+        head = client.head("/")
+        invalid = client.get("/?source=private")
+        invalid_period = client.get("/?period=week")
+        removed_dashboard = client.get("/dashboard")
 
     assert default.status_code == test.status_code == head.status_code == 200
-    assert default.headers["cache-control"] == "no-store"
-    assert sources == ["real", "test", "real"]
+    assert default.headers["cache-control"] == "public, max-age=60, stale-while-revalidate=300"
+    assert queries == [("real", "month"), ("test", "year"), ("real", "month")]
+    assert '<link rel="canonical" href="https://chess.waxim.ru/">' in test.text
     assert invalid.status_code == 422
+    assert invalid_period.status_code == 422
+    assert removed_dashboard.status_code == 404
 
 
 def test_readiness_reports_an_unreachable_database(offline_settings: Settings) -> None:
