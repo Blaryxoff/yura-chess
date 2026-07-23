@@ -84,7 +84,7 @@ async def test_deployed_service_plays_a_move_with_stockfish(deployed: httpx.Asyn
 
     assert moved["response"]["text"]
     assert moved["user_state_update"]["game_id"] == opened["user_state_update"]["game_id"]
-    assert "e2e4" in moved["response"]["text"] or "продолж" in moved["response"]["text"].lower()
+    assert "e2 e4" in moved["response"]["text"] or "продолж" in moved["response"]["text"].lower()
 
 
 @pytest.mark.parametrize("command", ["помощь", "что ты умеешь"])
