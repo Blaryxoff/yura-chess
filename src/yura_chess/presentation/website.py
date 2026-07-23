@@ -175,6 +175,19 @@ LANDING_PAGE_HTML = (
     li + li { margin-top: 8px; }
     code { color: var(--gold); font: inherit; }
     a { color: var(--gold); }
+    .support { text-align: center; }
+    .support p { max-width: 760px; margin: 0 auto 20px; color: var(--muted); }
+    .support-action {
+      display: inline-block;
+      padding: 14px 24px;
+      border-radius: 999px;
+      background: var(--gold);
+      color: #171613;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .support-action:hover { background: #f3ca78; }
+    .support .support-note { margin-top: 16px; margin-bottom: 0; font-size: 14px; }
     footer { padding: 24px 0 52px; color: var(--muted); text-align: center; }
     @media (max-width: 760px) {
       header { padding-top: 46px; }
@@ -261,6 +274,21 @@ LANDING_PAGE_HTML = (
     </section>
 
     {{ dashboard }}
+
+    <section id="support" class="support">
+      <h2>Поддержать проект</h2>
+      <p>
+        «Шахматы с Юрой» остаются бесплатными для всех. Добровольная поддержка помогает оплачивать сервер
+        и развивать навык.
+      </p>
+      <a
+        class="support-action"
+        href="https://pay.cloudtips.ru/p/f604e20f"
+        target="_blank"
+        rel="noopener noreferrer nofollow"
+      >Поддержать «Шахматы с Юрой»</a>
+      <p class="support-note">Поддержка не предоставляет платных функций или преимуществ в игре.</p>
+    </section>
 
     <section>
       <h2>Конфиденциальность</h2>

@@ -65,6 +65,11 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert "Stockfish" in response.text
     assert "Какой уровень сложности?" in response.text
     assert response.text.index('id="statistics"') < response.text.index("Конфиденциальность")
+    assert response.text.index('id="statistics"') < response.text.index('id="support"')
+    assert response.text.index('id="support"') < response.text.index("Конфиденциальность")
+    assert 'href="https://pay.cloudtips.ru/p/f604e20f"' in response.text
+    assert 'rel="noopener noreferrer nofollow"' in response.text
+    assert "Поддержка не предоставляет платных функций" in response.text
     assert '<link rel="icon" href="/favicon.svg"' in response.text
     assert '<link rel="canonical" href="https://chess.waxim.ru/">' in response.text
     assert '<meta property="og:type" content="website">' in response.text
