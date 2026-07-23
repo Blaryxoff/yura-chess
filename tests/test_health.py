@@ -47,8 +47,6 @@ def test_public_landing_page_describes_the_skill_for_everyone(
         "month",
         datetime(2026, 7, 23, 12, 0, 0),
         totals,
-        totals,
-        totals,
         (DailyUsage(date(2026, 7, 23), requests=2),),
     )
     monkeypatch.setattr(
@@ -116,18 +114,16 @@ def test_favicon_is_served_for_modern_and_legacy_browser_paths(offline_settings:
     assert svg.text == ico.text == FAVICON_SVG
 
 
-def test_public_landing_page_defaults_to_real_traffic_and_accepts_dashboard_filters(
+def test_public_landing_page_uses_real_traffic_and_accepts_period_filters(
     monkeypatch: pytest.MonkeyPatch,
     offline_settings: Settings,
 ) -> None:
     queries: list[tuple[str, str]] = []
     totals = UsageTotals(2, 1, 1, 1, 1, 1, 0, 0)
     snapshot = DashboardSnapshot(
-        "test",
+        "real",
         "month",
         datetime(2026, 7, 23, 12, 0, 0),
-        totals,
-        totals,
         totals,
         (DailyUsage(date(2026, 7, 23), requests=2),),
     )
@@ -156,9 +152,9 @@ def test_public_landing_page_defaults_to_real_traffic_and_accepts_dashboard_filt
 
     assert default.status_code == test.status_code == head.status_code == 200
     assert default.headers["cache-control"] == "public, max-age=60, stale-while-revalidate=300"
-    assert queries == [("real", "month"), ("test", "year"), ("real", "month")]
+    assert queries == [("real", "month"), ("real", "year"), ("real", "month"), ("real", "month")]
     assert '<link rel="canonical" href="https://chess.waxim.ru/">' in test.text
-    assert invalid.status_code == 422
+    assert invalid.status_code == 200
     assert invalid_period.status_code == 422
     assert removed_dashboard.status_code == 404
 

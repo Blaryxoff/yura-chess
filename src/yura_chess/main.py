@@ -120,12 +120,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
     async def landing_page(
-        source: Literal["real", "test", "all"] = "real",
         period: Literal["month", "year", "all"] = "month",
     ) -> HTMLResponse:
         def load() -> str:
             with session_scope(app.state.session_factory) as session:
-                snapshot = UsageRepository(session).dashboard(source, period=period)
+                snapshot = UsageRepository(session).dashboard("real", period=period)
                 return render_landing_page(render_dashboard(snapshot))
 
         return HTMLResponse(

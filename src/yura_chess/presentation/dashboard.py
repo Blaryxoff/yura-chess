@@ -8,8 +8,12 @@ from zoneinfo import ZoneInfo
 
 from yura_chess.storage.usage_repository import DashboardSnapshot, UsageTotals
 
-_SOURCE_LABELS = {"real": "Реальные", "test": "Тесты", "all": "Все"}
 _PERIOD_LABELS = {"month": "Месяц", "year": "Год", "all": "Всё время"}
+_TOTAL_TITLES = {
+    "month": "Последние 30 дней",
+    "year": "Последние 12 месяцев",
+    "all": "За всё время",
+}
 _CHART_TITLES = {
     "month": "Запросы по дням · 30 дней",
     "year": "Запросы по месяцам · 12 месяцев",
@@ -33,13 +37,9 @@ DASHBOARD_CSS = """
     .stats-panel { margin-top: 18px; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: #1d1c19; }
     .stats-panel h3 { margin: 0 0 16px; font-size: 20px; }
     .stats-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-    .stats-total-panel .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .stats-card { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: #171613; }
     .stats-value { color: var(--gold); font-size: clamp(28px, 4vw, 42px); font-weight: 850; line-height: 1; }
     .stats-label { margin-top: 8px; color: var(--muted); overflow-wrap: anywhere; }
-    .stats-windows { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }
-    .stats-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-    .stats-chart-head h3 { margin: 0; }
     .stats-chart { height: 220px; display: flex; align-items: end; gap: 8px; padding-top: 18px; overflow-x: auto; }
     .stats-day { height: 180px; min-width: 38px; flex: 1; display: flex; flex-direction: column; justify-content: end; align-items: center; gap: 5px; }
     .stats-bar { width: min(30px, 80%); background: linear-gradient(#f2d38f, #a8792e); border-radius: 7px 7px 3px 3px; }
@@ -50,7 +50,6 @@ DASHBOARD_CSS = """
     @media (max-width: 850px) {
       .stats-top { align-items: start; flex-direction: column; }
       .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .stats-windows { grid-template-columns: minmax(0, 1fr); }
     }
     @media (max-width: 520px) {
       .stats-cards { grid-template-columns: minmax(0, 1fr); }
@@ -70,21 +69,16 @@ def render_dashboard(snapshot: DashboardSnapshot) -> str:
         </div>"""
         for point in snapshot.daily
     )
-    tabs = "".join(
-        f'<a class="stats-tab{" active" if key == snapshot.source else ""}" rel="nofollow" href="/?source={key}&amp;period={snapshot.period}#statistics">{label}</a>'
-        for key, label in _SOURCE_LABELS.items()
-    )
     periods = "".join(
-        f'<a class="stats-tab{" active" if key == snapshot.period else ""}" rel="nofollow" href="/?source={snapshot.source}&amp;period={key}#statistics">{label}</a>'
+        f'<a class="stats-tab{" active" if key == snapshot.period else ""}" rel="nofollow" href="/?period={key}#statistics">{label}</a>'
         for key, label in _PERIOD_LABELS.items()
     )
     generated = snapshot.generated_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Moscow"))
     return f"""<section id="statistics" class="stats">
-      <div class="stats-top"><div><div class="stats-kicker">Использование навыка</div><h2>Статистика</h2><div class="stats-muted">Обновлено {generated:%d.%m.%Y %H:%M} МСК</div></div><nav class="stats-tabs" aria-label="Тип трафика">{tabs}</nav></div>
-      <div class="stats-panel"><h3>Последние 24 часа · {_SOURCE_LABELS[snapshot.source].lower()}</h3>{_cards(snapshot.last_24_hours)}</div>
-      <div class="stats-windows"><div class="stats-panel"><div class="stats-chart-head"><h3>{_CHART_TITLES[snapshot.period]}</h3><nav class="stats-tabs" aria-label="Период графика">{periods}</nav></div><div class="stats-chart" role="img" aria-label="Число запросов за выбранный период">{bars}</div></div>
-      <div class="stats-panel stats-total-panel"><h3>За всё время</h3>{_cards(snapshot.all_time)}</div></div>
-      <div class="stats-panel stats-note"><div class="stats-shield">◈</div><div><strong>Что значит «пользователь»?</strong><br><span class="stats-muted">Это стабильный необратимый HMAC-ключ. Исходный Alice ID не сохраняется. Запросы и сессии в этой статистике также представлены только хешами. Автоматические проверки помечаются как test до хеширования и не входят во вкладку «Реальные».</span></div></div>
+      <div class="stats-top"><div><div class="stats-kicker">Использование навыка</div><h2>Статистика</h2><div class="stats-muted">Обновлено {generated:%d.%m.%Y %H:%M} МСК</div></div><nav class="stats-tabs" aria-label="Период статистики">{periods}</nav></div>
+      <div class="stats-panel"><h3>{_TOTAL_TITLES[snapshot.period]}</h3>{_cards(snapshot.totals)}</div>
+      <div class="stats-panel"><h3>{_CHART_TITLES[snapshot.period]}</h3><div class="stats-chart" role="img" aria-label="Число запросов за выбранный период">{bars}</div></div>
+      <div class="stats-panel stats-note"><div class="stats-shield">◈</div><div><strong>Что значит «пользователь»?</strong><br><span class="stats-muted">Это стабильный необратимый HMAC-ключ. Исходный Alice ID не сохраняется. Запросы и сессии в этой статистике также представлены только хешами. Автоматические проверки помечаются как test до хеширования и не учитываются в публичной статистике.</span></div></div>
     </section>"""
 
 

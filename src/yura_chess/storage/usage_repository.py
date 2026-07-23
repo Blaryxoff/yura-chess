@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from hashlib import sha256
 from typing import Literal
 
@@ -45,9 +45,7 @@ class DashboardSnapshot:
     source: DashboardSource
     period: ChartPeriod
     generated_at: datetime
-    last_24_hours: UsageTotals
-    last_7_days: UsageTotals
-    all_time: UsageTotals
+    totals: UsageTotals
     daily: tuple[DailyUsage, ...]
 
 
@@ -112,9 +110,7 @@ class UsageRepository:
             source=source,
             period=period,
             generated_at=generated_at,
-            last_24_hours=self._totals(source, generated_at - timedelta(days=1)),
-            last_7_days=self._totals(source, generated_at - timedelta(days=7)),
-            all_time=self._totals(source, None),
+            totals=self._totals(source, _period_cutoff(generated_at, period)),
             daily=chart,
         )
 
@@ -258,3 +254,14 @@ def _key(*parts: str) -> str:
 def _add_months(value: date, count: int) -> date:
     month_index = value.year * 12 + value.month - 1 + count
     return date(month_index // 12, month_index % 12 + 1, 1)
+
+
+def _period_cutoff(generated_at: datetime, period: ChartPeriod) -> datetime | None:
+    if period == "all":
+        return None
+    start = (
+        generated_at.date() - timedelta(days=29)
+        if period == "month"
+        else _add_months(generated_at.date().replace(day=1), -11)
+    )
+    return datetime.combine(start, time.min)

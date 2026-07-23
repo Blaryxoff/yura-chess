@@ -56,9 +56,9 @@ def test_dashboard_separates_real_test_and_all_traffic(session: Session) -> None
     games.create_game(TEST_OWNER, PlayerColor.WHITE)
     session.commit()
 
-    real = usage.dashboard("real", now + timedelta(hours=1)).all_time
-    test = usage.dashboard("test", now + timedelta(hours=1)).all_time
-    all_traffic = usage.dashboard("all", now + timedelta(hours=1)).all_time
+    real = usage.dashboard("real", now + timedelta(hours=1), period="all").totals
+    test = usage.dashboard("test", now + timedelta(hours=1), period="all").totals
+    all_traffic = usage.dashboard("all", now + timedelta(hours=1), period="all").totals
 
     assert (real.requests, real.users, real.sessions) == (2, 1, 1)
     assert (real.games, real.engaged_games, real.player_moves, real.finished_games) == (1, 1, 1, 1)
@@ -73,9 +73,12 @@ def test_dashboard_chart_supports_month_year_and_all_time_periods(session: Sessi
     usage.record_request(REAL_OWNER, "skill", "current-session", "1", "real", now)
     session.commit()
 
-    month = usage.dashboard("real", now, period="month").daily
-    year = usage.dashboard("real", now, period="year").daily
-    all_time = usage.dashboard("real", now, period="all").daily
+    month_snapshot = usage.dashboard("real", now, period="month")
+    year_snapshot = usage.dashboard("real", now, period="year")
+    all_time_snapshot = usage.dashboard("real", now, period="all")
+    month = month_snapshot.daily
+    year = year_snapshot.daily
+    all_time = all_time_snapshot.daily
 
     assert len(month) == 30
     assert (month[0].day, month[-1].day, sum(point.requests for point in month)) == (
@@ -94,3 +97,5 @@ def test_dashboard_chart_supports_month_year_and_all_time_periods(session: Sessi
         date(2026, 7, 1),
         2,
     )
+    assert month_snapshot.totals.requests == year_snapshot.totals.requests == 1
+    assert all_time_snapshot.totals.requests == 2
