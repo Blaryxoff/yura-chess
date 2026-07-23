@@ -102,7 +102,7 @@ LANDING_PAGE_HTML = (
         "mainEntity": [
           {
             "@type": "Question",
-            "name": "Как запустить голосовые шахматы с Алисой?",
+            "name": "Как запустить навык?",
             "acceptedAnswer": {
               "@type": "Answer",
               "text": "Скажите: Алиса, запусти навык Шахматы с Юрой."
@@ -110,26 +110,42 @@ LANDING_PAGE_HTML = (
           },
           {
             "@type": "Question",
-            "name": "Нужен ли экран для игры?",
+            "name": "Есть ли режим тренера?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Нет. Вся игра доступна голосом; экран только показывает текущую позицию."
+              "text": "Да. Тренер даёт оценку позиции, варианты ходов, объяснения и ступенчатые подсказки."
             }
           },
           {
             "@type": "Question",
-            "name": "Сохраняется ли незаконченная партия?",
+            "name": "Можно ли разобрать партию?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Да. Навык сохраняет партию и предлагает продолжить её при следующем запуске."
+              "text": "Да. Навык найдёт перелом и главную ошибку, продиктует ходы или покажет PGN."
             }
           },
           {
             "@type": "Question",
-            "name": "Есть ли в навыке шахматные задачи?",
+            "name": "Есть ли шахматные задачи?",
             "acceptedAnswer": {
               "@type": "Answer",
               "text": "Да. Доступны мат в один и два хода, вилки, связки, сквозные удары, подсказки и серии решений."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Можно ли настроить речь и доску?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Да. Можно менять подробность и темп речи, стиль произнесения ходов и ориентацию экранной доски."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Как узнать все команды?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Скажите «что ты умеешь?» для короткого меню или «все команды» для полного каталога."
             }
           }
         ]
@@ -286,55 +302,31 @@ LANDING_PAGE_HTML = (
     </header>
 
     <section>
-      <h2>Всё, что умеет навык</h2>
+      <h2>Настоящие шахматы в Алисе</h2>
       <div class="grid">
         <div class="feature">
           <strong>Говорите естественно</strong>
-          Делайте ходы обычной шахматной речью. Неоднозначный или невозможный ход навык уточнит и объяснит.
+          «Пешка е два е четыре», «конь эф три», «короткая рокировка» — навык понимает разные формы шахматной речи.
         </div>
         <div class="feature">
-          <strong>Настраивайте соперника</strong>
-          Выбирайте цвет и силу Stockfish от уровня 0 до 20, просите реванш или более сложную следующую партию.
+          <strong>Играйте на своём уровне</strong>
+          Выбирайте цвет и силу Stockfish от спокойной партии до серьёзной тренировки.
         </div>
         <div class="feature">
-          <strong>Продолжайте партию позже</strong>
-          Незаконченная игра сохраняется. Можно вернуться к ней, предложить ничью, сдаться или отменить последний ход.
+          <strong>Продолжайте позже</strong>
+          Незаконченная партия сохраняется. При следующем запуске Алиса напомнит последние два хода.
         </div>
         <div class="feature">
-          <strong>Спрашивайте о позиции</strong>
-          Узнавайте, что стоит на клетке, где находятся фигуры, чей сейчас ход, есть ли шах и что происходило раньше.
+          <strong>Получайте объяснения</strong>
+          Если ход невозможен, Алиса объяснит причину и не изменит позицию.
         </div>
         <div class="feature">
-          <strong>Узнавайте факты о партии</strong>
-          Навык назовёт дебют и стадию игры, снятые фигуры, права на рокировку и изменения после последнего хода.
+          <strong>Спрашивайте о доске</strong>
+          Узнавайте, что находится на клетке, где стоят фигуры, чей ход и что произошло несколько ходов назад.
         </div>
         <div class="feature">
           <strong>Смотрите позицию</strong>
-          На устройствах с экраном доступна доска с координатами и последним ходом. Экран для игры не обязателен.
-        </div>
-        <div class="feature">
-          <strong>Включайте режим тренера</strong>
-          Получайте словесную и числовую оценку, хорошие варианты, угрозы и объяснение последнего хода Stockfish.
-        </div>
-        <div class="feature">
-          <strong>Разбирайте варианты</strong>
-          Спросите, что будет после предполагаемого хода, запросите ступенчатую подсказку или найдите свою ошибку.
-        </div>
-        <div class="feature">
-          <strong>Разбирайте завершённые партии</strong>
-          Навык найдёт перелом и главную ошибку, посчитает ошибки и предложит переиграть ключевую позицию.
-        </div>
-        <div class="feature">
-          <strong>Слушайте и сохраняйте партию</strong>
-          Просите продиктовать ходы постранично или показать стандартную запись PGN на устройстве с экраном.
-        </div>
-        <div class="feature">
-          <strong>Решайте шахматные задачи</strong>
-          Доступны мат в один и два хода, вилки, связки, сквозные удары, подсказки, решения и серии ответов.
-        </div>
-        <div class="feature">
-          <strong>Настраивайте речь и доску</strong>
-          Меняйте подробность, паузы, нотацию и ориентацию доски. Команда «все команды» прочитает полный каталог.
+          На устройствах с экраном показывается доска с координатами и последним ходом. Экран не обязателен для игры.
         </div>
       </div>
     </section>
@@ -359,7 +351,7 @@ LANDING_PAGE_HTML = (
         <li><code>«Покажи PGN»</code></li>
         <li><code>«Сыграть эту позицию заново»</code></li>
         <li><code>«Дай задачу»</code></li>
-        <li><code>«Задача на мат в два»</code></li>
+        <li><code>«Задача на мат в два хода»</code></li>
         <li><code>«Какая у меня серия?»</code></li>
         <li><code>«Повтори медленно»</code></li>
       </ul>
@@ -373,12 +365,24 @@ LANDING_PAGE_HTML = (
           <dd>Скажите: «Алиса, запусти навык Шахматы с Юрой».</dd>
         </div>
         <div>
-          <dt>Нужен ли экран?</dt>
-          <dd>Нет. Вся партия доступна голосом, а экран только дополняет игру изображением доски.</dd>
+          <dt>Есть ли режим тренера?</dt>
+          <dd>Да. Тренер даёт оценку позиции, варианты ходов, объяснения и ступенчатые подсказки.</dd>
         </div>
         <div>
-          <dt>Сохраняется ли партия?</dt>
-          <dd>Да. Незаконченная партия сохраняется, и при следующем запуске её можно продолжить.</dd>
+          <dt>Можно ли разобрать партию?</dt>
+          <dd>Да. Навык найдёт перелом и главную ошибку, продиктует ходы или покажет PGN.</dd>
+        </div>
+        <div>
+          <dt>Есть ли шахматные задачи?</dt>
+          <dd>Да. Доступны мат в один и два хода, вилки, связки, сквозные удары, подсказки и серии решений.</dd>
+        </div>
+        <div>
+          <dt>Можно ли настроить речь и доску?</dt>
+          <dd>Да. Можно менять подробность и темп речи, стиль произнесения ходов и ориентацию экранной доски.</dd>
+        </div>
+        <div>
+          <dt>Как узнать все команды?</dt>
+          <dd>Скажите «что ты умеешь?» для короткого меню или «все команды» для полного каталога.</dd>
         </div>
       </dl>
     </section>
@@ -415,15 +419,13 @@ LANDING_PAGE_HTML = (
   </main>
   <script>
     (() => {
-      const chart = document.querySelector(".stats-chart");
-      const showLatest = () => {
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const showLatest = (root = document) => {
+        const chart = root.querySelector(".stats-chart");
         if (chart) chart.scrollLeft = chart.scrollWidth - chart.clientWidth;
       };
-      requestAnimationFrame(showLatest);
-      window.addEventListener("load", showLatest, { once: true });
-
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-      document.documentElement.classList.add("has-motion");
+      requestAnimationFrame(() => showLatest());
+      window.addEventListener("load", () => showLatest(), { once: true });
 
       const formatter = new Intl.NumberFormat("ru-RU");
       const animateCounter = (element) => {
@@ -440,7 +442,43 @@ LANDING_PAGE_HTML = (
         requestAnimationFrame(tick);
       };
 
-      const reveal = new IntersectionObserver((entries, observer) => {
+      let reveal;
+      const prepareStatistics = (section) => {
+        requestAnimationFrame(() => showLatest(section));
+        if (!reveal) return;
+        section.querySelectorAll(".stats-cards, .stats-chart").forEach((element) => reveal.observe(element));
+      };
+      const loadStatistics = async (url, updateHistory = true) => {
+        const current = document.querySelector("#statistics");
+        if (!current) return;
+        current.setAttribute("aria-busy", "true");
+        try {
+          const response = await fetch(url, { headers: { "X-Requested-With": "statistics" } });
+          if (!response.ok) throw new Error(`Statistics request failed: ${response.status}`);
+          const page = new DOMParser().parseFromString(await response.text(), "text/html");
+          const replacement = page.querySelector("#statistics");
+          if (!replacement) throw new Error("Statistics section is missing");
+          const scrollPosition = window.scrollY;
+          current.replaceWith(replacement);
+          if (updateHistory) history.pushState({ statistics: true }, "", url);
+          window.scrollTo({ top: scrollPosition });
+          prepareStatistics(replacement);
+        } catch (error) {
+          window.location.assign(url);
+        }
+      };
+      document.addEventListener("click", (event) => {
+        const tab = event.target.closest(".stats-tab");
+        if (!tab || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        loadStatistics(tab.href);
+      });
+      window.addEventListener("popstate", () => loadStatistics(window.location.href, false));
+
+      if (reducedMotion) return;
+      document.documentElement.classList.add("has-motion");
+
+      reveal = new IntersectionObserver((entries, observer) => {
         entries.forEach((entry) => {
           if (!entry.isIntersecting) return;
           entry.target.classList.add("is-visible");
@@ -456,7 +494,7 @@ LANDING_PAGE_HTML = (
         element.style.setProperty("--motion-delay", `${(index % 4) * 45}ms`);
         reveal.observe(element);
       });
-      document.querySelectorAll(".stats-cards, .stats-chart").forEach((element) => reveal.observe(element));
+      prepareStatistics(document.querySelector("#statistics"));
     })();
   </script>
 </body>

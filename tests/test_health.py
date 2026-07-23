@@ -63,11 +63,17 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert "Stockfish" in response.text
     assert "с&nbsp;естественными командами" in response.text
     assert "Включи режим тренера" in response.text
-    assert "Всё, что умеет навык" in response.text
-    assert "Решайте шахматные задачи" in response.text
-    assert "Задача на мат в два" in response.text
+    assert "Настоящие шахматы в Алисе" in response.text
+    assert "Продолжайте позже" in response.text
+    assert "Смотрите позицию" in response.text
+    assert "Есть ли режим тренера?" in response.text
+    assert "Можно ли разобрать партию?" in response.text
+    assert "Есть ли шахматные задачи?" in response.text
+    assert "Можно ли настроить речь и доску?" in response.text
+    assert "Как узнать все команды?" in response.text
+    assert "Задача на мат в два хода" in response.text
     assert 'class="command-list"' in response.text
-    assert response.text.index('class="support-action hero-support"') < response.text.index("Всё, что умеет навык")
+    assert response.text.index('class="support-action hero-support"') < response.text.index("Настоящие шахматы в Алисе")
     assert response.text.index('id="statistics"') < response.text.index("Конфиденциальность")
     assert response.text.index('id="statistics"') < response.text.index('id="support"')
     assert response.text.index('id="support"') < response.text.index("Конфиденциальность")
@@ -81,11 +87,24 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert '<script type="application/ld+json">' in response.text
     assert "IntersectionObserver" in response.text
     assert "chart.scrollWidth - chart.clientWidth" in response.text
+    assert "current.replaceWith(replacement)" in response.text
+    assert 'history.pushState({ statistics: true }, "", url)' in response.text
+    assert "window.scrollTo({ top: scrollPosition })" in response.text
+    assert 'window.addEventListener("popstate"' in response.text
     assert "prefers-reduced-motion: reduce" in response.text
     assert "Как играть в голосовые шахматы с Алисой" in response.text
     structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
     graph = json.loads(structured_data)["@graph"]
     assert {item["@type"] for item in graph} == {"WebSite", "SoftwareApplication", "FAQPage"}
+    faq = next(item for item in graph if item["@type"] == "FAQPage")
+    assert [item["name"] for item in faq["mainEntity"]] == [
+        "Как запустить навык?",
+        "Есть ли режим тренера?",
+        "Можно ли разобрать партию?",
+        "Есть ли шахматные задачи?",
+        "Можно ли настроить речь и доску?",
+        "Как узнать все команды?",
+    ]
     assert "незряч" not in response.text.lower()
 
 
