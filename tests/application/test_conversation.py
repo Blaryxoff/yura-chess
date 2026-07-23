@@ -90,7 +90,7 @@ async def test_voice_move_runs_through_router_game_and_speech(
     assert reply.turn is not None
     assert reply.turn.player_move == "e2e4"
     assert reply.turn.engine_move is not None
-    assert "Ваш ход: e2e4" in reply.speech.text
+    assert "Ваш ход: e2 e4" in reply.speech.text
     assert "Мой ход" in reply.speech.text
 
 
@@ -295,6 +295,79 @@ async def test_help_replaces_a_returning_users_resume_confirmation(
     assert helped.state.game_id == opened.state.game_id
 
 
+@pytest.mark.parametrize("utterance", ["е 2 е 4", "да е 2 е 4"])
+async def test_a_move_itself_accepts_the_resume_prompt(
+    utterance: str,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).create_game(OWNER, PlayerColor.WHITE)
+    conversation = subject(session_factory, offline_settings)
+    prompt = await conversation.handle(OWNER, "", context(1, new=True), ConversationState())
+
+    reply = await conversation.handle(OWNER, utterance, context(2), prompt.state)
+
+    assert reply.turn is not None
+    assert reply.turn.game_id == game.id
+    assert reply.turn.player_move == "e2e4"
+    assert reply.state.pending_action is None
+
+
+async def test_an_illegal_move_replaces_the_resume_prompt_with_the_real_rule(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).create_game(OWNER, PlayerColor.WHITE)
+    conversation = subject(session_factory, offline_settings)
+    prompt = await conversation.handle(OWNER, "", context(1, new=True), ConversationState())
+
+    reply = await conversation.handle(OWNER, "пешка е 2 е 5", context(2), prompt.state)
+
+    assert "Скажите «да» или «нет»" not in reply.speech.text
+    assert "недостижимо" in reply.speech.text
+    assert reply.state.pending_action is None
+    with session_scope(session_factory) as session:
+        unchanged = GameRepository(session).load(game.id, OWNER)
+    assert unchanged.moves == ()
+
+
+async def test_puzzle_request_replaces_the_resume_confirmation(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        GameRepository(session).create_game(OWNER, PlayerColor.WHITE)
+    conversation = subject(session_factory, offline_settings)
+    prompt = await conversation.handle(OWNER, "", context(1, new=True), ConversationState())
+
+    reply = await conversation.handle(OWNER, "я хочу в задачи поиграть", context(2), prompt.state)
+
+    assert "Скажите «да» или «нет»" not in reply.speech.text
+    assert reply.state.pending_action is None
+    assert PuzzleService(session_factory).find_open(OWNER) is not None
+
+
+async def test_exit_replaces_the_resume_confirmation_without_changing_the_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).create_game(OWNER, PlayerColor.WHITE)
+    conversation = subject(session_factory, offline_settings)
+    prompt = await conversation.handle(OWNER, "", context(1, new=True), ConversationState())
+
+    reply = await conversation.handle(OWNER, "выключи навык", context(2), prompt.state)
+
+    assert reply.end_session is True
+    assert reply.state.pending_action is None
+    with session_scope(session_factory) as session:
+        unchanged = GameRepository(session).load(game.id, OWNER)
+    assert unchanged.status is GameStatus.ACTIVE
+    assert unchanged.moves == ()
+
+
 async def test_new_session_greeting_explains_the_skill_when_resuming_a_puzzle(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
@@ -418,7 +491,9 @@ async def test_new_game_confirmation_preserves_requested_settings(
     assert confirmed.turn.game_id != started.state.game_id
     assert confirmed.turn.player_color is PlayerColor.BLACK
     with session_scope(session_factory) as session:
+        previous = GameRepository(session).load(started.state.game_id or "", OWNER)
         game = GameRepository(session).load(confirmed.turn.game_id, OWNER)
+    assert previous.status is GameStatus.RESIGNED
     assert game.engine.skill_level == 12
 
 
@@ -1133,7 +1208,7 @@ async def test_an_ordinary_move_is_played_without_any_comment(
 
     reply = await play_all(conversation, TO_MIDDLEGAME[:3], started.state)
 
-    assert reply.speech.text == "Ваш ход: g1f3. Мой ход. ладья g8 h8."
+    assert reply.speech.text == "Ваш ход: g1 f3. Мой ход. ладья g8 h8."
 
 
 async def test_a_comment_survives_a_replayed_request_and_a_new_service(

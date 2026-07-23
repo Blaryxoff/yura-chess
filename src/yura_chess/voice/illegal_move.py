@@ -71,7 +71,7 @@ def explain(recognized: RecognizedMove, board: chess.Board) -> Explanation:
     destination = _parse_square(recognized.destination)
     if destination is None:
         return _unclear()
-    source = _source_square(recognized, board)
+    source = _source_square(recognized, board, destination)
     if source is None:
         return _unclear()
     if source == destination:
@@ -267,7 +267,7 @@ def _explain_castling(board: chess.Board, kingside: bool) -> Explanation:
     return Explanation(IllegalReason.CASTLING, "Сейчас рокировка невозможна.")
 
 
-def _source_square(recognized: RecognizedMove, board: chess.Board) -> int | None:
+def _source_square(recognized: RecognizedMove, board: chess.Board, destination: int) -> int | None:
     """Use the named source, or infer it when exactly one own piece fits the hints."""
     named = _parse_square(recognized.source)
     if named is not None:
@@ -279,6 +279,7 @@ def _source_square(recognized: RecognizedMove, board: chess.Board) -> int | None
         square
         for square in board.pieces(piece_type, board.turn)
         if _matches_hint(square, recognized.source_file, recognized.source_rank)
+        and _could_reach(piece_type, board.turn, square, destination)
     ]
     return candidates[0] if len(candidates) == 1 else None
 
@@ -286,6 +287,25 @@ def _source_square(recognized: RecognizedMove, board: chess.Board) -> int | None
 def _matches_hint(square: int, file_hint: str | None, rank_hint: str | None) -> bool:
     name = chess.square_name(square)
     return (file_hint is None or name[0] == file_hint) and (rank_hint is None or name[1] == rank_hint)
+
+
+def _could_reach(piece_type: int, color: chess.Color, source: int, destination: int) -> bool:
+    """Geometry-only filter used to identify one source for a diagnostic."""
+    file_delta = abs(chess.square_file(destination) - chess.square_file(source))
+    signed_rank = chess.square_rank(destination) - chess.square_rank(source)
+    rank_delta = abs(signed_rank)
+    if piece_type is chess.PAWN:
+        forward = 1 if color is chess.WHITE else -1
+        return signed_rank in {forward, 2 * forward} and file_delta <= 1
+    if piece_type is chess.KNIGHT:
+        return (file_delta, rank_delta) in {(1, 2), (2, 1)}
+    if piece_type is chess.BISHOP:
+        return file_delta == rank_delta
+    if piece_type is chess.ROOK:
+        return file_delta == 0 or rank_delta == 0
+    if piece_type is chess.QUEEN:
+        return file_delta == rank_delta or file_delta == 0 or rank_delta == 0
+    return max(file_delta, rank_delta) == 1
 
 
 def _promotion(recognized: RecognizedMove, piece: chess.Piece, destination: int) -> int | None:

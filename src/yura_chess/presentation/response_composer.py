@@ -55,7 +55,13 @@ def compose_turn(
     `commentary` is the optional remark about the move and always comes last: it
     is an aside, never part of what happened.
     """
-    parts = [text for text in (_move_text(result, board_before, notation), _outcome_text(result), commentary) if text]
+    move_text = _move_text(result, board_before, notation)
+    outcome_text = _outcome_text(result)
+    if result.outcome is not None and result.outcome.end is GameEnd.CHECKMATE:
+        move_text = move_text.removesuffix(" Мат.")
+    if commentary is not None and "Шах." in move_text and "шах" in commentary.lower():
+        commentary = None
+    parts = [text for text in (move_text, outcome_text, commentary) if text]
     if not parts:
         return Speech.of(_STATUS_TEXTS.get(result.status, "Ваш ход."))
     return Speech.of(" ".join(parts))

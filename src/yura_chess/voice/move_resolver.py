@@ -28,6 +28,7 @@ _PIECE_PARTIAL_SOURCE = 0.9
 _PIECE_DESTINATION = 0.85
 _DESTINATION_ONLY = 0.75
 _UNKNOWN_WORD_PENALTY = 0.05
+_MAX_UNKNOWN_PENALTY = 0.15
 
 
 def resolve(normalized: Normalized, board: chess.Board) -> MoveResolution:
@@ -38,20 +39,41 @@ def resolve(normalized: Normalized, board: chess.Board) -> MoveResolution:
 
     forms: defaultdict[Signature, list[str]] = defaultdict(list)
     tiers: dict[Signature, float] = {}
-    for move in board.legal_moves:
-        for form, tier in _voice_forms(board, move):
-            uci = move.uci()
+    for legal_move in board.legal_moves:
+        for form, tier in _voice_forms(board, legal_move):
+            uci = legal_move.uci()
             if uci not in forms[form]:
                 forms[form].append(uci)
             tiers[form] = max(tiers.get(form, 0.0), tier)
 
     matches = forms.get(normalized.signature)
+    matched_signature = normalized.signature
     if not matches:
-        return MoveResolution(ResolutionStatus.UNMATCHED, recognized=recognized)
+        focused: dict[str, tuple[Signature, float]] = {}
+        for signature in _focused_signatures(normalized.signature):
+            for move_uci in forms.get(signature, ()):
+                tier = tiers[signature]
+                previous = focused.get(move_uci)
+                if previous is None or tier > previous[1]:
+                    focused[move_uci] = (signature, tier)
+        if not focused:
+            return MoveResolution(ResolutionStatus.UNMATCHED, recognized=recognized)
+        if len(focused) > 1:
+            return MoveResolution(
+                ResolutionStatus.AMBIGUOUS,
+                candidates=tuple(focused),
+                recognized=recognized,
+            )
+        move_uci, (matched_signature, _) = next(iter(focused.items()))
+        matches = [move_uci]
+        recognized = recognize(matched_signature)
     if len(matches) > 1:
         return MoveResolution(ResolutionStatus.AMBIGUOUS, candidates=tuple(matches), recognized=recognized)
 
-    confidence = tiers[normalized.signature] - _UNKNOWN_WORD_PENALTY * len(normalized.unknown_words)
+    confidence = tiers[matched_signature] - min(
+        _UNKNOWN_WORD_PENALTY * len(normalized.unknown_words),
+        _MAX_UNKNOWN_PENALTY,
+    )
     return MoveResolution(
         ResolutionStatus.RESOLVED,
         confidence=max(confidence, 0.0),
@@ -75,7 +97,7 @@ def recognize(signature: Signature) -> RecognizedMove:
     if len(squares) > 2:
         squares = []
     return RecognizedMove(
-        piece=pieces[0] if pieces else None,
+        piece=pieces[0] if len(set(pieces)) == 1 else None,
         source=squares[0] if len(squares) > 1 else None,
         source_file=files[0] if files else None,
         source_rank=ranks[0] if ranks else None,
@@ -85,6 +107,29 @@ def recognize(signature: Signature) -> RecognizedMove:
         castle_short=any(token.kind is TokenKind.CASTLE_SHORT for token in signature),
         castle_long=any(token.kind is TokenKind.CASTLE_LONG for token in signature),
     )
+
+
+def _focused_signatures(signature: Signature) -> tuple[Signature, ...]:
+    """Move-shaped slices inside conversational speech, ordered as spoken.
+
+    Every matching slice is considered. If two different legal moves were
+    actually named, `resolve` returns ambiguity instead of choosing the last one.
+    """
+    square_values = [token.value for token in signature if token.kind is TokenKind.SQUARE]
+    if len(square_values) == 3 and square_values[0] != square_values[-1]:
+        return ()
+
+    focused: list[Signature] = []
+    for start in range(len(signature)):
+        for end in range(start + 2, min(len(signature), start + 5) + 1):
+            candidate = signature[start:end]
+            squares = sum(token.kind is TokenKind.SQUARE for token in candidate)
+            pieces = sum(token.kind is TokenKind.PIECE for token in candidate)
+            move_shaped = squares >= 2 if len(square_values) >= 2 else squares == 1 and pieces == 1
+            if move_shaped:
+                if candidate not in focused:
+                    focused.append(candidate)
+    return tuple(focused)
 
 
 def _voice_forms(board: chess.Board, move: chess.Move) -> list[tuple[Signature, float]]:

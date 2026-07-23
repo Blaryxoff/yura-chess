@@ -37,10 +37,14 @@ def owner_key(salt: SecretStr, user_id: str | None, application_id: str | None) 
     return digest[:OWNER_KEY_LENGTH]
 
 
-def traffic_source(user_id: str | None, session_id: str) -> Literal["real", "test"]:
+def traffic_source(user_id: str | None, session_id: str, command: str = "") -> Literal["real", "test"]:
     """Recognise synthetic production checks before their identifiers are hashed."""
     test_user_prefixes = ("deployed-user-", "deployed-moderator-", "e2e-", "smoke-", "test-")
     test_session_prefixes = ("deployed-", "first-", "return-", "e2e-", "smoke-", "test-")
-    if (user_id and user_id.startswith(test_user_prefixes)) or session_id.startswith(test_session_prefixes):
+    if (
+        (user_id and user_id.startswith(test_user_prefixes))
+        or session_id.startswith(test_session_prefixes)
+        or command.strip().casefold() in {"ping", "test"}
+    ):
         return "test"
     return "real"

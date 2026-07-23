@@ -123,6 +123,8 @@ async def _handle(
     conversation: ConversationService,
     salt: SecretStr,
 ) -> tuple[AliceResponse, ConversationReply | None, str | None, RequestContext | None]:
+    if payload.request.command.strip().casefold() == "ping":
+        return _plain(payload, "pong"), None, None, None
     try:
         owner = owner_key(salt, payload.user_id, payload.application_id)
     except UnidentifiedRequestError:
@@ -142,7 +144,7 @@ async def _handle(
         fingerprint=_fingerprint(payload),
         is_new_session=payload.session.new,
         timezone=payload.meta.timezone,
-        traffic_source=traffic_source(payload.user_id, payload.session.session_id),
+        traffic_source=traffic_source(payload.user_id, payload.session.session_id, payload.request.command),
     )
     try:
         cached = conversation.cached_response(owner, context)
@@ -257,10 +259,10 @@ def _compose(payload: AliceRequest, reply: ConversationReply, salt: SecretStr) -
             text=_clip(text, TEXT_LIMIT),
             # A separate `tts` is sent only when it differs from the display text.
             tts=_clip(pronunciation, TTS_LIMIT) if pronunciation is not None and pronunciation != text else None,
-            end_session=False,
+            end_session=reply.end_session,
         ),
         user_state_update=_state_update(reply.turn),
-        session_state=_session_state_update(reply.state, payload, salt),
+        session_state=None if reply.end_session else _session_state_update(reply.state, payload, salt),
         version=payload.version,
     )
 

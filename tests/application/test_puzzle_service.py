@@ -621,7 +621,7 @@ async def test_declining_the_resumed_puzzle_gives_the_game_back(
     played = await conversation.handle(OWNER, "пешка е четыре", context(5), declined.state)
 
     assert puzzles.find_open(OWNER) is None
-    assert "Ваш ход: e2e4" in played.speech.text
+    assert "Ваш ход: e2 e4" in played.speech.text
 
 
 def test_puzzle_commands_are_routed_before_the_game_commands() -> None:

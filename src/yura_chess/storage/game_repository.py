@@ -10,7 +10,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import chess
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -118,6 +118,21 @@ class GameRepository:
         self._session.flush()
         return _to_state(row)
 
+    def resign_active_games(self, owner_key: str) -> int:
+        """Close every older active game before creating its replacement."""
+        statement = (
+            select(GameRow)
+            .where(GameRow.owner_key == owner_key, GameRow.status == GameStatus.ACTIVE.value)
+            .with_for_update()
+        )
+        rows = list(self._session.scalars(statement))
+        for row in rows:
+            row.status = GameStatus.RESIGNED.value
+            row.pending_engine_turn = None
+            row.revision += 1
+        self._session.flush()
+        return len(rows)
+
     def load(self, game_id: str, owner_key: str) -> GameState:
         return _to_state(self._load_row(game_id, owner_key))
 
@@ -146,6 +161,12 @@ class GameRepository:
             .limit(1)
         )
         row = self._session.scalars(statement).one_or_none()
+        if row is not None and row.last_player_move_at is None:
+            latest_player_move = self._session.scalar(
+                select(func.max(GameRow.last_player_move_at)).where(GameRow.owner_key == owner_key)
+            )
+            if latest_player_move is not None and latest_player_move > row.created_at:
+                return None
         return _to_state(row) if row is not None else None
 
     def find_latest(self, owner_key: str) -> GameState | None:

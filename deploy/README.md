@@ -49,7 +49,7 @@ stay compatible with the previous release**. That is what makes an application-o
 rollback safe.
 
 The human-like experience and analytics releases add `0007_player_preferences` …
-`0014_usage_analytics` on top of `0006_alice_response_replay`. They are additive and run
+`0015_reclassify_ping_monitors` on top of `0006_alice_response_replay`. They are additive and run
 in that order as one `alembic upgrade head`, so the previously deployed image
 keeps working against the migrated schema.
 

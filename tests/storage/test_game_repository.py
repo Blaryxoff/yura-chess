@@ -152,6 +152,59 @@ def test_latest_active_game_is_selected_by_player_move_not_creation(
     assert latest.id == newer.id
 
 
+def test_empty_active_game_older_than_a_later_played_game_is_not_resumed(
+    repository: GameRepository,
+    session: Session,
+) -> None:
+    stale = repository.create_game(OWNER, PlayerColor.WHITE)
+    played = repository.create_game(OWNER, PlayerColor.WHITE)
+    rows = {row.id: row for row in session.scalars(select(GameRow)).all()}
+    rows[stale.id].created_at = datetime(2026, 7, 23, 10, 0)
+    rows[played.id].created_at = datetime(2026, 7, 23, 10, 1)
+    rows[played.id].last_player_move_at = datetime(2026, 7, 23, 10, 2)
+    rows[played.id].status = GameStatus.FINISHED.value
+    session.commit()
+
+    assert repository.find_latest_active(OWNER) is None
+
+
+def test_new_empty_game_after_a_finished_game_can_still_be_resumed(
+    repository: GameRepository,
+    session: Session,
+) -> None:
+    played = repository.create_game(OWNER, PlayerColor.WHITE)
+    fresh = repository.create_game(OWNER, PlayerColor.WHITE)
+    rows = {row.id: row for row in session.scalars(select(GameRow)).all()}
+    rows[played.id].created_at = datetime(2026, 7, 23, 10, 0)
+    rows[played.id].last_player_move_at = datetime(2026, 7, 23, 10, 1)
+    rows[played.id].status = GameStatus.FINISHED.value
+    rows[fresh.id].created_at = datetime(2026, 7, 23, 10, 2)
+    session.commit()
+
+    latest = repository.find_latest_active(OWNER)
+
+    assert latest is not None
+    assert latest.id == fresh.id
+
+
+def test_resigning_active_games_closes_every_legacy_candidate(
+    repository: GameRepository,
+    session: Session,
+) -> None:
+    first = repository.create_game(OWNER, PlayerColor.WHITE)
+    second = repository.create_game(OWNER, PlayerColor.BLACK)
+    other = repository.create_game(OTHER_OWNER, PlayerColor.WHITE)
+
+    closed = repository.resign_active_games(OWNER)
+    session.commit()
+
+    assert closed == 2
+    assert repository.load(first.id, OWNER).status is GameStatus.RESIGNED
+    assert repository.load(second.id, OWNER).status is GameStatus.RESIGNED
+    assert repository.load(other.id, OTHER_OWNER).status is GameStatus.ACTIVE
+    assert repository.find_latest_active(OWNER) is None
+
+
 def test_truncating_history_restores_the_previous_player_move_time(
     repository: GameRepository,
     session: Session,

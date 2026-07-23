@@ -21,7 +21,7 @@ from yura_chess.application.command_router import (
 from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle, PauseStyle
 from yura_chess.voice.move_resolver import resolve
 from yura_chess.voice.normalizer import normalize
-from yura_chess.voice.types import ResolutionStatus
+from yura_chess.voice.types import ResolutionStatus, TokenKind
 
 TWO_KNIGHTS_FEN = "4k3/8/8/8/8/5N2/8/1N2K3 w - - 0 1"
 TWO_ROOKS_FEN = "4k3/8/8/8/4K3/8/8/R6R w - - 0 1"
@@ -77,6 +77,87 @@ def test_unknown_words_lower_confidence() -> None:
     assert noisy.status is ResolutionStatus.RESOLVED
     assert noisy.move == clean.move
     assert noisy.confidence < clean.confidence
+
+
+@pytest.mark.parametrize(
+    ("fen", "utterance", "expected"),
+    [
+        (
+            "4k3/8/8/2N5/8/8/8/4K3 w - - 0 1",
+            "c 5 d 3 конем",
+            "c5d3",
+        ),
+        (
+            "4k3/8/8/8/5B2/8/8/4K3 w - - 0 1",
+            "ладно я отвлеку слона слон идет слон f 4 е 5",
+            "f4e5",
+        ),
+    ],
+)
+def test_resolver_extracts_the_only_legal_move_from_conversational_speech(
+    fen: str,
+    utterance: str,
+    expected: str,
+) -> None:
+    resolution = resolve(normalize(utterance), chess.Board(fen))
+
+    assert resolution.status is ResolutionStatus.RESOLVED
+    assert resolution.move == expected
+
+
+def test_repeated_destination_does_not_hide_explicit_capture_coordinates() -> None:
+    board = chess.Board()
+    for move in ("e2e4", "e7e6", "d2d4", "d7d5"):
+        board.push_uci(move)
+
+    resolution = resolve(normalize("я бью на d 5 пешкой е 4 бьет d 5"), board)
+
+    assert resolution.status is ResolutionStatus.RESOLVED
+    assert resolution.move == "e4d5"
+
+
+def test_reference_to_the_engine_castling_does_not_override_the_players_move() -> None:
+    board = chess.Board()
+    for move in (
+        "e2e4",
+        "e7e6",
+        "d2d4",
+        "d7d5",
+        "e4d5",
+        "e6d5",
+        "f1d3",
+        "c7c5",
+        "d4c5",
+        "f8c5",
+        "g1f3",
+        "c8e6",
+        "e1g1",
+        "b8c6",
+        "c1g5",
+        "d8d7",
+        "f1e1",
+        "h7h6",
+        "g5f4",
+        "g8f6",
+        "d3b5",
+        "e8g8",
+    ):
+        board.push_uci(move)
+
+    resolution = resolve(
+        normalize("ты делаешь короткую рокировку ладненько разменяемся слон бьет на c 6 b 5 c 6"),
+        board,
+    )
+
+    assert resolution.status is ResolutionStatus.RESOLVED
+    assert resolution.move == "b5c6"
+
+
+def test_multiple_legal_moves_in_one_utterance_are_never_silently_narrowed() -> None:
+    resolution = resolve(normalize("е 2 е 4 и д 2 д 4"), chess.Board())
+
+    assert resolution.status is ResolutionStatus.AMBIGUOUS
+    assert set(resolution.candidates) == {"e2e4", "d2d4"}
 
 
 def test_two_knights_on_one_square_stay_ambiguous() -> None:
@@ -165,6 +246,12 @@ def test_a_king_or_pawn_is_not_accepted_as_a_promotion_piece() -> None:
     assert all(token.kind.name != "PROMOTION" for token in pawn.signature)
 
 
+def test_instrumental_piece_after_coordinates_is_not_a_promotion() -> None:
+    normalized = normalize("c 5 d 3 конем")
+
+    assert all(token.kind is not TokenKind.PROMOTION for token in normalized.signature)
+
+
 def test_a_claimed_capture_must_be_a_real_capture() -> None:
     board = chess.Board(CAPTURE_FEN)
 
@@ -234,6 +321,35 @@ def test_control_commands_are_separated_before_move_resolution(utterance: str, e
 
     assert routed.kind is expected
     assert routed.move is None
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("какая расстановка сейчас", CommandKind.POSITION_QUERY),
+        ("назови еще раз свой ход", CommandKind.POSITION_QUERY),
+        ("откати прошлые два хода", CommandKind.UNDO),
+        ("какой ход ты посоветуешь", CommandKind.TRAINING),
+        ("разбор", CommandKind.REVIEW),
+        ("сменить цвет", CommandKind.REMATCH),
+        ("следующая игра за черных", CommandKind.REMATCH),
+        ("выключи навык", CommandKind.EXIT),
+    ],
+)
+def test_production_command_phrases_are_routed(utterance: str, expected: CommandKind) -> None:
+    assert route(utterance, chess.Board()).kind is expected
+
+
+def test_occupied_destination_is_explained_for_a_piece_with_one_geometric_source() -> None:
+    board = chess.Board()
+    for move in ("a2a3", "g8f6", "d2d4", "g7g6"):
+        board.push_uci(move)
+
+    routed = route("конь а 3", board)
+
+    assert routed.kind is CommandKind.ILLEGAL_MOVE
+    assert routed.explanation is not None
+    assert "занято вашей фигурой" in routed.explanation.text
 
 
 def test_repeat_heard_answers_with_the_previous_utterance() -> None:

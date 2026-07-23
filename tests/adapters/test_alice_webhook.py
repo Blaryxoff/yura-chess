@@ -262,7 +262,7 @@ async def test_a_spoken_move_uses_the_real_router_and_response_composer(
         ).json()
 
     assert moved["user_state_update"]["revision"] > first["user_state_update"]["revision"]
-    assert "Ваш ход: e2e4" in moved["response"]["text"]
+    assert "Ваш ход: e2 e4" in moved["response"]["text"]
     assert "Мой ход" in moved["response"]["text"]
     assert moved["session_state"]["last_heard"] == "пешка е два е четыре"
 
@@ -628,7 +628,7 @@ async def test_a_timed_out_move_retries_before_the_router_can_reinterpret_it(
         resumed = (await client.post("/alice/webhook", json=move)).json()
 
     assert timed_out.get("user_state_update") is None
-    assert "Ваш ход: e2e4" in resumed["response"]["text"]
+    assert "Ваш ход: e2 e4" in resumed["response"]["text"]
     assert resumed["user_state_update"]["revision"] == 3
     assert fast_engine.searches == 1
 
@@ -733,7 +733,26 @@ def test_the_owner_key_is_pseudonymous_and_scoped() -> None:
 def test_deployed_smoke_identifiers_are_separated_from_real_traffic() -> None:
     assert traffic_source("deployed-user-123", "deployed-456") == "test"
     assert traffic_source("deployed-moderator-123", "return-456") == "test"
+    assert traffic_source(USER_A, "monitor-session", "ping") == "test"
     assert traffic_source(USER_A, "ordinary-yandex-session") == "real"
+
+
+async def test_monitor_ping_does_not_create_a_game(session_factory: sessionmaker[Session]) -> None:
+    async with build_client(session_factory) as client:
+        response = await client.post("/alice/webhook", json=alice_request(1, command="ping", new=True))
+
+    assert response.status_code == 200
+    assert response.json()["response"]["text"] == "pong"
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).find_latest(owner_key(SecretStr(TEST_IDENTITY_SALT), USER_A, None)) is None
+
+
+async def test_exit_command_ends_the_alice_session(session_factory: sessionmaker[Session]) -> None:
+    async with build_client(session_factory) as client:
+        response = await client.post("/alice/webhook", json=alice_request(1, command="выключи навык"))
+
+    assert response.status_code == 200
+    assert response.json()["response"]["end_session"] is True
 
 
 async def test_a_help_card_is_optional_and_the_voice_answer_is_unchanged(

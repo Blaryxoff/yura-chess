@@ -237,6 +237,42 @@ def test_checkmate_names_the_winner_from_the_player_side() -> None:
     assert speech.text == "Мат. Черные выиграли. Вы проиграли."
 
 
+def test_engine_check_is_not_announced_twice_by_commentary() -> None:
+    board = chess.Board("k6r/8/8/8/8/8/8/4K3 b - - 0 1")
+    move = chess.Move.from_uci("h8e8")
+    after = board.copy(stack=False)
+    after.push(move)
+
+    speech = compose_turn(
+        _result(TurnStatus.OK, engine_move=move.uci(), fen=after.fen(), player_color=PlayerColor.WHITE),
+        board,
+        commentary="Вам шах.",
+    )
+
+    assert speech.text.lower().count("шах") == 1
+
+
+def test_engine_checkmate_is_not_announced_twice() -> None:
+    board = chess.Board(MATE_IN_ONE_FEN)
+    move = chess.Move.from_uci("a1a8")
+    after = board.copy(stack=False)
+    after.push(move)
+
+    speech = compose_turn(
+        _result(
+            TurnStatus.GAME_OVER,
+            engine_move=move.uci(),
+            fen=after.fen(),
+            player_color=PlayerColor.BLACK,
+            game_status=GameStatus.FINISHED,
+            outcome=GameOutcome(GameEnd.CHECKMATE, PlayerColor.WHITE),
+        ),
+        board,
+    )
+
+    assert speech.text.count("Мат.") == 1
+
+
 @pytest.mark.parametrize(
     ("end", "expected"),
     [

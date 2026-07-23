@@ -99,6 +99,7 @@ class GameService:
             repository = GameRepository(session)
             replay, created = self._claim(repository, request, owner_key)
             if created:
+                repository.resign_active_games(owner_key)
                 state = repository.create_game(owner_key, player_color, engine, mode=mode)
                 replay.game_id = state.id
             else:

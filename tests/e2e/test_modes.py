@@ -96,7 +96,7 @@ async def test_each_mode_is_entered_and_left_in_one_dialogue(
     assert "Закрываю справку" in spoken(transcript, "выйти из справки")
     assert "подробнее" in spoken(transcript, "говори подробнее")
     assert "обе клетки" in spoken(transcript, "называй обе клетки")
-    assert "e2e4" in spoken(transcript, "пешка е два е четыре")
+    assert "e2 e4" in spoken(transcript, "пешка е два е четыре")
     assert "3" in spoken(transcript, "какой сейчас уровень")
     assert spoken(transcript, "оцени позицию")
     assert spoken(transcript, "дай подсказку")

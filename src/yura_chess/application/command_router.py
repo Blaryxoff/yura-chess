@@ -46,6 +46,7 @@ class CommandKind(StrEnum):
     REPEAT_SLOW = "repeat_slow"
     HELP = "help"
     HELP_EXIT = "help_exit"
+    EXIT = "exit"
     # A durable presentation setting: how much is said, how, and from which side.
     PREFERENCE = "preference"
     # A new game that inherits colour and level from the previous one.
@@ -204,8 +205,8 @@ _HELP_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (
         CommandKind.HELP,
         re.compile(
-            r"помощь|что ты умеешь|справка|справку|справке|как играть|"
-            r"какие команды|список команд|все команды|что можно сказать"
+            r"помощь$|помощь (по|с|про)\b|что ты умеешь|справка|справку|справке|как играть|"
+            r"какие команды|список команд|все команды|что можно сказать|какие еще (есть )?опции|^настройки$"
         ),
     ),
 )
@@ -216,17 +217,33 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         CommandKind.REPEAT_SLOW,
         re.compile(r"^повтори( еще раз)? медленн(о|ее)|^повтори (последнюю фразу|ответ)$"),
     ),
-    (CommandKind.NEW_GAME, re.compile(r"нов(ая|ую) (игра|игру|партия|партию)|начн?ем заново|сначала|заново")),
-    (CommandKind.RESIGN, re.compile(r"сдаюсь|сдаться|сдаемся|я проиграл")),
+    (
+        CommandKind.NEW_GAME,
+        re.compile(
+            r"нов(ая|ую) (игра|игру|партия|партию)|начн?ем заново|сначала|заново|"
+            r"(?:хочу |буду )?(?:сыграть|играть) за (бел|черн)"
+        ),
+    ),
+    (CommandKind.RESIGN, re.compile(r"сдаюсь|сдаться|сдаемся|я проиграл|закончить (игру|партию)")),
     (CommandKind.CLAIM_DRAW, re.compile(r"ничь(я|ю|ей)")),
-    (CommandKind.UNDO, re.compile(r"отмен(и|ить|яю)|верн(и|уть)(?: последний)?(?: ход)?|^ход назад$|переходить")),
+    (
+        CommandKind.UNDO,
+        re.compile(r"отмен(и|ить|яю)|откат(и|ить)|верн(и|уть)(?: последний)?(?: ход)?|^ход назад$|переходить"),
+    ),
     (CommandKind.START, re.compile(r"начать игру|начн?ем игру|давай играть|поехали|старт")),
     (CommandKind.CONTINUE, re.compile(r"продолж")),
+    (
+        CommandKind.EXIT,
+        re.compile(
+            r"^(выход|выйти|стоп)$|выключи( этот)? навык|отключи( этот)? навык|"
+            r"выйди из (шахмат|навыка)|до свидания|закрой навык"
+        ),
+    ),
     (
         CommandKind.LEVEL_QUERY,
         re.compile(
             r"какой( сейчас)? уровень|какая( сейчас)? сложность|текущ(ий уровень|ая сложность)|"
-            r"на каком уровне|^уровень сложности$"
+            r"на каком уровне|^уровень сложности$|(?:поменять|изменить) уровень"
         ),
     ),
     # Before the position query: «какие фигуры съедены» is a fact about the
@@ -235,10 +252,10 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (
         CommandKind.POSITION_QUERY,
         re.compile(
-            r"кака(я|ю) позици|позици(я|ю)|\bгде\b|что на|покажи доску|какие фигуры|сколько фигур|прочитай|"
+            r"кака(я|ю) позици|позици(я|ю)|расстановк|\bгде\b|что на|покажи доску|какие фигуры|сколько фигур|прочитай|"
             r"чей ход|кто ходит|кому ходить|моя очередь|есть ли шах|кто под шахом|шах сейчас|"
             r"последн(ий|его) ход|как (ты|я) походил|ход(а|ов)? назад|раз(а)? назад|повтори координат|"
-            r"что (сделали|делали) (белые|черные)|^(дальше|далее)$"
+            r"что (сделали|делали) (белые|черные)|назови еще раз (свой|последний) ход|^(дальше|далее)$"
         ),
     ),
 )
@@ -330,7 +347,10 @@ _TRAINING_PATTERNS: tuple[tuple[TrainingQuestion, re.Pattern[str]], ...] = (
     ),
     (TrainingQuestion.THREAT, re.compile(r"чем ты угрожа|какая угроза|есть ли угроза|что ты задумал[а]?")),
     (TrainingQuestion.PREVIEW, re.compile(r"что будет,? если|что если я|стоит ли (мне )?(играть|ходить)")),
-    (TrainingQuestion.CANDIDATES, re.compile(r"хорошие ходы|какие ходы|что мне сыграть|как мне (лучше )?сыграть")),
+    (
+        TrainingQuestion.CANDIDATES,
+        re.compile(r"хорошие ходы|какие ходы|что мне сыграть|как мне (лучше )?сыграть|какой ход .*посовет"),
+    ),
     # «подскажи» — the imperative the help advertises — carries the ж stem.
     (TrainingQuestion.HINT, re.compile(r"подсказ|подскаж|дай совет|посоветуй|помоги с ходом")),
 )
@@ -352,7 +372,10 @@ _REVIEW_PATTERNS: tuple[tuple[ReviewQuestion, re.Pattern[str]], ...] = (
         ReviewQuestion.MOVES,
         re.compile(r"продиктуй (партию|ходы)|прочитай (партию|ходы)|назови все ходы|продиктуй игру"),
     ),
-    (ReviewQuestion.SUMMARY, re.compile(r"разбери (партию|игру)|разбор партии|проанализируй партию|итоги партии")),
+    (
+        ReviewQuestion.SUMMARY,
+        re.compile(r"^разбор$|разбери (партию|игру)|разбор партии|проанализируй партию|итоги партии"),
+    ),
 )
 
 # Puzzle phrases are read before the game commands: «еще задачу» would otherwise
@@ -405,7 +428,10 @@ _PREVIEW_PREFIX = re.compile(
     r"^.*?(?:если (?:я )?(?:сыграю|пойду|походу|сделаю ход)?|стоит ли (?:мне )?(?:играть|ходить))\s*"
 )
 
-_REMATCH = re.compile(r"реванш|еще (одну )?(партию|игру)|сыграем еще|сыграем сложнее|сложнее|потруднее|усложни")
+_REMATCH = re.compile(
+    r"реванш|еще (одну )?(партию|игру)|следующ\w* (игр|парт)|сыграем еще|сыграем сложнее|"
+    r"сложнее|потруднее|усложни|смен(и|им|ить) цвет|поменя\w* цвет"
+)
 _REMATCH_SWAP = re.compile(r"друг(им|ой) цвет|смен(и|им|ить) цвет|поменя\w* цвет|другой стороной")
 _REMATCH_HARDER = re.compile(r"сложнее|потруднее|усложни|уровень выше|посильнее|потяжелее")
 _REMATCH_WHITE = re.compile(r"\bбел(ыми|ые)\b")

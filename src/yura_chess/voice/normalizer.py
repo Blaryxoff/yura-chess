@@ -138,6 +138,11 @@ _CAPTURES = frozenset(
 
 _PROMOTIONS = frozenset({"превращение", "превращаю", "превратить", "превращается", "становится", "ставлю"})
 
+# A promotion piece can be named without the word «превращение», but only in
+# the nominative/accusative and only on the last rank. Instrumental forms such
+# as «c5 d3 конем» describe the moving piece, not a promotion.
+_IMPLICIT_PROMOTION_PIECES = frozenset({"ферзь", "ферзя", "ладья", "ладью", "слон", "слона", "конь", "коня"})
+
 # Filler that carries no move information; unlike unknown words it costs no confidence.
 _FILLER = frozenset(
     {
@@ -194,7 +199,14 @@ def normalize(text: str) -> Normalized:
 
 
 def _tokenize(words: tuple[str, ...], lowered: str) -> tuple[Signature, tuple[str, ...]]:
-    if _CASTLE.search(lowered):
+    castle_word = max((index for index, word in enumerate(words) if _CASTLE.search(word)), default=-1)
+    suffix = words[castle_word + 1 :]
+    later_piece = any(word in _PIECES for word in suffix)
+    later_square = any(
+        word in _FILES_STRICT | _FILES_WEAK and index + 1 < len(suffix) and suffix[index + 1] in _RANKS
+        for index, word in enumerate(suffix)
+    )
+    if castle_word >= 0 and not (later_piece and later_square):
         long_side = any(
             _CASTLE_LONG.match(word) and (index == 0 or words[index - 1] != "не") for index, word in enumerate(words)
         )
@@ -229,7 +241,11 @@ def _tokenize(words: tuple[str, ...], lowered: str) -> tuple[Signature, tuple[st
                 unknown.append(word)
 
     merged = _merge_squares(tokens)
-    return _mark_promotion(merged, promotion_announced), tuple(unknown)
+    destination = next((token.value for token in reversed(merged) if token.kind is TokenKind.SQUARE), None)
+    implicit_promotion = bool(
+        words and words[-1] in _IMPLICIT_PROMOTION_PIECES and destination is not None and destination[1] in {"1", "8"}
+    )
+    return _mark_promotion(merged, promotion_announced or implicit_promotion), tuple(unknown)
 
 
 def _merge_squares(tokens: list[Token]) -> list[Token]:
@@ -249,9 +265,11 @@ def _merge_squares(tokens: list[Token]) -> list[Token]:
 
 def _mark_promotion(tokens: list[Token], announced: bool) -> Signature:
     """A piece named after the destination square is the promotion piece."""
+    if not announced:
+        return tuple(tokens)
     if not tokens or tokens[-1].kind is not TokenKind.PIECE:
         return tuple(tokens)
-    if not announced and not any(token.kind is TokenKind.SQUARE for token in tokens[:-1]):
+    if not any(token.kind is TokenKind.SQUARE for token in tokens[:-1]):
         return tuple(tokens)
     if tokens[-1].value not in {"Q", "R", "B", "N"}:
         return tuple(tokens)

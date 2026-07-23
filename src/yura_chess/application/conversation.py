@@ -146,6 +146,9 @@ class ConversationReply:
     # always complete without it. A puzzle position arrives here because it
     # belongs to no game and so has no `turn`.
     card: BoardCard | TextCard | None = None
+    # Only explicit skill-exit commands end the Alice session. The game remains
+    # server-side and can be resumed on the next launch.
+    end_session: bool = False
 
 
 class ChessEngine(MoveSearch, PositionSearch, Protocol):
@@ -296,6 +299,14 @@ class ConversationService:
             reviewing=False,
         )
 
+        if routed.kind is CommandKind.EXIT:
+            saved = " Партия сохранена." if game is not None and game.status is GameStatus.ACTIVE else ""
+            return ConversationReply(
+                Speech.of(f"До свидания.{saved}"),
+                replace(next_state, pending_action=None),
+                end_session=True,
+            )
+
         if state.pending_action is not None and routed.kind is CommandKind.HELP:
             open_puzzle = self._puzzles.find_open(owner_key)
             mode = _help_mode(game, open_puzzle is not None)
@@ -305,11 +316,71 @@ class ConversationService:
                 game,
             )
 
-        if state.pending_action is not None:
-            confirmation = confirmation_answer(utterance)
+        pending_action = state.pending_action
+        if (
+            pending_action is not None
+            and pending_action.kind is CommandKind.CONTINUE
+            and routed.kind is CommandKind.MOVE
+        ):
+            candidate = game or self._games.find_latest_active_game(owner_key)
+            if candidate is not None and routed.move is not None:
+                result = await self._games.play_move(owner_key, candidate.id, routed.move, request)
+                reply = self._turn_reply(owner_key, result, replace(next_state, pending_action=None), preferences)
+                if result.player_move is not None:
+                    move_text = _display_uci(result.player_move)
+                    reply = replace(reply, speech=Speech.of(f"Ваш ход: {move_text}. {reply.speech.text}"))
+                return self._with_training_warning(owner_key, reply)
+
+        if (
+            pending_action is not None
+            and pending_action.kind is CommandKind.CONTINUE
+            and routed.kind
+            in {
+                CommandKind.START,
+                CommandKind.NEW_GAME,
+            }
+        ):
+            return await self._start(
+                owner_key,
+                utterance,
+                request,
+                replace(next_state, pending_action=None),
+                preferences,
+            )
+
+        if (
+            pending_action is not None
+            and pending_action.kind is CommandKind.CONTINUE
+            and routed.kind in {CommandKind.ILLEGAL_MOVE, CommandKind.CLARIFY}
+        ):
+            next_state = replace(next_state, pending_action=None)
+            pending_action = None
+
+        pending_overrides = {
+            CommandKind.PREFERENCE,
+            CommandKind.PUZZLE,
+            CommandKind.REMATCH,
+            CommandKind.REVIEW,
+            CommandKind.TRAINING,
+            CommandKind.LEVEL_QUERY,
+            CommandKind.GAME_FACT,
+            CommandKind.POSITION_QUERY,
+            CommandKind.REPEAT_HEARD,
+            CommandKind.REPEAT_SLOW,
+        }
+        if pending_action is not None and routed.kind in pending_overrides:
+            next_state = replace(next_state, pending_action=None)
+            pending_action = None
+
+        if pending_action is not None:
+            confirmation = (
+                True
+                if pending_action.kind is CommandKind.CONTINUE and routed.kind is CommandKind.CONTINUE
+                else confirmation_answer(utterance)
+            )
             if confirmation is None:
                 return ConversationReply(Speech.of("Скажите «да» или «нет»."), next_state)
-            confirmed = state.pending_action
+            confirmed = pending_action
             next_state = replace(next_state, pending_action=None)
             if not confirmation:
                 cancelled_state = self._with_game(next_state, game) if game else next_state
@@ -546,7 +617,8 @@ class ConversationService:
             result = await self._games.play_move(owner_key, game.id, routed.move, request)
             reply = self._turn_reply(owner_key, result, next_state, preferences)
             if result.player_move is not None:
-                reply = replace(reply, speech=Speech.of(f"Ваш ход: {result.player_move}. {reply.speech.text}"))
+                move_text = _display_uci(result.player_move)
+                reply = replace(reply, speech=Speech.of(f"Ваш ход: {move_text}. {reply.speech.text}"))
             return self._with_training_warning(owner_key, reply)
 
         return ConversationReply(
@@ -822,7 +894,7 @@ class ConversationService:
         replay_state = replace(state, last_heard=utterance.strip() or state.last_heard)
         reply = self._turn_reply(owner_key, result, replay_state, preferences)
         if result.player_move is not None:
-            return replace(reply, speech=Speech.of(f"Ваш ход: {result.player_move}. {reply.speech.text}"))
+            return replace(reply, speech=Speech.of(f"Ваш ход: {_display_uci(result.player_move)}. {reply.speech.text}"))
         if state.game_id != result.game_id:
             side = "черными" if result.player_color is PlayerColor.BLACK else "белыми"
             game = self._load(owner_key, result.game_id)
@@ -897,8 +969,8 @@ class ConversationService:
         if pending is None:
             return Speech.of("Уточните ход.")
         if len(pending.candidates) == 1:
-            return Speech.of(f"Я услышал «{pending.heard}». Подтвердите ход {pending.candidates[0]}.")
-        choices = ", или ".join(pending.candidates[:6])
+            return Speech.of(f"Я услышал «{pending.heard}». Подтвердите ход {_display_uci(pending.candidates[0])}.")
+        choices = ", или ".join(_display_uci(candidate) for candidate in pending.candidates[:6])
         return Speech.of(f"Ход неоднозначен. Уточните: {choices}.")
 
     @staticmethod
@@ -953,6 +1025,12 @@ def _hint(preferences: PlayerPreferences, text: str) -> str:
     said at every detail level.
     """
     return "" if preferences.detail_level is DetailLevel.BRIEF else f" {text}"
+
+
+def _display_uci(uci: str) -> str:
+    """Separate UCI squares so Alice spells each one instead of reading a word."""
+    promotion = f" {uci[4]}" if len(uci) == 5 else ""
+    return f"{uci[:2]} {uci[2:4]}{promotion}"
 
 
 def _player_to_move(result: TurnResult) -> bool:
