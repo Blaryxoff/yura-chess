@@ -3,6 +3,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import FastAPI, Response, status
 from fastapi.responses import HTMLResponse
@@ -13,7 +14,10 @@ from yura_chess import __version__
 from yura_chess.adapters.alice.webhook import build_router as build_alice_router
 from yura_chess.adapters.yandex_images import BoardImageService
 from yura_chess.engine.stockfish import StockfishPool
+from yura_chess.presentation.dashboard import render_dashboard
 from yura_chess.presentation.website import (
+    FAVICON_PATH,
+    FAVICON_SVG,
     LANDING_PAGE_HTML,
     WEBMASTER_VERIFICATION_HTML,
     WEBMASTER_VERIFICATION_PATH,
@@ -30,6 +34,7 @@ from yura_chess.storage.database import (
 from yura_chess.storage.game_repository import GameRepository
 from yura_chess.storage.review_repository import ReviewRepository
 from yura_chess.storage.transcript_repository import TranscriptRepository
+from yura_chess.storage.usage_repository import UsageRepository
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +121,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(WEBMASTER_VERIFICATION_PATH, response_class=HTMLResponse, include_in_schema=False)
     async def webmaster_verification() -> HTMLResponse:
         return HTMLResponse(WEBMASTER_VERIFICATION_HTML)
+
+    @app.api_route(FAVICON_PATH, methods=["GET", "HEAD"], include_in_schema=False)
+    @app.api_route("/favicon.ico", methods=["GET", "HEAD"], include_in_schema=False)
+    async def favicon() -> Response:
+        return Response(FAVICON_SVG, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
+
+    @app.api_route("/dashboard", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
+    async def dashboard(source: Literal["real", "test", "all"] = "real") -> HTMLResponse:
+        def load() -> str:
+            with session_scope(app.state.session_factory) as session:
+                return render_dashboard(UsageRepository(session).dashboard(source))
+
+        return HTMLResponse(await run_in_threadpool(load), headers={"Cache-Control": "no-store"})
 
     @app.get("/health/live", response_model=HealthResponse, tags=["health"])
     async def health_live() -> HealthResponse:

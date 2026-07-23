@@ -48,8 +48,8 @@ Because the schema is migrated before the new code starts, **each migration must
 stay compatible with the previous release**. That is what makes an application-only
 rollback safe.
 
-The human-like experience release adds `0007_player_preferences` …
-`0013_query_order_and_timestamps` on top of `0006_alice_response_replay`. They are additive and run
+The human-like experience and analytics releases add `0007_player_preferences` …
+`0014_usage_analytics` on top of `0006_alice_response_replay`. They are additive and run
 in that order as one `alembic upgrade head`, so the previously deployed image
 keeps working against the migrated schema.
 
@@ -122,3 +122,4 @@ systemctl enable --now yura-chess-backup.timer yura-chess-restore-smoke.timer
 4. External check through nginx: `curl -sS https://chess.waxim.ru/alice/webhook -X POST -d '{}'`
    returns 422 (the endpoint is reachable and validating), not 502.
 5. Voice-only and screen-device QA in the Alice console before submitting for moderation.
+6. Open `https://chess.waxim.ru/dashboard` and confirm real/test filters and aggregate counts render without identifiers.

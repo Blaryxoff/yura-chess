@@ -78,6 +78,20 @@ Health endpoints:
 - `GET /health/live` — process liveness, independent of the database
 - `GET /health/ready` — returns 503 until the database connection and schema check pass
 - `GET /` — public product page used by players, moderators and brand verification
+- `GET /dashboard` — public aggregate usage dashboard; defaults to real traffic and can show test/all separately
+
+### Usage analytics
+
+The dashboard counts active pseudonymous users, sessions, requests, games and
+player moves. A pseudonymous user is a stable HMAC digest derived with the
+server-only identity salt; the direct Alice identifier is never stored. Durable
+analytics keep only hashed request/session keys, the owner digest, timestamps
+and a `real`/`test` label. Replay payloads and normalized command text retain
+their existing short privacy windows and are not copied into analytics.
+
+Production smoke identities use reserved `deployed-*` prefixes and are marked as
+test traffic before hashing. `/dashboard?source=test` shows them separately;
+`source=all` combines both populations.
 
 ### Screen board lifecycle
 

@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 WEBMASTER_VERIFICATION_PATH = "/yandex_67cb474818f8d2b2.html"
+FAVICON_PATH = "/favicon.svg"
+FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="15" fill="#171a17"/>
+  <circle cx="32" cy="32" r="24" fill="#9bd36a"/>
+  <text x="32" y="45" text-anchor="middle" font-family="Georgia,serif" font-size="40" fill="#121412">♞</text>
+</svg>"""
 WEBMASTER_VERIFICATION_HTML = """<html>
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
@@ -16,6 +22,7 @@ LANDING_PAGE_HTML = """<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Шахматы с Юрой — полноценная голосовая игра в шахматы с Алисой против Stockfish.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <title>Шахматы с Юрой — голосовые шахматы с Алисой</title>
   <style>
     :root {
@@ -133,8 +140,9 @@ LANDING_PAGE_HTML = """<!doctype html>
       <h2>Конфиденциальность</h2>
       <p>
         Навык хранит состояние партий и технические данные, необходимые для продолжения игры и защиты от повторных
-        запросов. Идентификатор пользователя сохраняется в необратимо псевдонимизированном виде. Текст распознанных
-        команд может храниться до 30 дней для улучшения качества распознавания.
+        запросов. Идентификатор пользователя сохраняется в необратимо псевдонимизированном виде. Обезличенные счётчики
+        использования сохраняются без срока для статистики, а текст распознанных команд — до 30 дней для улучшения
+        качества распознавания.
       </p>
       <p>Навык не использует покупки, рекламу или связку сторонних аккаунтов. Исходный код проекта доступен на <a href="https://github.com/Blaryxoff/yura-chess">GitHub</a>.</p>
     </section>

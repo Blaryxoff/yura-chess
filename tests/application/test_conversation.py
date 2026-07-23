@@ -489,7 +489,7 @@ async def test_help_navigation_walks_the_catalogue_forward_back_and_to_the_start
 ) -> None:
     conversation = subject(session_factory, offline_settings)
     opened = await conversation.handle(OWNER, "все команды", context(1))
-    assert "Скажите «дальше»" in opened.speech.text
+    assert "скажите: «дальше»" in opened.speech.text.lower()
 
     forward = await conversation.handle(OWNER, "дальше", context(2), opened.state)
     assert forward.state.help == HelpState(topic=HelpTopic.ALL, page=1)
@@ -701,7 +701,7 @@ async def test_the_whole_catalogue_stays_paged_after_the_new_sections(
     reply = await conversation.handle(OWNER, "все команды", context(1))
 
     pages = 1
-    while "Скажите «дальше»" in reply.speech.text:
+    while "скажите: «дальше»" in reply.speech.text.lower():
         reply = await conversation.handle(OWNER, "дальше", context(pages + 1), reply.state)
         pages += 1
 

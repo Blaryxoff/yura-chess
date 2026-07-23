@@ -121,7 +121,14 @@ async def _run_one(
     is_new_session: bool = False,
 ) -> ConversationState:
     fingerprint = sha256(utterance.encode("utf-8")).hexdigest()
-    request = RequestContext("shell", session_id, str(message_id), fingerprint, is_new_session=is_new_session)
+    request = RequestContext(
+        "shell",
+        session_id,
+        str(message_id),
+        fingerprint,
+        is_new_session=is_new_session,
+        traffic_source="test",
+    )
     reply = await conversation.handle(owner, utterance, request, state)
     print(f"Юра> {reply.speech.text}")
     if reply.speech.tts is not None:

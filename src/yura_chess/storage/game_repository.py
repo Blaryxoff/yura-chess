@@ -32,6 +32,7 @@ from yura_chess.storage.models import (
     PendingEngineTurnRow,
     RequestReplayRow,
 )
+from yura_chess.storage.usage_repository import TrafficSource, UsageRepository
 
 
 class GameNotFoundError(LookupError):
@@ -366,6 +367,7 @@ class GameRepository:
         request_fingerprint: str,
         owner_key: str,
         game_id: str | None = None,
+        traffic_source: TrafficSource = "real",
     ) -> tuple[RequestReplayRow, bool]:
         """Claim the replay key and report whether this call is the one that claimed it.
 
@@ -397,6 +399,14 @@ class GameRepository:
             if concurrent is None:
                 raise
             return self._verify_replay(concurrent, request_fingerprint, owner_key), False
+        UsageRepository(self._session).record_request(
+            owner_key,
+            skill_id,
+            session_id,
+            message_id,
+            traffic_source,
+            datetime.now(UTC).replace(tzinfo=None),
+        )
         return row, True
 
     def purge_request_replays(self, now: datetime, retention_days: int) -> int:

@@ -51,7 +51,7 @@ from yura_chess.application.command_router import (
 )
 from yura_chess.application.conversation import ConversationReply, ConversationService, ConversationState, PendingAction
 from yura_chess.application.game_service import RequestContext
-from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key
+from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key, traffic_source
 from yura_chess.domain.results import TurnResult
 from yura_chess.presentation import help_speech
 from yura_chess.presentation.response_composer import (
@@ -142,6 +142,7 @@ async def _handle(
         fingerprint=_fingerprint(payload),
         is_new_session=payload.session.new,
         timezone=payload.meta.timezone,
+        traffic_source=traffic_source(payload.user_id, payload.session.session_id),
     )
     try:
         cached = conversation.cached_response(owner, context)

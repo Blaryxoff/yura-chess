@@ -87,6 +87,9 @@ Secrets that exist only on Firebat and never in git:
   threshold or hard cache ceiling. An evicted position is regenerated on demand.
 - CPU and memory limits and `restart: unless-stopped` are set per service.
 - Logs use the `json-file` driver capped at 10 MB × 5 files per service.
+- Aggregate usage survives log rotation in `usage_users` and `usage_requests`.
+  These tables contain only HMAC/hashed keys, timestamps and a real/test label;
+  response payloads and command text keep their shorter retention windows.
 - Health checks: the application polls `/health/ready` (database connection,
   schema and ready worker count); MariaDB uses `healthcheck.sh --connect
   --innodb_initialized`. The engine pool count is reported by readiness without
@@ -130,6 +133,9 @@ docker compose --project-name yura-chess-production start app
 ```bash
 # Is the public endpoint alive end to end?
 curl -i -X POST https://chess.waxim.ru/alice/webhook -H 'Content-Type: application/json' -d '{}'
+
+# Aggregate usage dashboard (real traffic by default)
+curl -I https://chess.waxim.ru/dashboard
 
 # Application readiness from the host (never exposed publicly)
 curl -s http://127.0.0.1:8082/health/ready | jq

@@ -303,6 +303,16 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 - [x] Подтвердить Alembic `0013`, два Stockfish workers и неизменность production
 - [x] Mark completed
 
+### Task 21: Добавить долговечную статистику использования и публичный dashboard
+
+**Files:** Create migration, usage repository, dashboard presentation and focused tests; Modify Alice adapter, request recording, nginx and operations docs
+
+- [x] Сохранять бессрочно только псевдонимные ключи request/user/session, timestamp и признак `real`/`test`, не продлевая хранение payload или текста команд
+- [x] Backfill существующие replay-записи и распознавать production smoke по выделенным `deployed-*` идентификаторам до хеширования
+- [x] Показывать на `/dashboard` агрегаты реальных пользователей по умолчанию, отдельные вкладки test/all и дневную динамику без раскрытия идентификаторов
+- [x] Пропустить route через host nginx, включить analytics-таблицы в backup/restore проверки и документировать семантику метрик
+- [ ] Добавить focused migration/storage/HTTP tests, выполнить browser QA и production release только через immutable image и green verification
+
 ## Verification notes
 
 После каждой задачи запускаются focused tests затронутого слоя. После Task 19 обязательны все команды из `Validation Commands`; staging-команда выполняется через активный SSH tunnel, а пропуск `tests/e2e` недопустим. Для тестов storage и миграций используется MariaDB, а не SQLite. Fake engine допустим в unit tests, но staging smoke должен использовать реальный bounded Stockfish pool.

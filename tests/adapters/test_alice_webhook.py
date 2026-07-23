@@ -31,7 +31,7 @@ from yura_chess.application.command_router import (
     ReviewRequest,
 )
 from yura_chess.application.conversation import ConversationService, ConversationState, PendingAction
-from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key
+from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key, traffic_source
 from yura_chess.domain.game import PlayerColor
 from yura_chess.main import create_app
 from yura_chess.presentation.help_speech import HelpState, HelpTopic
@@ -728,6 +728,12 @@ def test_the_owner_key_is_pseudonymous_and_scoped() -> None:
 
     with pytest.raises(UnidentifiedRequestError):
         owner_key(salt, None, None)
+
+
+def test_deployed_smoke_identifiers_are_separated_from_real_traffic() -> None:
+    assert traffic_source("deployed-user-123", "deployed-456") == "test"
+    assert traffic_source("deployed-moderator-123", "return-456") == "test"
+    assert traffic_source(USER_A, "ordinary-yandex-session") == "real"
 
 
 async def test_a_help_card_is_optional_and_the_voice_answer_is_unchanged(

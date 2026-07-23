@@ -395,6 +395,7 @@ class PuzzleService:
             context.message_id,
             context.fingerprint,
             owner_key,
+            traffic_source=context.traffic_source,
         )
 
     @staticmethod

@@ -62,7 +62,7 @@ mariadb_client --execute \
 gunzip --stdout "$ARCHIVE" | mariadb_client "$RESTORE_DB"
 
 echo "==> verifying the restored schema"
-EXPECTED_TABLES=(games game_moves pending_engine_turns request_replays asr_transcripts board_image_cache alembic_version)
+EXPECTED_TABLES=(games game_moves pending_engine_turns request_replays asr_transcripts usage_users usage_requests board_image_cache alembic_version)
 for table in "${EXPECTED_TABLES[@]}"; do
   if ! mariadb_client --skip-column-names --batch --execute \
       "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$RESTORE_DB' AND table_name='$table'" \

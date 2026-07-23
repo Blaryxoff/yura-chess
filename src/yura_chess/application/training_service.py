@@ -325,6 +325,7 @@ class TrainingService:
                 context.message_id,
                 context.fingerprint,
                 owner_key,
+                traffic_source=context.traffic_source,
             )
             current = repository.load(game.id, owner_key)
             if not created:

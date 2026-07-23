@@ -301,3 +301,30 @@ class RequestReplayRow(Base):
     response_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
     alice_response_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+
+class UsageUserRow(Base):
+    """Permanent pseudonymous user classification for aggregate reporting."""
+
+    __tablename__ = "usage_users"
+    __table_args__ = (Index("ix_usage_users_source_last_seen", "traffic_source", "last_seen_at"),)
+
+    owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), primary_key=True)
+    traffic_source: Mapped[str] = mapped_column(Enum("real", "test", name="traffic_source"))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class UsageRequestRow(Base):
+    """One durable request event without raw Alice or conversation data."""
+
+    __tablename__ = "usage_requests"
+    __table_args__ = (
+        Index("ix_usage_requests_created_owner", "created_at", "owner_key"),
+        Index("ix_usage_requests_session_created", "session_key", "created_at"),
+    )
+
+    request_key: Mapped[str] = mapped_column(CHAR(64), primary_key=True)
+    owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), ForeignKey("usage_users.owner_key"))
+    session_key: Mapped[str] = mapped_column(CHAR(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime)

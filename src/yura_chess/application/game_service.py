@@ -18,7 +18,7 @@ import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 import chess
 from sqlalchemy.orm import Session, sessionmaker
@@ -71,6 +71,7 @@ class RequestContext:
     fingerprint: str
     is_new_session: bool = False
     timezone: str | None = None
+    traffic_source: Literal["real", "test"] = "real"
 
 
 class GameService:
@@ -467,6 +468,7 @@ class GameService:
             request.fingerprint,
             owner_key,
             game_id,
+            request.traffic_source,
         )
 
     @staticmethod
