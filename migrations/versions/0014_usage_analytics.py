@@ -33,6 +33,8 @@ def upgrade() -> None:
         sa.Column("first_seen_at", sa.DateTime(), nullable=False),
         sa.Column("last_seen_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("owner_key"),
+        mysql_charset="utf8mb4",
+        mysql_collate="utf8mb4_unicode_ci",
     )
     op.create_index(
         "ix_usage_users_source_last_seen",
@@ -47,6 +49,8 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(["owner_key"], ["usage_users.owner_key"]),
         sa.PrimaryKeyConstraint("request_key"),
+        mysql_charset="utf8mb4",
+        mysql_collate="utf8mb4_unicode_ci",
     )
     op.create_index("ix_usage_requests_created_owner", "usage_requests", ["created_at", "owner_key"])
     op.create_index("ix_usage_requests_session_created", "usage_requests", ["session_key", "created_at"])

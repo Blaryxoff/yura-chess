@@ -307,7 +307,10 @@ class UsageUserRow(Base):
     """Permanent pseudonymous user classification for aggregate reporting."""
 
     __tablename__ = "usage_users"
-    __table_args__ = (Index("ix_usage_users_source_last_seen", "traffic_source", "last_seen_at"),)
+    __table_args__ = (
+        Index("ix_usage_users_source_last_seen", "traffic_source", "last_seen_at"),
+        {"mysql_charset": "utf8mb4", "mysql_collate": "utf8mb4_unicode_ci"},
+    )
 
     owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), primary_key=True)
     traffic_source: Mapped[str] = mapped_column(Enum("real", "test", name="traffic_source"))
@@ -322,6 +325,7 @@ class UsageRequestRow(Base):
     __table_args__ = (
         Index("ix_usage_requests_created_owner", "created_at", "owner_key"),
         Index("ix_usage_requests_session_created", "session_key", "created_at"),
+        {"mysql_charset": "utf8mb4", "mysql_collate": "utf8mb4_unicode_ci"},
     )
 
     request_key: Mapped[str] = mapped_column(CHAR(64), primary_key=True)
