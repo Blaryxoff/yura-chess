@@ -1,43 +1,47 @@
 # Шахматы с Юрой
 
-Voice-first chess for Yandex Alice, created for an experienced blind chess player.
+Голосовые шахматы для Яндекс Алисы, созданные для опытного незрячего шахматиста.
 
-The skill is designed to run a complete game without a screen, tolerate natural Russian chess phrases,
-explain illegal moves, describe the current position, and play against a persistent Stockfish engine.
-Screen-capable devices additionally receive an updated board image.
+Навык позволяет провести полную партию без экрана, понимает естественные русские
+шахматные фразы, объясняет причины недопустимых ходов, описывает текущую позицию
+и играет с помощью постоянно запущенного движка Stockfish. Устройства с экраном
+дополнительно показывают обновлённое изображение доски.
 
-## Status
+Сайт проекта: [chess.waxim.ru](https://chess.waxim.ru).
 
-The complete human-like experience release is deployed to production and is
-awaiting public Yandex moderation. CI, the MariaDB integration suite, local shell
-flows and an opt-in public-webhook smoke replace a separately maintained staging
-environment.
+## Статус
 
-The plans are:
+Полная версия с человекоподобным взаимодействием развёрнута в рабочем окружении
+и ожидает публичной модерации Яндекса. Отдельно поддерживаемого тестового
+окружения нет: его заменяют непрерывная интеграция, интеграционные тесты с
+MariaDB, локальные сценарии в командной строке и опциональная проверка публичного
+вебхука.
 
-- [MVP product plan](docs/plans/product/20260718-yura-chess-mvp.md)
-- [MVP development plan](docs/plans/dev/20260718-yura-chess-mvp.md)
-- [Human-like experience product plan](docs/plans/product/20260719-human-like-chess-experience.md)
-- [Human-like experience development plan](docs/plans/dev/20260719-human-like-chess-experience.md)
+Планы проекта:
 
-## Voice capabilities
+- [Продуктовый план MVP](docs/plans/product/20260718-yura-chess-mvp.md)
+- [План разработки MVP](docs/plans/dev/20260718-yura-chess-mvp.md)
+- [Продуктовый план человекоподобного взаимодействия](docs/plans/product/20260719-human-like-chess-experience.md)
+- [План разработки человекоподобного взаимодействия](docs/plans/dev/20260719-human-like-chess-experience.md)
 
-Everything is reachable by voice alone. The screen card is always optional: the
-voice-only reply carries the complete meaning, and no command is hidden behind
-the board image. Nothing has to be memorised either — «что ты умеешь» (also
-«помощь», «справка», «как играть») opens the spoken catalogue, «дальше»,
-«назад» and «сначала» page through it, «выйти из справки» closes it. Naming a
-section («справка по задачам», or just «задачи» right after the menu) jumps
-straight to it, and «все команды» reads the whole catalogue page by page. When a
-command needs a mode the player is not in, help says what to do first instead of
-advertising it as available.
+## Голосовые возможности
 
-The nine help topics, with representative commands:
+Все функции доступны только голосом. Карточка с доской всегда необязательна:
+голосовой ответ содержит всю необходимую информацию, а за изображением доски не
+скрыто ни одной команды. Запоминать команды тоже не требуется — «что ты умеешь»
+(а также «помощь», «справка», «как играть») открывает голосовой каталог;
+«дальше», «назад» и «сначала» переключают его страницы, а «выйти из справки»
+закрывает каталог. Название раздела («справка по задачам» или просто «задачи»
+сразу после меню) открывает его напрямую, а команда «все команды» зачитывает
+весь каталог постранично. Если команда требует другого режима, справка сначала
+объяснит, как в него перейти, а не будет предлагать команду как уже доступную.
 
-| Topic | Commands |
+Девять разделов справки с примерами команд:
+
+| Раздел | Примеры команд |
 | --- | --- |
-| `ходы` | «пешка е два е четыре», «конь эф три», «е два е четыре», «отмени ход»; «да»/«нет» confirm a re-asked move |
-| `позиция` | «какая позиция» (two ranks per page, «дальше» continues), «что на е четыре», «где белые слоны», «чей ход», «есть ли шах», «какой был последний ход», «что делали черные четыре хода назад» |
+| `ходы` | «пешка е два е четыре», «конь эф три», «е два е четыре», «отмени ход»; «да»/«нет» подтверждают повторно запрошенный ход |
+| `позиция` | «какая позиция» (по две горизонтали на страницу, «дальше» продолжает), «что на е четыре», «где белые слоны», «чей ход», «есть ли шах», «какой был последний ход», «что делали черные четыре хода назад» |
 | `факты` | «за кого я играю», «какой сейчас ход», «сколько ходов мы сыграли», «какие фигуры съедены», «могу ли я сделать рокировку», «кто дает шах», «какой дебют», «какая стадия партии», «что изменил последний ход» |
 | `партия` | «новая игра черными уровень десять», «продолжить последнюю партию», «предлагаю ничью», «сдаюсь», «какой уровень», «реванш другим цветом», «сыграем сложнее» |
 | `настройки` | «говори кратко»/«говори подробно», «говори медленнее»/«говори быстрее», «короткая нотация»/«полная нотация», «доска всегда за белых»/«за черных»/«по моему цвету» |
@@ -46,24 +50,25 @@ The nine help topics, with representative commands:
 | `задачи` | «дай задачу», «задача на мат в один», «задача на вилку», «повтори задачу», «следующая задача», «покажи решение», «какая у меня серия», «вернуться к партии» |
 | `речь` | «что ты услышала», «повтори медленно», «повтори координаты по буквам» |
 
-Preferences (detail, added TTS pauses, notation style, board orientation and the
-default mode of the next game) are stored per player and survive a new Alice
-session. «Говори медленнее» adds pauses and «говори быстрее» removes only the
-pauses the skill itself added — the physical speed of Alice's voice is not
-controlled by the skill. Coach explanations, warnings and hints only exist in the
-coach mode; an ordinary game stays an honest game and comments only on genuinely
-notable events.
+Настройки уровня подробности ответа, дополнительных пауз синтеза речи, стиля нотации,
+ориентации доски и режима следующей партии сохраняются отдельно для каждого
+игрока и не сбрасываются в новой сессии Алисы. Команда «говори медленнее»
+добавляет паузы, а «говори быстрее» убирает только паузы, добавленные самим
+навыком: физическая скорость голоса Алисы не меняется. Объяснения тренера,
+предупреждения и подсказки доступны только в режиме тренера; обычная партия
+остаётся честной и сопровождается комментариями лишь к действительно заметным
+событиям.
 
-## Planned stack
+## Технологический стек
 
 - Python 3.12
-- FastAPI and Pydantic
-- python-chess and native Stockfish
-- MariaDB 11.4 with SQLAlchemy 2 and Alembic
-- pytest, Ruff, and mypy
-- Docker Compose on Firebat
+- FastAPI и Pydantic
+- python-chess и нативный Stockfish
+- MariaDB 11.4, SQLAlchemy 2 и Alembic
+- pytest, Ruff и mypy
+- Docker Compose на сервере Firebat
 
-## Development
+## Разработка
 
 ```bash
 cp .env.example .env
@@ -73,39 +78,45 @@ uv run alembic upgrade head
 uv run uvicorn --factory yura_chess.main:create_app --reload
 ```
 
-Health endpoints:
+Служебные адреса:
 
-- `GET /health/live` — process liveness, independent of the database
-- `GET /health/ready` — returns 503 until the database connection and schema check pass
-- `GET /` — canonical public product page with aggregate usage statistics before the privacy section
-- `GET /robots.txt` and `GET /sitemap.xml` — crawler rules and the canonical search index entry
+- `GET /health/live` — проверка работы процесса, не зависящая от базы данных
+- `GET /health/ready` — возвращает 503, пока не пройдут проверка подключения к базе данных и проверка схемы
+- `GET /` — основная публичная страница проекта с общей статистикой использования перед разделом о конфиденциальности
+- `GET /robots.txt` и `GET /sitemap.xml` — правила для поисковых роботов и основная запись для поискового индекса
 
-### Usage analytics
+### Статистика использования
 
-The dashboard counts active pseudonymous users, sessions, requests, games and
-player moves. A pseudonymous user is a stable HMAC digest derived with the
-server-only identity salt; the direct Alice identifier is never stored. Durable
-analytics keep only hashed request/session keys, the owner digest, timestamps
-and a `real`/`test` label. Replay payloads and normalized command text retain
-their existing short privacy windows and are not copied into analytics.
+Панель статистики считает активных псевдонимных пользователей, сессии, запросы,
+партии и ходы игроков. Псевдоним пользователя — это стабильный HMAC-отпечаток,
+созданный с помощью хранящейся только на сервере соли идентификации; исходный
+идентификатор Алисы никогда не сохраняется. Долгосрочная статистика содержит
+только хешированные ключи запросов и сессий, отпечаток владельца, временные метки
+и признак `real`/`test`. Данные для повтора запросов и нормализованный текст
+команд сохраняются в течение прежних коротких сроков конфиденциальности и не
+копируются в статистику.
 
-Production smoke identities use reserved `deployed-*` prefixes and are marked as
-test traffic before hashing. `/?source=test#statistics` shows them separately;
-`source=all` combines both populations.
+Идентификаторы рабочих проверок используют зарезервированные префиксы
+`deployed-*` и помечаются как тестовый трафик до хеширования. Адрес
+`/?source=test#statistics` показывает их отдельно; `source=all` объединяет обе
+группы.
 
-### Screen board lifecycle
+### Жизненный цикл изображения доски
 
-Board PNGs are rendered in memory and uploaded to Yandex Dialogs only for
-screen-capable requests. Identical positions reuse the same `image_id`. A
-quota-aware TTL/LRU maintenance pass deletes remote images before removing their
-MariaDB mappings, keeps a bounded 2,000-image working set with a 500-image burst,
-and stops new uploads at 80% of the account quota. If an evicted position is
-requested again, it is rendered and uploaded again. Any image API or cleanup
-failure falls back to the complete voice response and never breaks the game.
+Изображения доски в формате PNG создаются в памяти и загружаются в Яндекс Диалоги
+только для запросов с устройств, поддерживающих экран. Одинаковые позиции
+используют один и тот же `image_id`. Обслуживание с учётом квоты, времени жизни
+и алгоритма LRU удаляет удалённые изображения до удаления их связей из MariaDB,
+поддерживает рабочий набор до 2 000 изображений с временным превышением на 500 и
+останавливает новые загрузки при использовании 80% квоты аккаунта. Если
+удалённая из кеша позиция запрошена снова, изображение создаётся и загружается
+заново. Любая ошибка API изображений или очистки приводит к использованию
+полного голосового ответа и никогда не прерывает партию.
 
-### Tests
+### Тесты
 
-Repository tests run against a real MariaDB 11.4 and are skipped without a DSN:
+Тесты репозитория работают с настоящей MariaDB 11.4 и пропускаются без строки
+подключения:
 
 ```bash
 docker exec -i yura-chess-mariadb-1 mariadb -uroot -proot_dev \
@@ -114,18 +125,19 @@ YURA_CHESS_TEST_DATABASE_URL='mysql+pymysql://root:root_dev@127.0.0.1:3307/yura_
   uv run pytest
 ```
 
-The test fixtures build the schema by running the Alembic migrations, so every run exercises them.
+Тестовые фикстуры создают схему с помощью миграций Alembic, поэтому миграции
+проверяются при каждом запуске.
 
-## Shell testing without Alice
+## Тестирование без Алисы в командной строке
 
-The shell runner uses the same command router, game service, speech composer,
-MariaDB state, and Stockfish pool as the Alice webhook:
+Консольный интерфейс использует те же маршрутизатор команд, сервис партии,
+компоновщик речи, состояние MariaDB и пул Stockfish, что и вебхук Алисы:
 
 ```bash
 uv run yura-chess-shell --show-board --show-fen --orientation player
 ```
 
-Run a command sequence without an interactive prompt:
+Последовательность команд можно выполнить без интерактивного приглашения:
 
 ```bash
 uv run yura-chess-shell \
@@ -134,20 +146,21 @@ uv run yura-chess-shell \
   --command "какая позиция"
 ```
 
-`--script path/to/commands.txt` reads one command per line and ignores blank
-lines and comments beginning with `#`. The runner requires the same
-`YURA_CHESS_DATABASE_URL` and `YURA_CHESS_IDENTITY_SALT` environment variables
-as the web application. `--show-board` prints a coordinate-labelled Unicode
-board after every game response; `--show-fen` adds the canonical FEN.
-`--orientation player` follows the selected game color; `white` and `black`
-force a side for debugging. Every shell process starts with the same empty
-new-session request Alice sends, so a persistent `--profile` can test saved-game
-resume and the last-two-moves reminder.
+Параметр `--script path/to/commands.txt` читает по одной команде на строку и
+пропускает пустые строки и комментарии, начинающиеся с `#`. Консольному
+интерфейсу нужны те же переменные окружения `YURA_CHESS_DATABASE_URL` и
+`YURA_CHESS_IDENTITY_SALT`, что и веб-приложению. Параметр `--show-board`
+выводит доску в Юникоде с координатами после каждого ответа игры, а `--show-fen`
+добавляет каноническую строку FEN. Значение `--orientation player` следует за цветом,
+выбранным для партии; `white` и `black` принудительно задают сторону для отладки.
+Каждый консольный процесс начинает работу с тем же пустым запросом новой сессии,
+который отправляет Алиса, поэтому постоянный профиль `--profile` позволяет
+проверить продолжение сохранённой партии и напоминание о двух последних ходах.
 
-The planned production webhook is `https://chess.waxim.ru/alice/webhook`.
+Рабочий вебхук: `https://chess.waxim.ru/alice/webhook`.
 
-Product copy for the Yandex Dialogs listing is in
-[`docs/yandex-skill-description.md`](docs/yandex-skill-description.md). The
-roadmaps behind the voice puzzles and the human-like experience are
-[`docs/product/puzzles-roadmap.md`](docs/product/puzzles-roadmap.md) and
+Текст для публикации в каталоге Яндекс Диалогов находится в
+[`docs/yandex-skill-description.md`](docs/yandex-skill-description.md). Планы
+развития голосовых задач и человекоподобного взаимодействия находятся в
+[`docs/product/puzzles-roadmap.md`](docs/product/puzzles-roadmap.md) и
 [`docs/product/human-like-experience-roadmap.md`](docs/product/human-like-experience-roadmap.md).
