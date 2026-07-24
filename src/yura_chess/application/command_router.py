@@ -22,10 +22,10 @@ from yura_chess.domain.preferences import (
     PlayerPreferences,
 )
 from yura_chess.presentation import game_facts
-from yura_chess.voice.illegal_move import Explanation, explain
+from yura_chess.voice.illegal_move import Explanation, IllegalReason, explain
 from yura_chess.voice.move_resolver import resolve
 from yura_chess.voice.normalizer import normalize
-from yura_chess.voice.types import MoveResolution, Normalized, ResolutionStatus
+from yura_chess.voice.types import MoveResolution, Normalized, ResolutionStatus, TokenKind
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.7
 
@@ -47,6 +47,7 @@ class CommandKind(StrEnum):
     HELP = "help"
     HELP_EXIT = "help_exit"
     EXIT = "exit"
+    BOARD_SETUP = "board_setup"
     # A durable presentation setting: how much is said, how, and from which side.
     PREFERENCE = "preference"
     # A new game that inherits colour and level from the previous one.
@@ -195,6 +196,8 @@ class RoutedCommand:
     review: ReviewRequest | None = None
     # Which puzzle question was asked; set only for `PUZZLE`.
     puzzle: PuzzleRequest | None = None
+    # Number of complete player+engine turns requested by an undo command.
+    undo_count: int = 1
 
 
 # Help is matched before everything else: «справка по задачам» names a help
@@ -231,12 +234,27 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         re.compile(r"отмен(и|ить|яю)|откат(и|ить)|верн(и|уть)(?: последний)?(?: ход)?|^ход назад$|переходить"),
     ),
     (CommandKind.START, re.compile(r"начать игру|начн?ем игру|давай играть|поехали|старт")),
-    (CommandKind.CONTINUE, re.compile(r"продолж")),
+    (
+        CommandKind.CONTINUE,
+        re.compile(
+            r"^(?:алиса )?продолж(?:ай|аем|им|ить)?(?: (?:игру|партию|последнюю партию))?$|"
+            r"^(?:алиса )?(?:теперь )?твой ход$"
+        ),
+    ),
     (
         CommandKind.EXIT,
         re.compile(
-            r"^(выход|выйти|стоп)$|выключи( этот)? навык|отключи( этот)? навык|"
-            r"выйди из (шахмат|навыка)|до свидания|закрой навык"
+            r"^(выход|выйти|стоп)$|(?:выключи|отключи|убери)( этот)? навык|"
+            r"(?:выйди|выйти) из (шахмат|навыка|игры|партии)|до свидания|закрой навык|"
+            r"(?:закончить|закрой|останови) (навык|шахматы)|не хочу (больше )?играть|хватит играть"
+        ),
+    ),
+    (
+        CommandKind.BOARD_SETUP,
+        re.compile(
+            r"\b(?:до)?расстав(?:лю|им|ить|ляю|ил|ила|или)\b|принес\w* (?:свои )?шахмат|"
+            r"игра\w* (?:на|с) (?:своей )?доск|подожди,? (?:я )?расстав|"
+            r"ты играешь (?:за )?черн"
         ),
     ),
     (
@@ -255,10 +273,33 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"кака(я|ю) позици|позици(я|ю)|расстановк|\bгде\b|что на|покажи доску|какие фигуры|сколько фигур|прочитай|"
             r"чей ход|кто ходит|кому ходить|моя очередь|есть ли шах|кто под шахом|шах сейчас|"
             r"последн(ий|его) ход|как (ты|я) походил|ход(а|ов)? назад|раз(а)? назад|повтори координат|"
-            r"что (сделали|делали) (белые|черные)|назови еще раз (свой|последний) ход|^(дальше|далее)$"
+            r"что (сделали|делали) (белые|черные)|назови еще раз (свой|последний) ход|"
+            r"какой (ты )?ход (сделал|сделала|сыграл|сыграла)|"
+            r"повтори (свой|последний свой|предыдущий свой) ход|твой последний ход|^(дальше|далее)$"
         ),
     ),
 )
+
+_INCOMPLETE_MOVE = re.compile(r"^(мой ход|я хожу|я буду ходить)$")
+_MOVE_SEQUENCE = re.compile(r"\b(?:потом|затем|после этого)\b")
+_UNDO_COUNT = re.compile(
+    r"\b(?P<count>\d+|один|одну|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять)\s+"
+    r"(?:полных?\s+)?ход"
+)
+_COUNT_VALUES = {
+    "один": 1,
+    "одну": 1,
+    "два": 2,
+    "две": 2,
+    "три": 3,
+    "четыре": 4,
+    "пять": 5,
+    "шесть": 6,
+    "семь": 7,
+    "восемь": 8,
+    "девять": 9,
+    "десять": 10,
+}
 
 # Settings are matched before the control table, so «говори медленнее» is a
 # preference while «повтори медленно» stays a repeat of the previous answer.
@@ -485,7 +526,13 @@ def route(
         if pattern.search(normalized.text):
             heard = last_heard if kind is CommandKind.REPEAT_HEARD else None
             # A control command answers the clarification by replacing it.
-            return RoutedCommand(kind, normalized, heard=heard, clarification=None)
+            return RoutedCommand(
+                kind,
+                normalized,
+                heard=heard,
+                clarification=None,
+                undo_count=_undo_count(normalized.text) if kind is CommandKind.UNDO else 1,
+            )
 
     if pending is not None:
         answered = _answer_clarification(normalized, pending)
@@ -494,6 +541,13 @@ def route(
 
     if board is None:
         return RoutedCommand(CommandKind.UNKNOWN, normalized)
+
+    if _INCOMPLETE_MOVE.fullmatch(normalized.text) or contains_multiple_moves(normalized):
+        return RoutedCommand(
+            CommandKind.CLARIFY,
+            normalized,
+            clarification=PendingClarification(heard=normalized.text),
+        )
 
     resolution = resolve(normalized, board)
     return _from_resolution(normalized, resolution, board, confidence_threshold)
@@ -583,12 +637,15 @@ def _from_resolution(
             return RoutedCommand(CommandKind.UNKNOWN, normalized, resolution=resolution)
         # Nothing legal matched a move the player did describe: say why, rather
         # than asking them to repeat a move that would stay illegal.
-        return RoutedCommand(
-            CommandKind.ILLEGAL_MOVE,
-            normalized,
-            resolution=resolution,
-            explanation=explain(resolution.recognized, board),
-        )
+        explanation = explain(resolution.recognized, board)
+        if explanation.reason is IllegalReason.UNCLEAR:
+            return RoutedCommand(
+                CommandKind.CLARIFY,
+                normalized,
+                resolution=resolution,
+                clarification=PendingClarification(heard=normalized.text),
+            )
+        return RoutedCommand(CommandKind.ILLEGAL_MOVE, normalized, resolution=resolution, explanation=explanation)
     # Ambiguous and low-confidence readings wait for the player instead of
     # touching the game.
     return RoutedCommand(
@@ -597,3 +654,25 @@ def _from_resolution(
         resolution=resolution,
         clarification=PendingClarification(heard=normalized.text, candidates=resolution.candidates),
     )
+
+
+def _undo_count(text: str) -> int:
+    match = _UNDO_COUNT.search(text)
+    if match is None:
+        return 1
+    value = match.group("count")
+    count = int(value) if value.isdigit() else _COUNT_VALUES[value]
+    return max(1, min(count, 20))
+
+
+def contains_multiple_moves(normalized: Normalized) -> bool:
+    parts = _MOVE_SEQUENCE.split(normalized.text, maxsplit=1)
+    if len(parts) == 2 and all(normalize(part).has_move_tokens for part in parts):
+        return True
+    squares = sum(token.kind is TokenKind.SQUARE for token in normalized.signature)
+    pieces = sum(token.kind is TokenKind.PIECE for token in normalized.signature)
+    if squares > 2:
+        return True
+    if squares >= 2 and pieces >= 2:
+        return True
+    return squares >= 2 and bool(re.search(r"\b(ваш|твой) ход\b", normalized.text))

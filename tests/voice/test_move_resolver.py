@@ -208,6 +208,11 @@ def test_two_rooks_on_one_square_stay_ambiguous() -> None:
         # A polite aside must not castle to the other side.
         ("рокировка, большое спасибо", "e1g1"),
         ("рокировка не длинная", "e1g1"),
+        ("0-0", "e1g1"),
+        ("00", "e1g1"),
+        ("0 тире 0", "e1g1"),
+        ("рокирую в короткую сторону", "e1g1"),
+        ("0-0-0", "e1c1"),
     ],
 )
 def test_resolves_castling(utterance: str, expected: str) -> None:
@@ -338,6 +343,40 @@ def test_control_commands_are_separated_before_move_resolution(utterance: str, e
 )
 def test_production_command_phrases_are_routed(utterance: str, expected: CommandKind) -> None:
     assert route(utterance, chess.Board()).kind is expected
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("убери навык", CommandKind.EXIT),
+        ("выйти из партии", CommandKind.EXIT),
+        ("не хочу играть", CommandKind.EXIT),
+        ("алиса твой ход", CommandKind.CONTINUE),
+        ("повтори свой ход", CommandKind.POSITION_QUERY),
+        ("сейчас я расставлю фигуры", CommandKind.BOARD_SETUP),
+    ],
+)
+def test_observed_production_phrases_are_routed(utterance: str, expected: CommandKind) -> None:
+    assert route(utterance, chess.Board()).kind is expected
+
+
+def test_unrelated_continue_phrase_is_not_a_chess_command() -> None:
+    assert route("алиса продолжай трек", chess.Board()).kind is CommandKind.UNKNOWN
+
+
+def test_incomplete_and_compound_moves_require_clarification() -> None:
+    assert route("я конем хожу", chess.Board()).kind is CommandKind.CLARIFY
+    assert route("мой ход", chess.Board()).kind is CommandKind.CLARIFY
+    assert route("е 2 е 4 е 7 е 5", chess.Board()).kind is CommandKind.CLARIFY
+    assert route("конь эф три слон цэ четыре", chess.Board()).kind is CommandKind.CLARIFY
+    assert route("рокировка потом конь эф три", chess.Board()).kind is CommandKind.CLARIFY
+
+
+def test_undo_command_carries_the_requested_full_move_count() -> None:
+    routed = route("откати прошлые два полных хода", chess.Board())
+
+    assert routed.kind is CommandKind.UNDO
+    assert routed.undo_count == 2
 
 
 def test_occupied_destination_is_explained_for_a_piece_with_one_geometric_source() -> None:

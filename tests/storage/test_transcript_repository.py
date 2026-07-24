@@ -46,6 +46,7 @@ def test_schema_cannot_hold_audio_tokens_payloads_or_alice_identifiers() -> None
     assert columns == {
         "id",
         "owner_key",
+        "request_key",
         "normalized_text",
         "outcome",
         "confidence_percent",
@@ -63,12 +64,14 @@ def test_records_only_the_normalised_utterance(session: Session, transcripts: Tr
         confidence=0.85,
         candidate_count=1,
         legal_move_count=20,
+        request_key="f" * 64,
     )
     session.commit()
 
     stored = session.get(AsrTranscriptRow, row.id)
     assert stored is not None
     assert stored.owner_key == OWNER
+    assert stored.request_key == "f" * 64
     assert stored.normalized_text == "пешка е два е четыре"
     assert stored.outcome == ResolutionStatus.RESOLVED.value
     assert stored.confidence_percent == 85

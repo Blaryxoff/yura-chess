@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timedelta
 from hashlib import sha256
 from typing import Literal
 
-from sqlalchemy import case, text
+from sqlalchemy import case, func, text
 from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.orm import Session
 
@@ -61,6 +61,10 @@ class UsageRepository:
         message_id: str,
         source: TrafficSource,
         created_at: datetime,
+        release_id: str = "unknown",
+        command_kind: str | None = None,
+        resolution_status: str | None = None,
+        routing_outcome: str | None = None,
     ) -> None:
         """Upsert one user and one idempotent request event without raw identifiers."""
         user = insert(UsageUserRow).values(
@@ -87,12 +91,33 @@ class UsageRepository:
         )
 
         request = insert(UsageRequestRow).values(
-            request_key=_key(skill_id, session_id, message_id),
+            request_key=request_key(skill_id, session_id, message_id),
             owner_key=owner_key,
             session_key=_key(skill_id, session_id),
+            release_id=release_id[:128],
+            command_kind=command_kind,
+            resolution_status=resolution_status,
+            routing_outcome=routing_outcome,
             created_at=created_at,
         )
-        self._session.execute(request.on_duplicate_key_update(request_key=request.inserted.request_key))
+        self._session.execute(
+            request.on_duplicate_key_update(
+                release_id=case(
+                    (request.inserted.release_id != "unknown", request.inserted.release_id),
+                    else_=UsageRequestRow.release_id,
+                ),
+                command_kind=func.coalesce(request.inserted.command_kind, UsageRequestRow.command_kind),
+                resolution_status=func.coalesce(
+                    request.inserted.resolution_status,
+                    UsageRequestRow.resolution_status,
+                ),
+                routing_outcome=func.coalesce(request.inserted.routing_outcome, UsageRequestRow.routing_outcome),
+                created_at=case(
+                    (request.inserted.created_at < UsageRequestRow.created_at, request.inserted.created_at),
+                    else_=UsageRequestRow.created_at,
+                ),
+            )
+        )
 
     def dashboard(
         self,
@@ -249,6 +274,11 @@ class UsageRepository:
 
 def _key(*parts: str) -> str:
     return sha256("\0".join(parts).encode()).hexdigest()
+
+
+def request_key(skill_id: str, session_id: str, message_id: str) -> str:
+    """Return the privacy-safe durable key shared by usage and retained transcripts."""
+    return _key(skill_id, session_id, message_id)
 
 
 def _add_months(value: date, count: int) -> date:

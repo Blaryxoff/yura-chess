@@ -22,6 +22,7 @@ from yura_chess.application.command_router import (
     RoutedCommand,
     TrainingQuestion,
     confirmation_answer,
+    contains_multiple_moves,
     route,
 )
 from yura_chess.application.game_service import GameService, MoveSearch, RequestContext
@@ -56,6 +57,10 @@ from yura_chess.storage.database import run_transaction_with_deadlock_retry, ses
 from yura_chess.storage.preferences_repository import PreferencesRepository
 from yura_chess.storage.review_repository import ReviewRepository
 from yura_chess.storage.transcript_repository import TranscriptRepository
+from yura_chess.storage.usage_repository import UsageRepository
+from yura_chess.storage.usage_repository import request_key as usage_request_key
+from yura_chess.voice.move_resolver import recognize
+from yura_chess.voice.normalizer import normalize
 
 MAX_SKILL_LEVEL = 20
 # One rematch step up is two of the twenty engine levels: less is not audible.
@@ -258,6 +263,7 @@ class ConversationService:
             # An unfinished puzzle is asked about as a puzzle, never as a game.
             unsolved = self._puzzles.find_open(owner_key)
             if unsolved is not None:
+                self._record(owner_key, route(""), None, request, state.pending_action)
                 return self._with_puzzle_card(
                     owner_key,
                     ConversationReply(
@@ -269,6 +275,7 @@ class ConversationService:
             candidate = game if game is not None and game.status is GameStatus.ACTIVE else None
             candidate = candidate or self._games.find_latest_active_game(owner_key)
             if candidate is not None:
+                self._record(owner_key, route(""), None, request, state.pending_action)
                 prompt_state = replace(
                     self._with_game(state, candidate),
                     pending_action=PendingAction(CommandKind.CONTINUE, ""),
@@ -286,7 +293,7 @@ class ConversationService:
             last_heard=state.last_heard,
             confidence_threshold=self._settings.voice_move_confidence_threshold,
         )
-        self._record(owner_key, routed, board)
+        self._record(owner_key, routed, board, request, state.pending_action)
 
         repeated = {CommandKind.REPEAT_HEARD, CommandKind.REPEAT_SLOW}
         next_heard = state.last_heard if routed.kind in repeated else routed.normalized.text
@@ -367,6 +374,7 @@ class ConversationService:
             CommandKind.POSITION_QUERY,
             CommandKind.REPEAT_HEARD,
             CommandKind.REPEAT_SLOW,
+            CommandKind.BOARD_SETUP,
         }
         if pending_action is not None and routed.kind in pending_overrides:
             next_state = replace(next_state, pending_action=None)
@@ -473,6 +481,25 @@ class ConversationService:
                 Speech.of(_preference_confirmation(routed.preference)),
                 self._with_game(next_state, game) if game is not None else next_state,
                 preferences=updated,
+            )
+        if routed.kind is CommandKind.BOARD_SETUP:
+            if game is None:
+                started = await self._start(owner_key, "", request, next_state, preferences)
+                return replace(
+                    started,
+                    speech=Speech.of(
+                        "Хорошо, расставляйте фигуры. Вы играете белыми, я черными. "
+                        "Когда будете готовы, назовите только свой ход. Мои ходы я буду объявлять."
+                    ),
+                )
+            side = "черными" if game.player_color is PlayerColor.BLACK else "белыми"
+            opponent = "белыми" if game.player_color is PlayerColor.BLACK else "черными"
+            return ConversationReply(
+                Speech.of(
+                    f"Хорошо, расставляйте фигуры. Вы играете {side}, я {opponent}. "
+                    "Когда будете готовы, назовите только свой ход. Мои ходы я буду объявлять."
+                ),
+                self._with_game(next_state, game),
             )
         if routed.kind is CommandKind.REMATCH and routed.rematch is not None:
             base = game or self._games.find_latest_game(owner_key)
@@ -603,9 +630,10 @@ class ConversationService:
             result = await self._games.claim_draw(owner_key, game.id, request)
             return self._turn_reply(owner_key, result, next_state, preferences)
         if routed.kind is CommandKind.UNDO:
-            result = await self._games.undo_turn(owner_key, game.id, request)
+            result = await self._games.undo_turn(owner_key, game.id, request, routed.undo_count)
+            undone = int(result.detail or "1") if result.status is TurnStatus.OK else 0
             speech = (
-                Speech.of("Последний полный ход отменен. Ваш ход.")
+                Speech.of(f"{_undo_confirmation(undone)} Ваш ход.")
                 if result.status is TurnStatus.OK
                 else compose_turn(result)
             )
@@ -968,6 +996,16 @@ class ConversationService:
     def _clarification_speech(pending: PendingClarification | None) -> Speech:
         if pending is None:
             return Speech.of("Уточните ход.")
+        if not pending.candidates:
+            normalized = normalize(pending.heard)
+            if contains_multiple_moves(normalized):
+                return Speech.of("Я услышал несколько ходов. Назовите только ваш текущий ход.")
+            recognized = recognize(normalized.signature)
+            if recognized.piece is not None and recognized.destination is None:
+                return Speech.of(f"Куда должен пойти {_spoken_piece(recognized.piece)}? Назовите поле.")
+            if recognized.destination is not None:
+                return Speech.of(f"Какой фигурой вы хотите пойти на {recognized.destination}?")
+            return Speech.of("Назовите ваш ход: фигуру и поле назначения.")
         if len(pending.candidates) == 1:
             return Speech.of(f"Я услышал «{pending.heard}». Подтвердите ход {_display_uci(pending.candidates[0])}.")
         choices = ", или ".join(_display_uci(candidate) for candidate in pending.candidates[:6])
@@ -978,19 +1016,43 @@ class ConversationService:
         words = [word for word in text.split() if word not in {"—", "-"}]
         return Speech(text=f"Повторяю: {text}", tts="Повторяю медленно. " + ", ".join(words))
 
-    def _record(self, owner_key: str, routed: RoutedCommand, board: chess.Board | None) -> None:
-        if not routed.normalized.text:
-            return
+    def _record(
+        self,
+        owner_key: str,
+        routed: RoutedCommand,
+        board: chess.Board | None,
+        request: RequestContext,
+        pending_action: PendingAction | None,
+    ) -> None:
         resolution = routed.resolution
+        confirmation = pending_action is not None and confirmation_answer(routed.normalized.text) is not None
+        empty = not routed.normalized.text
+        command_kind = "empty" if empty else "confirmation" if confirmation else routed.kind.value
+        routing_outcome = "empty" if empty else "confirmation" if confirmation else _routing_outcome(routed.kind)
+        resolved_request_key = usage_request_key(request.skill_id, request.session_id, request.message_id)
         with session_scope(self._session_factory) as session:
-            TranscriptRepository(session, self._settings.asr_transcript_text_limit).record(
+            UsageRepository(session).record_request(
                 owner_key,
-                routed.normalized.text,
-                resolution.status if resolution is not None else routed.kind,
-                confidence=resolution.confidence if resolution is not None else 0.0,
-                candidate_count=len(resolution.candidates) if resolution is not None else 0,
-                legal_move_count=board.legal_moves.count() if board is not None else 0,
+                request.skill_id,
+                request.session_id,
+                request.message_id,
+                request.traffic_source,
+                datetime.now(UTC).replace(tzinfo=None),
+                release_id=self._settings.release_id,
+                command_kind=command_kind,
+                resolution_status=resolution.status.value if resolution is not None and not confirmation else None,
+                routing_outcome=routing_outcome,
             )
+            if routed.normalized.text:
+                TranscriptRepository(session, self._settings.asr_transcript_text_limit).record(
+                    owner_key,
+                    routed.normalized.text,
+                    "confirmation" if confirmation else resolution.status if resolution is not None else routed.kind,
+                    confidence=resolution.confidence if resolution is not None else 0.0,
+                    candidate_count=len(resolution.candidates) if resolution is not None else 0,
+                    legal_move_count=board.legal_moves.count() if board is not None else 0,
+                    request_key=resolved_request_key,
+                )
 
 
 # Commands that are about a game, not about the puzzle that happens to be open.
@@ -1027,10 +1089,32 @@ def _hint(preferences: PlayerPreferences, text: str) -> str:
     return "" if preferences.detail_level is DetailLevel.BRIEF else f" {text}"
 
 
+def _routing_outcome(kind: CommandKind) -> str:
+    if kind is CommandKind.UNKNOWN:
+        return "unknown"
+    if kind is CommandKind.ILLEGAL_MOVE:
+        return "illegal_move"
+    if kind is CommandKind.CLARIFY:
+        return "clarification"
+    return "handled"
+
+
 def _display_uci(uci: str) -> str:
     """Separate UCI squares so Alice spells each one instead of reading a word."""
     promotion = f" {uci[4]}" if len(uci) == 5 else ""
     return f"{uci[:2]} {uci[2:4]}{promotion}"
+
+
+def _spoken_piece(piece: str) -> str:
+    return {"P": "пешка", "N": "конь", "B": "слон", "R": "ладья", "Q": "ферзь", "K": "король"}[piece]
+
+
+def _undo_confirmation(count: int) -> str:
+    if count == 1:
+        return "Один полный ход отменен."
+    if 2 <= count <= 4:
+        return f"{count} полных хода отменено."
+    return f"{count} полных ходов отменено."
 
 
 def _player_to_move(result: TurnResult) -> bool:

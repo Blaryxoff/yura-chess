@@ -28,9 +28,11 @@ class TranscriptRepository:
         confidence: float = 0.0,
         candidate_count: int = 0,
         legal_move_count: int = 0,
+        request_key: str | None = None,
     ) -> AsrTranscriptRow:
         row = AsrTranscriptRow(
             owner_key=owner_key,
+            request_key=request_key,
             normalized_text=normalized_text[: self._text_limit],
             outcome=str(outcome),
             confidence_percent=round(max(0.0, min(confidence, 1.0)) * 100),

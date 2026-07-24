@@ -10,6 +10,7 @@ services:
         required: false
     environment:
       YURA_CHESS_ENVIRONMENT: production
+      YURA_CHESS_RELEASE_ID: ${YURA_CHESS_IMAGE}
       TZ: UTC
     depends_on:
       mariadb:

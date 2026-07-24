@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import chess
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -26,8 +27,10 @@ from yura_chess.presentation.response_composer import BoardCard
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
+from yura_chess.storage.models import AsrTranscriptRow, UsageRequestRow
 from yura_chess.storage.preferences_repository import PreferencesRepository
 from yura_chess.storage.review_repository import ReviewRepository
+from yura_chess.storage.usage_repository import request_key
 
 pytestmark = pytest.mark.anyio
 
@@ -92,6 +95,108 @@ async def test_voice_move_runs_through_router_game_and_speech(
     assert reply.turn.engine_move is not None
     assert "Ваш ход: e2 e4" in reply.speech.text
     assert "Мой ход" in reply.speech.text
+
+
+async def test_incomplete_and_compound_moves_get_specific_non_mutating_clarifications(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    incomplete = await conversation.handle(OWNER, "я конем хожу", context(2), started.state)
+    compound = await conversation.handle(OWNER, "е 2 е 4 е 7 е 5", context(3), incomplete.state)
+    sequenced = await conversation.handle(OWNER, "рокировка потом конь эф три", context(4), compound.state)
+
+    assert incomplete.speech.text == "Куда должен пойти конь? Назовите поле."
+    assert compound.speech.text == "Я услышал несколько ходов. Назовите только ваш текущий ход."
+    assert sequenced.speech.text == "Я услышал несколько ходов. Назовите только ваш текущий ход."
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).load(started.state.game_id or "", OWNER).moves == ()
+
+
+async def test_physical_board_setup_and_exit_phrases_are_voice_complete(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    setup = await conversation.handle(OWNER, "ладно сейчас я расставлю", context(1))
+    exited = await conversation.handle(OWNER, "убери навык", context(2), setup.state)
+
+    assert "Вы играете белыми, я черными" in setup.speech.text
+    assert "назовите только свой ход" in setup.speech.text
+    assert exited.end_session is True
+    assert "Партия сохранена" in exited.speech.text
+
+
+async def test_your_turn_and_repeat_your_move_answer_from_canonical_state(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        game = repository.create_game(OWNER, PlayerColor.WHITE)
+        game = repository.append_moves(game.id, OWNER, game.revision, ("e2e4", "e7e5"))
+    state = ConversationState(game.id, game.revision)
+    conversation = subject(session_factory, offline_settings)
+
+    repeated = await conversation.handle(OWNER, "повтори свой ход", context(1), state)
+    prompted = await conversation.handle(OWNER, "алиса твой ход", context(2), repeated.state)
+
+    assert "e7" in repeated.speech.text and "e5" in repeated.speech.text
+    assert "Ваш ход" in prompted.speech.text
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).load(game.id, OWNER).moves == ("e2e4", "e7e5")
+
+
+async def test_multi_undo_is_spoken_and_rewinds_complete_turns(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        game = repository.create_game(OWNER, PlayerColor.WHITE)
+        game = repository.append_moves(
+            game.id,
+            OWNER,
+            game.revision,
+            ("e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "g8f6"),
+        )
+    state = ConversationState(game.id, game.revision)
+
+    reply = await subject(session_factory, offline_settings).handle(
+        OWNER,
+        "откати два полных хода",
+        context(1),
+        state,
+    )
+
+    assert reply.speech.text == "2 полных хода отменено. Ваш ход."
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).load(game.id, OWNER).moves == ("e2e4", "e7e5")
+
+
+async def test_confirmation_analytics_are_request_linked_and_not_reported_as_unmatched(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    asked = await conversation.handle(OWNER, "новая игра", context(2), started.state)
+    await conversation.handle(OWNER, "да", context(3), asked.state)
+    key = request_key("shell", "conversation", "3")
+
+    with session_scope(session_factory) as session:
+        usage = session.get(UsageRequestRow, key)
+        transcript = session.scalars(select(AsrTranscriptRow).where(AsrTranscriptRow.request_key == key)).one()
+
+    assert usage is not None
+    assert (usage.command_kind, usage.resolution_status, usage.routing_outcome) == (
+        "confirmation",
+        None,
+        "confirmation",
+    )
+    assert transcript.outcome == "confirmation"
 
 
 async def test_illegal_move_explains_the_rule_without_changing_the_game(
@@ -268,6 +373,10 @@ async def test_new_session_offers_the_latest_unfinished_game_and_last_two_moves(
     assert "Последние два хода" in prompt.speech.text
     assert "пешка e2 e4" in prompt.speech.text
     assert "пешка e7 e5" in prompt.speech.text
+    with session_scope(session_factory) as session:
+        usage = session.get(UsageRequestRow, request_key("shell", "conversation", "1"))
+    assert usage is not None
+    assert (usage.release_id, usage.command_kind, usage.routing_outcome) == ("development", "empty", "empty")
 
     resumed = await conversation.handle(OWNER, "да", context(2), prompt.state)
 

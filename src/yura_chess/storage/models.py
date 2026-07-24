@@ -23,6 +23,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 OWNER_KEY_LENGTH = 64
 FINGERPRINT_LENGTH = 64
 TRANSCRIPT_TEXT_LENGTH = 255
+RELEASE_ID_LENGTH = 128
 POSITION_HASH_LENGTH = 64
 IMAGE_ID_LENGTH = 128
 PUZZLE_ID_LENGTH = 16
@@ -109,6 +110,7 @@ class AsrTranscriptRow(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), index=True)
+    request_key: Mapped[str | None] = mapped_column(CHAR(64), index=True)
     normalized_text: Mapped[str] = mapped_column(String(TRANSCRIPT_TEXT_LENGTH))
     outcome: Mapped[str] = mapped_column(String(16))
     # Percent rather than a float: the corpus is aggregated, not recomputed.
@@ -331,4 +333,8 @@ class UsageRequestRow(Base):
     request_key: Mapped[str] = mapped_column(CHAR(64), primary_key=True)
     owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), ForeignKey("usage_users.owner_key"))
     session_key: Mapped[str] = mapped_column(CHAR(64))
+    release_id: Mapped[str] = mapped_column(String(RELEASE_ID_LENGTH), default="unknown", server_default="unknown")
+    command_kind: Mapped[str | None] = mapped_column(String(32))
+    resolution_status: Mapped[str | None] = mapped_column(String(16))
+    routing_outcome: Mapped[str | None] = mapped_column(String(24))
     created_at: Mapped[datetime] = mapped_column(DateTime)

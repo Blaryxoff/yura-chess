@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     )
 
     environment: Literal["development", "test", "production"] = "development"
+    release_id: str = Field(default="development", min_length=1, max_length=128)
     host: str = "0.0.0.0"
     port: int = 8000
     # No default: the DSN carries credentials and must come from the environment.

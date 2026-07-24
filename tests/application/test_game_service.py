@@ -434,6 +434,34 @@ async def test_undo_for_a_black_player_keeps_the_engine_opening(session_factory:
     assert load(session_factory, game_id).moves == ("e2e4",)
 
 
+async def test_undo_can_take_back_multiple_complete_turns(session_factory: sessionmaker[Session]) -> None:
+    game_id = seed_game(
+        session_factory,
+        moves=("e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "g8f6"),
+    )
+
+    result = await service(session_factory, FakeEngine()).undo_turn(OWNER, game_id, request("m1"), full_moves=2)
+
+    assert result.status is TurnStatus.OK
+    assert result.detail == "2"
+    assert load(session_factory, game_id).moves == ("e2e4", "e7e5")
+
+
+async def test_multi_undo_caps_at_available_history_and_preserves_black_opening(
+    session_factory: sessionmaker[Session],
+) -> None:
+    game_id = seed_game(
+        session_factory,
+        player_color=PlayerColor.BLACK,
+        moves=("e2e4", "e7e5", "g1f3", "b8c6"),
+    )
+
+    result = await service(session_factory, FakeEngine()).undo_turn(OWNER, game_id, request("m1"), full_moves=20)
+
+    assert result.detail == "2"
+    assert load(session_factory, game_id).moves == ("e2e4",)
+
+
 async def test_undo_is_rejected_while_an_engine_turn_is_pending(session_factory: sessionmaker[Session]) -> None:
     subject = service(session_factory, FakeEngine(error=EngineUnavailableError("pool saturated")))
     game_id = (await subject.start_game(OWNER, request("m1"))).game_id

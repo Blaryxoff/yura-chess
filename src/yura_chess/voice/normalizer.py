@@ -180,7 +180,8 @@ _FILLER = frozenset(
     }
 )
 
-_CASTLE = re.compile(r"рокировк")
+_CASTLE = re.compile(r"рокир")
+_CASTLE_NOTATION = re.compile(r"(?<!\w)(?:0|о|o)\s*(?:-|тире)?\s*(?:0|о|o)(?:\s*(?:-|тире)?\s*(?:0|о|o))?(?!\w)")
 # Matched per word rather than across the utterance: the bare "больш" stem also
 # opens "большое спасибо", and a stray match castles to the side nobody asked for.
 # Only the feminine forms agree with "рокировка".
@@ -192,13 +193,20 @@ _WORD = re.compile(r"[а-я]+|[a-z]+|[0-9]+")
 
 def normalize(text: str) -> Normalized:
     """Reduce an utterance to lowercase words and a move signature."""
-    lowered = text[:MAX_UTTERANCE_LENGTH].lower().replace("ё", "е").replace("-", " ")
+    raw_lowered = text[:MAX_UTTERANCE_LENGTH].lower().replace("ё", "е")
+    lowered = raw_lowered.replace("-", " ")
     words = tuple(_WORD.findall(lowered))
-    signature, unknown = _tokenize(words, lowered)
+    signature, unknown = _tokenize(words, raw_lowered)
     return Normalized(text=" ".join(words), words=words, signature=signature, unknown_words=unknown)
 
 
 def _tokenize(words: tuple[str, ...], lowered: str) -> tuple[Signature, tuple[str, ...]]:
+    notation = _CASTLE_NOTATION.search(lowered)
+    if notation is not None:
+        marker_count = sum(character in "0оo" for character in notation.group())
+        kind = TokenKind.CASTLE_LONG if marker_count >= 3 else TokenKind.CASTLE_SHORT
+        return (Token(kind),), ()
+
     castle_word = max((index for index, word in enumerate(words) if _CASTLE.search(word)), default=-1)
     suffix = words[castle_word + 1 :]
     later_piece = any(word in _PIECES for word in suffix)

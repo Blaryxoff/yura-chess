@@ -21,7 +21,16 @@ def test_usage_schema_cannot_store_raw_identifiers_or_conversation_data() -> Non
     request_columns = {column.name for column in inspect(UsageRequestRow).columns}
 
     assert user_columns == {"owner_key", "traffic_source", "first_seen_at", "last_seen_at"}
-    assert request_columns == {"request_key", "owner_key", "session_key", "created_at"}
+    assert request_columns == {
+        "request_key",
+        "owner_key",
+        "session_key",
+        "release_id",
+        "command_kind",
+        "resolution_status",
+        "routing_outcome",
+        "created_at",
+    }
 
 
 def test_recording_is_idempotent_and_test_classification_never_downgrades(session: Session) -> None:
@@ -42,6 +51,30 @@ def test_recording_is_idempotent_and_test_classification_never_downgrades(sessio
     assert user.last_seen_at == now + timedelta(minutes=2)
     assert len(requests) == 3
     assert all(row.session_key not in {"raw-session", "test-session", "later-session"} for row in requests)
+
+
+def test_request_quality_fields_upgrade_an_existing_idempotent_event(session: Session) -> None:
+    repository = UsageRepository(session)
+    now = datetime(2026, 7, 24, 12, 0, 0)
+    repository.record_request(REAL_OWNER, "skill", "session", "1", "real", now)
+    repository.record_request(
+        REAL_OWNER,
+        "skill",
+        "session",
+        "1",
+        "real",
+        now + timedelta(seconds=1),
+        release_id="ghcr.io/example/yura-chess:abc123",
+        command_kind="move",
+        resolution_status="resolved",
+        routing_outcome="handled",
+    )
+    session.commit()
+
+    row = session.scalars(select(UsageRequestRow)).one()
+    assert row.created_at == now
+    assert row.release_id == "ghcr.io/example/yura-chess:abc123"
+    assert (row.command_kind, row.resolution_status, row.routing_outcome) == ("move", "resolved", "handled")
 
 
 def test_dashboard_separates_real_test_and_all_traffic(session: Session) -> None:

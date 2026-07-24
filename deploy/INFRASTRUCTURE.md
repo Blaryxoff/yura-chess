@@ -89,7 +89,10 @@ Secrets that exist only on Firebat and never in git:
 - Logs use the `json-file` driver capped at 10 MB × 5 files per service.
 - Aggregate usage survives log rotation in `usage_users` and `usage_requests`.
   These tables contain only HMAC/hashed keys, timestamps and a real/test label;
-  response payloads and command text keep their shorter retention windows.
+  request rows also keep the immutable release id and bounded routing categories
+  (`command_kind`, resolver status and outcome). Retained normalized transcripts
+  link to them only through the hashed request key and keep their shorter retention
+  window; raw payloads and command text never enter permanent analytics.
 - Health checks: the application polls `/health/ready` (database connection,
   schema and ready worker count); MariaDB uses `healthcheck.sh --connect
   --innodb_initialized`. The engine pool count is reported by readiness without

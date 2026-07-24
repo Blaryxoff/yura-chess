@@ -335,8 +335,14 @@ class GameService:
             result = TurnResult.from_state(state, TurnStatus.GAME_OVER, outcome=GameOutcome(end))
             return self._finalize(repository, replay, result)
 
-    async def undo_turn(self, owner_key: str, game_id: str, request: RequestContext) -> TurnResult:
-        """Take back the player's last move together with the engine's answer to it."""
+    async def undo_turn(
+        self,
+        owner_key: str,
+        game_id: str,
+        request: RequestContext,
+        full_moves: int = 1,
+    ) -> TurnResult:
+        """Take back complete player+engine turns, capped by available history."""
         with session_scope(self._session_factory) as session:
             repository = GameRepository(session)
             state = repository.load(game_id, owner_key)
@@ -353,15 +359,21 @@ class GameService:
                 return self._finalize(
                     repository, replay, TurnResult.from_state(state, TurnStatus.GAME_ALREADY_FINISHED)
                 )
-            keep = self._last_player_ply(state)
-            if keep is None:
+            player_plies = self._player_plies(state)
+            if not player_plies:
                 return self._finalize(
                     repository,
                     replay,
                     TurnResult.from_state(state, TurnStatus.UNDO_REJECTED, detail="nothing to take back"),
                 )
+            undone = min(max(full_moves, 1), len(player_plies))
+            keep = player_plies[-undone]
             state = repository.truncate_moves(game_id, owner_key, state.revision, keep)
-            return self._finalize(repository, replay, TurnResult.from_state(state, TurnStatus.OK))
+            return self._finalize(
+                repository,
+                replay,
+                TurnResult.from_state(state, TurnStatus.OK, detail=str(undone)),
+            )
 
     async def _observe(self, owner_key: str, state: GameState, ply: int, move_uci: str) -> None:
         """Let the observer value the move; its failure never costs the turn."""
@@ -497,10 +509,7 @@ class GameService:
         return None
 
     @staticmethod
-    def _last_player_ply(state: GameState) -> int | None:
-        """Index of the player's last move, i.e. how many plies survive an undo."""
+    def _player_plies(state: GameState) -> tuple[int, ...]:
+        """Indexes of player moves; an undo keeps the prefix before its target."""
         player_moves_first = state.player_color.to_chess() == chess.Board(state.initial_fen).turn
-        for ply in range(len(state.moves) - 1, -1, -1):
-            if (ply % 2 == 0) is player_moves_first:
-                return ply
-        return None
+        return tuple(ply for ply in range(len(state.moves)) if ((ply % 2 == 0) is player_moves_first))
