@@ -346,7 +346,7 @@ async def test_moderation_help_commands_return_an_instruction_in_a_new_session(
     reply = await subject(session_factory, offline_settings).handle(OWNER, utterance, context(1, new=True))
 
     assert reply.turn is None
-    assert "играть с вами в шахматы голосом" in reply.speech.text
+    assert "играете в шахматы голосом против компьютера" in reply.speech.text
     assert "новая игра белыми" in reply.speech.text
     assert "пешка е два е четыре" in reply.speech.text
 
@@ -396,7 +396,7 @@ async def test_help_replaces_a_returning_users_resume_confirmation(
 
     helped = await conversation.handle(OWNER, utterance, context(3), prompted.state)
 
-    assert "Идет партия" in helped.speech.text
+    assert "играете в шахматы голосом против компьютера" in helped.speech.text
     assert "пешка е два е четыре" in helped.speech.text
     assert "Скажите «да» или «нет»" not in helped.speech.text
     assert helped.state.pending_action is None
@@ -614,7 +614,7 @@ async def test_help_before_a_game_offers_topics_without_starting_anything(
 
     reply = await conversation.handle(OWNER, "справка", context(1))
 
-    assert "Партия еще не начата" in reply.speech.text
+    assert "играете в шахматы голосом против компьютера" in reply.speech.text
     assert "Разделы справки" in reply.speech.text
     assert "Разделы справки. Ходы, позиция, факты, партия." in reply.speech.spoken()
     assert "Настройки, тренер, разбор, задачи, речь." in reply.speech.spoken()
@@ -724,7 +724,7 @@ async def test_help_inside_a_game_changes_neither_the_game_nor_the_revision(
     helped = await conversation.handle(OWNER, "что ты умеешь", context(3), played.state)
     paged = await conversation.handle(OWNER, "дальше", context(4), helped.state)
 
-    assert "Идет партия" in helped.speech.text
+    assert "Разделы справки" in helped.speech.text
     assert helped.turn is None and paged.turn is None
     assert paged.state.revision == played.state.revision
     with session_scope(session_factory) as session:
@@ -777,7 +777,7 @@ async def test_a_board_question_during_help_still_reads_the_board(
     assert "горизонталь" in reply.speech.text
 
 
-async def test_help_after_a_finished_game_says_the_game_is_over(
+async def test_help_after_a_finished_game_still_returns_the_instruction(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
 ) -> None:
@@ -788,7 +788,8 @@ async def test_help_after_a_finished_game_says_the_game_is_over(
 
     reply = await conversation.handle(OWNER, "справка", context(4), resigned.state)
 
-    assert "Партия закончена" in reply.speech.text
+    assert "играете в шахматы голосом против компьютера" in reply.speech.text
+    assert "Разделы справки" in reply.speech.text
 
 
 # One phrase per public command, so a command that is neither advertised nor
@@ -929,7 +930,7 @@ async def test_an_open_game_changes_what_the_trainer_and_review_sections_advise(
     assert "когда партия закончится" in review.speech.text
 
 
-async def test_help_inside_a_puzzle_names_the_puzzle_and_leaves_the_attempt_alone(
+async def test_help_inside_a_puzzle_reads_the_instruction_and_leaves_the_attempt_alone(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
 ) -> None:
@@ -942,7 +943,7 @@ async def test_help_inside_a_puzzle_names_the_puzzle_and_leaves_the_attempt_alon
     paged = await conversation.handle(OWNER, "дальше", context(3), helped.state)
     closed = await conversation.handle(OWNER, "закрой справку", context(4), paged.state)
 
-    assert "Идет задача" in helped.speech.text
+    assert "Разделы справки" in helped.speech.text
     assert paged.state.help == HelpState(topic=HelpTopic.ALL, page=0)
     assert closed.state.help is None
     after = PuzzleService(session_factory).find_open(OWNER)

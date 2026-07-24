@@ -143,7 +143,7 @@ async def test_moderation_help_commands_return_an_instruction_on_the_first_alice
 
     assert response.status_code == 200
     text = response.json()["response"]["text"]
-    assert "играть с вами в шахматы голосом" in text
+    assert "играете в шахматы голосом против компьютера" in text
     assert "новая игра белыми" in text
     assert "пешка е два е четыре" in text
 
@@ -237,7 +237,7 @@ async def test_returning_moderator_can_request_help_during_resume_confirmation(
 
     assert "Шахматы с Юрой" in prompted["response"]["text"]
     assert "скажите «помощь»" in prompted["response"]["text"].lower()
-    assert "Идет партия" in helped["response"]["text"]
+    assert "играете в шахматы голосом против компьютера" in helped["response"]["text"]
     assert "пешка е два е четыре" in helped["response"]["text"]
     assert "pending_action" not in helped["session_state"]
     assert helped["session_state"]["help"] == {"page": 0}

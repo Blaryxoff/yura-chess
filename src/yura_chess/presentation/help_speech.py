@@ -37,7 +37,7 @@ class HelpTopic(StrEnum):
 
 
 class HelpMode(StrEnum):
-    """What the player is in the middle of, which decides the opening line."""
+    """What the player is in the middle of: the closing line and a section's warnings."""
 
     NO_GAME = "no_game"
     GAME = "game"
@@ -180,16 +180,25 @@ SECTIONS: tuple[HelpSection, ...] = (
 
 _SECTIONS_BY_TOPIC = {section.topic: section for section in SECTIONS}
 
-_MODE_OPENINGS: dict[HelpMode, str] = {
-    HelpMode.NO_GAME: (
-        "Я умею играть с вами в шахматы голосом против компьютера. "
-        "Партия еще не начата. Скажите «новая игра белыми уровень пять», чтобы начать. "
-        "Ход можно назвать, например «пешка е два е четыре»."
-    ),
-    HelpMode.GAME: "Идет партия. Назовите ход, например «пешка е два е четыре».",
-    HelpMode.TRAINING: "Идет тренировка. Назовите ход или спросите совет.",
-    HelpMode.GAME_OVER: "Партия закончена. Скажите «новая игра», чтобы сыграть еще.",
-    HelpMode.PUZZLE: "Идет задача. Назовите ход решения.",
+# Help opens with the instruction in every mode: a menu that starts from the
+# current state («Идет партия») reads as a move prompt rather than as an
+# instruction, and Yandex moderation rejects it as such.
+SKILL_INTRO = "Это навык «Шахматы с Юрой». Здесь вы играете в шахматы голосом против компьютера."
+_HOW_TO_USE = (
+    "Чтобы начать партию, скажите: «новая игра белыми уровень пять». "
+    "Ход называйте так: «пешка е два е четыре». Уровень — от нуля до двадцати."
+)
+
+# The last thing help says: where the player is now, and what is expected next.
+# The expectation is deferred to after the help, so it does not compete with the
+# «назовите раздел» prompt the menu has just given.
+_AFTER_HELP = "Когда закончите со справкой,"
+_MODE_TAILS: dict[HelpMode, tuple[str, str]] = {
+    HelpMode.NO_GAME: ("Сейчас партия не начата.", "жду команду «новая игра белыми уровень пять»."),
+    HelpMode.GAME: ("Сейчас идет партия.", "жду ваш ход, например «пешка е два е четыре»."),
+    HelpMode.TRAINING: ("Сейчас идет партия с тренером.", "жду ваш ход или вопрос, например «подскажи»."),
+    HelpMode.GAME_OVER: ("Партия закончена.", "жду команду «новая игра» или «разбери партию»."),
+    HelpMode.PUZZLE: ("Сейчас открыта задача.", "жду ход решения или команду «покажи решение»."),
 }
 
 _TOPIC_ALIASES: tuple[tuple[HelpTopic, re.Pattern[str]], ...] = (
@@ -256,6 +265,8 @@ _TRIGGER_WORDS = frozenset(
         "ты",
         "умеешь",
         "можешь",
+        "делать",
+        "делаешь",
         "как",
         "играть",
         "по",
@@ -357,9 +368,11 @@ def close() -> HelpAnswer:
 def _menu(mode: HelpMode) -> HelpAnswer:
     first_titles = ", ".join(section.title for section in SECTIONS[:4]).capitalize()
     other_titles = ", ".join(section.title for section in SECTIONS[4:]).capitalize()
+    state, expected = _MODE_TAILS[mode]
     text = (
-        f"{_MODE_OPENINGS[mode]} Разделы справки. {first_titles}. {other_titles}. "
-        "Назовите раздел. Или скажите: «все команды». Тогда я прочитаю весь список."
+        f"{SKILL_INTRO} {_HOW_TO_USE} Разделы справки. {first_titles}. {other_titles}. "
+        f"Назовите раздел. Или скажите: «все команды». Тогда я прочитаю весь список. "
+        f"{state} {_AFTER_HELP} {expected}"
     )
     return HelpAnswer(Speech.of(text), HelpState(topic=None, page=0))
 

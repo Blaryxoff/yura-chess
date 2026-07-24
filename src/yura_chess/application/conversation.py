@@ -105,11 +105,10 @@ _MONTHS = {
     11: "ноября",
     12: "декабря",
 }
-_SKILL_INTRO = "Это навык «Шахматы с Юрой». Здесь вы играете в шахматы голосом против компьютера."
 
 
 def _new_session_welcome(speech: Speech) -> Speech:
-    return Speech.of(f"{_SKILL_INTRO} Чтобы услышать инструкцию и команды, скажите «помощь». {speech.text}")
+    return Speech.of(f"{help_speech.SKILL_INTRO} Чтобы услышать инструкцию и команды, скажите «помощь». {speech.text}")
 
 
 @dataclass(frozen=True, slots=True)
