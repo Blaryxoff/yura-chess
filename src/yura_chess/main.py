@@ -3,9 +3,10 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Literal
 
-from fastapi import FastAPI, Response, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
@@ -147,11 +148,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     def _static_page(path: str, html: str) -> None:
-        """Serve one crawlable page; the content is fixed, so only caching differs from the landing page."""
+        """Serve one crawlable page.
+
+        The content only changes on release, but a long max-age with no validator
+        strands readers on the previous version for the whole window. A content
+        ETag keeps the revalidation cheap and makes a release visible at once.
+        """
+        etag = f'"{sha256(html.encode()).hexdigest()[:16]}"'
+        headers = {"Cache-Control": "public, max-age=300, stale-while-revalidate=3600", "ETag": etag}
 
         @app.api_route(path, methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
-        async def page() -> HTMLResponse:
-            return HTMLResponse(html, headers={"Cache-Control": "public, max-age=3600"})
+        async def page(request: Request) -> Response:
+            if request.headers.get("if-none-match") == etag:
+                return Response(status_code=304, headers=headers)
+            return HTMLResponse(html, headers=headers)
 
     _static_page(HOW_TO_PLAY_PATH, HOW_TO_PLAY_PAGE_HTML)
     _static_page(COMMANDS_PATH, COMMANDS_PAGE_HTML)
