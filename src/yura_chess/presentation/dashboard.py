@@ -86,8 +86,53 @@ DASHBOARD_CSS = """
     @keyframes stats-pop-in { to { opacity: 1; transform: none; } }
     @keyframes stats-bar-in { to { opacity: 1; transform: scaleY(1); } }
     @keyframes stats-label-in { from { opacity: 0; } to { opacity: 1; } }
-    .stats-note { display: grid; grid-template-columns: auto 1fr; gap: 13px; align-items: start; }
-    .stats-shield { color: var(--gold); font-size: 28px; }
+    .stats-hint {
+      position: relative;
+      border-bottom: 1px dashed #6d6555;
+      cursor: help;
+    }
+    .stats-hint:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 3px; }
+    .stats-tip {
+      position: absolute;
+      bottom: calc(100% + 12px);
+      left: 0;
+      z-index: 3;
+      width: max(240px, 100%);
+      padding: 13px 15px;
+      border: 1px solid #4c4638;
+      border-radius: 14px;
+      background: #100f0d;
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+      text-align: left;
+      box-shadow: 0 18px 40px #00000059;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(6px) scale(.97);
+      transform-origin: bottom left;
+      transition: opacity 200ms ease, transform 420ms var(--spring), visibility 200ms;
+    }
+    .stats-tip strong { display: block; margin-bottom: 5px; color: var(--gold); }
+    .stats-tip::after {
+      content: "";
+      position: absolute;
+      top: 100%;
+      left: 18px;
+      border: 7px solid transparent;
+      border-top-color: #4c4638;
+    }
+    .stats-hint:hover .stats-tip,
+    .stats-hint:focus-visible .stats-tip,
+    .stats-hint:focus-within .stats-tip {
+      opacity: 1;
+      visibility: visible;
+      transform: none;
+    }
+    @media (max-width: 520px) {
+      .stats-tip { left: auto; right: 0; transform-origin: bottom right; }
+      .stats-tip::after { left: auto; right: 18px; }
+    }
     @media (hover: hover) {
       .stats-tab:hover { color: var(--gold); border-color: var(--gold); transform: translateY(-2px) scale(1.03); }
       .stats-tab.active:hover { color: #241d12; }
@@ -123,13 +168,22 @@ def render_dashboard(snapshot: DashboardSnapshot) -> str:
       <div class="stats-top"><div><div class="stats-kicker">Использование навыка</div><h2>Статистика</h2><div class="stats-muted">Обновлено {generated:%d.%m.%Y %H:%M} МСК</div></div><nav class="stats-tabs" aria-label="Период статистики">{periods}</nav></div>
       <div class="stats-panel"><h3>{_TOTAL_TITLES[snapshot.period]}</h3>{_cards(snapshot.totals)}</div>
       <div class="stats-panel"><h3>{_CHART_TITLES[snapshot.period]}</h3><div class="stats-chart" role="img" aria-label="Число запросов за выбранный период">{bars}</div></div>
-      <div class="stats-panel stats-note"><div class="stats-shield">◈</div><div><strong>Что значит «пользователь»?</strong><br><span class="stats-muted">Это стабильный необратимый HMAC-ключ. Исходный Alice ID не сохраняется. Запросы и сессии в этой статистике также представлены только хешами. Автоматические проверки помечаются как test до хеширования и не учитываются в публичной статистике.</span></div></div>
     </section>"""
+
+
+# The privacy wording that used to sit under the chart: kept one hover away from
+# the word it explains instead of taking a panel of its own.
+_USERS_HINT = (
+    '<span class="stats-hint" tabindex="0" aria-describedby="users-hint">пользователей'
+    '<span class="stats-tip" id="users-hint" role="tooltip"><strong>Что значит «пользователь»?</strong>'
+    "Это стабильный необратимый HMAC-ключ. Исходный Alice ID не сохраняется. "
+    "Запросы и сессии в этой статистике тоже представлены только хешами.</span></span>"
+)
 
 
 def _cards(totals: UsageTotals) -> str:
     values = (
-        (totals.users, "активных пользователей"),
+        (totals.users, f"активных {_USERS_HINT}"),
         (totals.requests, "запросов"),
         (totals.sessions, "сессий"),
         (totals.player_moves, "ходов игроков"),

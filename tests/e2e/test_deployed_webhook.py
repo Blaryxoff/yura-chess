@@ -58,6 +58,42 @@ async def test_deployed_public_entry_is_reachable(deployed: httpx.AsyncClient) -
     assert "Шахматы с Юрой" in response.text
 
 
+@pytest.mark.parametrize(
+    ("path", "marker"),
+    [
+        ("/robots.txt", "Sitemap: https://chess.waxim.ru/sitemap.xml"),
+        ("/sitemap.xml", "<loc>https://chess.waxim.ru/commands</loc>"),
+        ("/how-to-play", "Как играть в шахматы с Алисой голосом"),
+        ("/commands", "Голосовые команды шахмат в Алисе"),
+        ("/coach", "Шахматный тренер голосом"),
+        ("/puzzles", "Шахматные задачи голосом"),
+        ("/accessibility", "Шахматы для незрячих голосом"),
+        ("/blindfold", "Шахматы вслепую с Алисой"),
+        ("/3e123263cd3a154a8aa32da5bc28cebd.txt", "3e123263cd3a154a8aa32da5bc28cebd"),
+        ("/yandex_67cb474818f8d2b2.html", "Verification: 67cb474818f8d2b2"),
+        ("/favicon.svg", "<svg"),
+    ],
+)
+async def test_deployed_crawlable_surface_is_published(
+    deployed: httpx.AsyncClient,
+    path: str,
+    marker: str,
+) -> None:
+    """Host nginx allowlists these paths one by one; a stale vhost 404s them while every unit test still passes."""
+    response = await deployed.get(path)
+
+    assert response.status_code == 200, f"{path} is not reachable through nginx"
+    assert marker in response.text
+
+
+@pytest.mark.parametrize("path", ["/docs", "/openapi.json", "/redoc", "/health/ready", "/health/live"])
+async def test_deployed_internal_surface_stays_closed(deployed: httpx.AsyncClient, path: str) -> None:
+    """The allowlist is only as good as its other half: widening it must not publish an internal route."""
+    response = await deployed.get(path)
+
+    assert response.status_code in {403, 404}, f"{path} answered {response.status_code} to the public internet"
+
+
 async def test_deployed_service_opens_a_game(deployed: httpx.AsyncClient) -> None:
     response = await deployed.post("/alice/webhook", json=throwaway(new=True))
 
