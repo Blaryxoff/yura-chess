@@ -129,9 +129,19 @@ DASHBOARD_CSS = """
       visibility: visible;
       transform: none;
     }
+    /* The hint is an inline span, so it is a useless containing block on a narrow
+       screen: a 240px tooltip anchored to a ~120px word hangs off the card. Below
+       the single-column breakpoint the card takes over and the tooltip spans it. */
     @media (max-width: 520px) {
-      .stats-tip { left: auto; right: 0; transform-origin: bottom right; }
-      .stats-tip::after { left: auto; right: 18px; }
+      .stats-hint { position: static; }
+      .stats-card { position: relative; }
+      .stats-tip {
+        left: 12px;
+        right: 12px;
+        width: auto;
+        transform-origin: bottom center;
+      }
+      .stats-tip::after { left: 24px; }
     }
     @media (hover: hover) {
       .stats-tab:hover { color: var(--gold); border-color: var(--gold); transform: translateY(-2px) scale(1.03); }

@@ -118,7 +118,12 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     # The privacy wording moved into a hover tooltip on the word it explains.
     assert "Что значит «пользователь»?" in response.text
     assert 'class="stats-hint"' in response.text
+    assert 'aria-describedby="users-hint"' in response.text
     assert "Автоматические проверки" not in response.text
+    # Below the single-column breakpoint the card, not the inline word, positions
+    # the tooltip — otherwise a 240px box hangs off a ~120px anchor.
+    assert ".stats-hint { position: static; }" in response.text
+    assert ".stats-card { position: relative; }" in response.text
 
 
 def test_yandex_webmaster_verification_file_is_served_verbatim(offline_settings: Settings) -> None:
