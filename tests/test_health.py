@@ -154,6 +154,18 @@ def test_search_engine_discovery_files_are_public_and_cacheable(offline_settings
         assert f"<loc>https://chess.waxim.ru{path}</loc>" in sitemap.text
 
 
+def test_a_secondary_page_revalidates_instead_of_serving_a_stale_release(offline_settings: Settings) -> None:
+    with TestClient(create_app(offline_settings)) as client:
+        first = client.get(COMMANDS_PATH)
+        revalidated = client.get(COMMANDS_PATH, headers={"If-None-Match": first.headers["etag"]})
+        changed = client.get(COMMANDS_PATH, headers={"If-None-Match": '"stale0000000000"'})
+
+    assert revalidated.status_code == 304
+    assert revalidated.headers["etag"] == first.headers["etag"]
+    assert changed.status_code == 200
+    assert "Голосовые команды шахмат в Алисе" in changed.text
+
+
 def test_indexnow_key_is_served_so_submissions_are_accepted(offline_settings: Settings) -> None:
     with TestClient(create_app(offline_settings)) as client:
         response = client.get(INDEXNOW_KEY_PATH)
@@ -187,6 +199,9 @@ def test_secondary_pages_are_crawlable_and_self_describing(
     assert response.headers["content-type"].startswith("text/html")
     assert title in response.text
     assert marker in response.text
+    # Without a validator a reader keeps the previous release for the whole max-age.
+    assert response.headers["cache-control"] == "public, max-age=300, stale-while-revalidate=3600"
+    assert response.headers["etag"]
     assert f'<link rel="canonical" href="https://chess.waxim.ru{path}">' in response.text
     # Every secondary page must lead back to the others, or a crawler reaches none of them.
     every_page = {
