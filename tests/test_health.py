@@ -120,10 +120,14 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert 'class="stats-hint"' in response.text
     assert 'aria-describedby="users-hint"' in response.text
     assert "Автоматические проверки" not in response.text
-    # Below the single-column breakpoint the card, not the inline word, positions
-    # the tooltip — otherwise a 240px box hangs off a ~120px anchor.
-    assert ".stats-hint { position: static; }" in response.text
-    assert ".stats-card { position: relative; }" in response.text
+    # The card, not the inline word, positions the tooltip: an inline anchor both
+    # mispositions the panel and traps its z-index inside a sibling stacking context.
+    assert ".stats-card { position: relative;" in response.text
+    assert ".stats-card:has(.stats-hint:hover) { z-index: 4; }" in response.text
+    # Default placement is under the card so the counter it explains stays readable.
+    assert "top: calc(100% + 12px);" in response.text
+    assert ".stats-card.tip-above .stats-tip {" in response.text
+    assert 'card.classList.add("tip-above")' in response.text
 
 
 def test_yandex_webmaster_verification_file_is_served_verbatim(offline_settings: Settings) -> None:
@@ -196,6 +200,10 @@ def test_secondary_pages_are_crawlable_and_self_describing(
     }
     for linked in every_page - {path}:
         assert f'href="{linked}"' in response.text
+    # Getting home must not depend on the browser's back button.
+    assert 'class="piece home" href="/"' in response.text
+    assert response.text.index('class="breadcrumbs"') < response.text.index("<h1>")
+    assert f'<a href="{path}" aria-current="page">' in response.text
     structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
     graph = json.loads(structured_data)["@graph"]
     assert "BreadcrumbList" in {item["@type"] for item in graph}

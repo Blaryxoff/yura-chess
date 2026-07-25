@@ -143,7 +143,15 @@ SITE_CSS = (
       margin-top: 26px;
       font-size: 16px;
     }
-    .breadcrumbs { margin: 0 0 18px; color: var(--muted); font-size: 15px; text-align: center; }
+    .site-nav a[aria-current="page"] { color: var(--text); font-weight: 700; text-decoration: none; }
+    a.piece {
+      display: inline-block;
+      text-decoration: none;
+      transition: transform 520ms var(--spring);
+    }
+    a.piece:hover { transform: translateY(-5px) scale(1.05); }
+    a.piece:focus-visible { outline: 2px solid var(--gold); outline-offset: 8px; border-radius: 12px; }
+    .breadcrumbs { margin: 0 0 8px; color: var(--muted); font-size: 15px; text-align: center; }
     .article p { color: var(--muted); }
     .article p:first-of-type { margin-top: 0; }
     .article li { color: var(--muted); }
@@ -248,6 +256,8 @@ SITE_SCRIPT = """
       const prepareStatistics = (section) => {
         if (!section) return;
         requestAnimationFrame(() => showLatest(section));
+        // Switching the period replaces the section, and with it every hint listener.
+        wireTooltips(section);
         if (!reveal) return;
         section.querySelectorAll(".stats-cards, .stats-chart").forEach((element) => reveal.observe(element));
       };
@@ -270,6 +280,23 @@ SITE_SCRIPT = """
           window.location.assign(url);
         }
       };
+      // The tooltip sits under the card so it never covers the number it explains.
+      // Only when the viewport has no room below does it flip above.
+      const placeTooltip = (hint) => {
+        const card = hint.closest(".stats-card");
+        const tip = hint.querySelector(".stats-tip");
+        if (!card || !tip) return;
+        card.classList.remove("tip-above");
+        const below = window.innerHeight - card.getBoundingClientRect().bottom;
+        if (below < tip.offsetHeight + 24) card.classList.add("tip-above");
+      };
+      const wireTooltips = (root) => {
+        (root || document).querySelectorAll(".stats-hint").forEach((hint) => {
+          ["pointerenter", "focus"].forEach((event) => hint.addEventListener(event, () => placeTooltip(hint)));
+        });
+      };
+      wireTooltips(document);
+
       // A tooltip a keyboard user cannot dismiss is a trap: Escape closes it
       // without moving focus off the word it explains.
       document.addEventListener("keydown", (event) => {
@@ -309,17 +336,26 @@ SITE_SCRIPT = """
     })();
 """
 
-# One nav shared by every page: internal links are how a crawler reaches the
-# secondary pages, which nothing else links to.
-SITE_NAV = f"""<nav class="site-nav" aria-label="Разделы сайта">
-        <a href="{LANDING_PATH}">Навык</a>
-        <a href="{HOW_TO_PLAY_PATH}">Как играть</a>
-        <a href="{COMMANDS_PATH}">Команды</a>
-        <a href="{COACH_PATH}">Тренер</a>
-        <a href="{PUZZLES_PATH}">Задачи</a>
-        <a href="{ACCESSIBILITY_PATH}">Без экрана</a>
-        <a href="{BLINDFOLD_PATH}">Вслепую</a>
+NAV_ITEMS: tuple[tuple[str, str], ...] = (
+    (LANDING_PATH, "Навык"),
+    (HOW_TO_PLAY_PATH, "Как играть"),
+    (COMMANDS_PATH, "Команды"),
+    (COACH_PATH, "Тренер"),
+    (PUZZLES_PATH, "Задачи"),
+    (ACCESSIBILITY_PATH, "Без экрана"),
+    (BLINDFOLD_PATH, "Вслепую"),
+)
+
+
+def _nav(current: str) -> str:
+    """Internal links are how a crawler reaches the secondary pages, and how a reader leaves one."""
+    links = "\n        ".join(
+        f'<a href="{path}"{' aria-current="page"' if path == current else ""}>{label}</a>' for path, label in NAV_ITEMS
+    )
+    return f"""<nav class="site-nav" aria-label="Разделы сайта">
+        {links}
       </nav>"""
+
 
 # Longer anchor text than the top nav: the same pages, described the way people
 # search for them.
@@ -516,7 +552,7 @@ LANDING_BODY = f"""    <header>
           rel="noopener noreferrer nofollow"
         >Поддержать проект</a>
       </div>
-      {SITE_NAV}
+      {_nav(LANDING_PATH)}
     </header>
 
     <section>
@@ -675,17 +711,17 @@ HOW_TO_PLAY_PAGE_HTML = _document(
         _HOW_TO_PLAY_CRUMB_SCHEMA,
     ],
     body=f"""    <header>
-      <div class="piece" aria-hidden="true">♟</div>
+      {_HOW_TO_PLAY_CRUMBS}
+      <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♟</a>
       <h1>{_HOW_TO_PLAY_TITLE}</h1>
       <p class="lead">
         Пять шагов от запуска навыка до первой партии против Stockfish. Ничего запоминать не нужно:
         навык понимает обычную шахматную речь и сам подсказывает, что сказать дальше.
       </p>
-      {SITE_NAV}
+      {_nav(HOW_TO_PLAY_PATH)}
     </header>
 
     <section class="article">
-      {_HOW_TO_PLAY_CRUMBS}
       <h2>Пошаговая инструкция</h2>
       <ol class="steps">
         <li>
@@ -753,17 +789,17 @@ COMMANDS_PAGE_HTML = _document(
     path=COMMANDS_PATH,
     structured_data=[_page_schema(_COMMANDS_TITLE, COMMANDS_PATH), _COMMANDS_CRUMB_SCHEMA],
     body=f"""    <header>
-      <div class="piece" aria-hidden="true">♜</div>
+      {_COMMANDS_CRUMBS}
+      <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♜</a>
       <h1>{_COMMANDS_TITLE}</h1>
       <p class="lead">
         Дословно запоминать команды не нужно — навык понимает разные формулировки. Этот список показывает,
         о чём вообще можно попросить. В самом навыке те же разделы читает команда «все команды».
       </p>
-      {SITE_NAV}
+      {_nav(COMMANDS_PATH)}
     </header>
 
     <section class="article">
-      {_COMMANDS_CRUMBS}
       <h2>Ходы</h2>
       <ul>
         <li><code>«пешка е два е четыре»</code>, <code>«конь эф три»</code>, <code>«е два е четыре»</code> — ход</li>
@@ -864,17 +900,17 @@ ACCESSIBILITY_PAGE_HTML = _document(
     path=ACCESSIBILITY_PATH,
     structured_data=[_page_schema(_ACCESSIBILITY_TITLE, ACCESSIBILITY_PATH), _ACCESSIBILITY_CRUMB_SCHEMA],
     body=f"""    <header>
-      <div class="piece" aria-hidden="true">♚</div>
+      {_ACCESSIBILITY_CRUMBS}
+      <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♚</a>
       <h1>{_ACCESSIBILITY_TITLE}</h1>
       <p class="lead">
         «Шахматы с Юрой» создавались в первую очередь для незрячих и слабовидящих игроков.
         Экран не нужен ни для одного действия: вся партия ведётся голосом.
       </p>
-      {SITE_NAV}
+      {_nav(ACCESSIBILITY_PATH)}
     </header>
 
     <section class="article">
-      {_ACCESSIBILITY_CRUMBS}
       <h2>Почему навык подходит для игры без зрения</h2>
       <p>
         Обычные шахматные приложения предполагают, что игрок видит доску: ход делают касанием, позицию
@@ -949,18 +985,18 @@ COACH_PAGE_HTML = _document(
     path=COACH_PATH,
     structured_data=[_page_schema(_COACH_TITLE, COACH_PATH), _COACH_CRUMB_SCHEMA],
     body=f"""    <header>
-      <div class="piece" aria-hidden="true">♛</div>
+      {_COACH_CRUMBS}
+      <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♛</a>
       <h1>{_COACH_TITLE}</h1>
       <p class="lead">
         Обычная партия остаётся честной: движок не подсказывает, пока вы не попросите.
         Тренер — отдельный режим, который включается одной фразой и объясняет позицию словами,
         а не строкой вариантов.
       </p>
-      {SITE_NAV}
+      {_nav(COACH_PATH)}
     </header>
 
     <section class="article">
-      {_COACH_CRUMBS}
       <h2>Как включить тренера</h2>
       <p>
         Скажите <code>«включи режим тренера»</code> — прямо посреди партии, терять позицию не нужно.
@@ -1033,17 +1069,17 @@ PUZZLES_PAGE_HTML = _document(
     path=PUZZLES_PATH,
     structured_data=[_page_schema(_PUZZLES_TITLE, PUZZLES_PATH), _PUZZLES_CRUMB_SCHEMA],
     body=f"""    <header>
-      <div class="piece" aria-hidden="true">♝</div>
+      {_PUZZLES_CRUMBS}
+      <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♝</a>
       <h1>{_PUZZLES_TITLE}</h1>
       <p class="lead">
         Задача читается вслух — позицию нужно удержать в голове и найти решение на слух.
         Это тренирует ровно тот навык, который отличает сильного игрока: счёт вариантов без доски.
       </p>
-      {SITE_NAV}
+      {_nav(PUZZLES_PATH)}
     </header>
 
     <section class="article">
-      {_PUZZLES_CRUMBS}
       <h2>Как открыть задачу</h2>
       <p>
         Скажите <code>«дай задачу»</code>. Прогресс задач хранится отдельно от партии, поэтому
@@ -1104,17 +1140,17 @@ BLINDFOLD_PAGE_HTML = _document(
     path=BLINDFOLD_PATH,
     structured_data=[_page_schema(_BLINDFOLD_TITLE, BLINDFOLD_PATH), _BLINDFOLD_CRUMB_SCHEMA],
     body=f"""    <header>
-      <div class="piece" aria-hidden="true">♘</div>
+      {_BLINDFOLD_CRUMBS}
+      <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♘</a>
       <h1>{_BLINDFOLD_TITLE}</h1>
       <p class="lead">
         Игра вслепую всегда упиралась в партнёра: кто-то должен вести доску и называть ходы.
         Алиса делает это бесконечно терпеливо — и никогда не подглядывает за вас.
       </p>
-      {SITE_NAV}
+      {_nav(BLINDFOLD_PATH)}
     </header>
 
     <section class="article">
-      {_BLINDFOLD_CRUMBS}
       <h2>Почему голосовой навык — удобный тренажёр вслепую</h2>
       <p>
         Обычный шахматный сайт с выключенной доской всё равно оставляет соблазн подсмотреть.
