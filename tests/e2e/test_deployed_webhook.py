@@ -1,6 +1,6 @@
 """Smoke the public production webhook over HTTP when explicitly requested.
 
-    YURA_CHESS_DEPLOYED_URL=https://chess.waxim.ru \
+    YURA_CHESS_DEPLOYED_URL=https://yurachess.ru \
       uv run pytest tests/e2e/test_deployed_webhook.py
 
 The tests use throwaway Alice identities and only create disposable games. They
@@ -61,8 +61,8 @@ async def test_deployed_public_entry_is_reachable(deployed: httpx.AsyncClient) -
 @pytest.mark.parametrize(
     ("path", "marker"),
     [
-        ("/robots.txt", "Sitemap: https://chess.waxim.ru/sitemap.xml"),
-        ("/sitemap.xml", "<loc>https://chess.waxim.ru/commands</loc>"),
+        ("/robots.txt", "Sitemap: https://yurachess.ru/sitemap.xml"),
+        ("/sitemap.xml", "<loc>https://yurachess.ru/commands</loc>"),
         ("/how-to-play", "Как играть в шахматы с Алисой голосом"),
         ("/commands", "Голосовые команды шахмат в Алисе"),
         ("/coach", "Шахматный тренер голосом"),
@@ -94,8 +94,17 @@ async def test_deployed_internal_surface_stays_closed(deployed: httpx.AsyncClien
     assert response.status_code in {403, 404}, f"{path} answered {response.status_code} to the public internet"
 
 
+@pytest.mark.parametrize("path", ["/webhooks/alice", "/alice/webhook"])
+async def test_deployed_both_webhook_paths_answer(deployed: httpx.AsyncClient, path: str) -> None:
+    """The console is edited by hand, so the address it points at must never depend on a deploy."""
+    response = await deployed.post(path, json=throwaway(new=True))
+
+    assert response.status_code == 200, f"{path} is not reachable through nginx"
+    assert response.json()["response"]["text"]
+
+
 async def test_deployed_service_opens_a_game(deployed: httpx.AsyncClient) -> None:
-    response = await deployed.post("/alice/webhook", json=throwaway(new=True))
+    response = await deployed.post("/webhooks/alice", json=throwaway(new=True))
 
     assert response.status_code == 200
     body = response.json()

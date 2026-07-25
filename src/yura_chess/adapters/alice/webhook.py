@@ -77,10 +77,18 @@ logger = logging.getLogger(__name__)
 CARD_DEADLINE_MARGIN_SECONDS = 0.2
 
 
+ALICE_WEBHOOK_PATH = "/webhooks/alice"
+# Where the Dialogs console pointed before the move to the project's own domain.
+# Kept indefinitely: a live skill must not depend on the console being edited in
+# step with a deploy, and the old address is published in several places.
+LEGACY_ALICE_WEBHOOK_PATH = "/alice/webhook"
+
+
 def build_router() -> APIRouter:
     router = APIRouter(tags=["alice"])
 
-    @router.post("/alice/webhook", response_model=AliceResponse, response_model_exclude_none=True)
+    @router.post(ALICE_WEBHOOK_PATH, response_model=AliceResponse, response_model_exclude_none=True)
+    @router.post(LEGACY_ALICE_WEBHOOK_PATH, response_model=AliceResponse, response_model_exclude_none=True)
     async def webhook(payload: AliceRequest, http_request: HttpRequest) -> AliceResponse:
         settings = http_request.app.state.settings
         conversation = ConversationService(

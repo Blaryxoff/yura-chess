@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from settings_fixtures import TEST_IDENTITY_SALT
 
+from yura_chess.adapters.alice.webhook import ALICE_WEBHOOK_PATH, LEGACY_ALICE_WEBHOOK_PATH
 from yura_chess.main import _purge_retained_data, create_app
 from yura_chess.presentation.website import (
     ACCESSIBILITY_PATH,
@@ -92,7 +93,7 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert 'rel="noopener noreferrer nofollow"' in response.text
     assert "Поддержка не предоставляет платных функций" in response.text
     assert '<link rel="icon" href="/favicon.svg"' in response.text
-    assert '<link rel="canonical" href="https://chess.waxim.ru/">' in response.text
+    assert '<link rel="canonical" href="https://yurachess.ru/">' in response.text
     assert '<meta property="og:type" content="website">' in response.text
     assert '<script type="application/ld+json">' in response.text
     assert "IntersectionObserver" in response.text
@@ -149,9 +150,9 @@ def test_search_engine_discovery_files_are_public_and_cacheable(offline_settings
     assert "Clean-param: source&period /" in robots.text
     assert sitemap.text == SITEMAP_XML
     assert "application/xml" in sitemap.headers["content-type"]
-    assert "https://chess.waxim.ru/" in sitemap.text
+    assert "https://yurachess.ru/" in sitemap.text
     for path, _ in SITEMAP_ENTRIES:
-        assert f"<loc>https://chess.waxim.ru{path}</loc>" in sitemap.text
+        assert f"<loc>https://yurachess.ru{path}</loc>" in sitemap.text
 
 
 def test_a_secondary_page_revalidates_instead_of_serving_a_stale_release(offline_settings: Settings) -> None:
@@ -164,6 +165,18 @@ def test_a_secondary_page_revalidates_instead_of_serving_a_stale_release(offline
     assert revalidated.headers["etag"] == first.headers["etag"]
     assert changed.status_code == 200
     assert "Голосовые команды шахмат в Алисе" in changed.text
+
+
+def test_both_webhook_paths_answer_so_the_console_never_races_a_deploy(offline_settings: Settings) -> None:
+    with TestClient(create_app(offline_settings)) as client:
+        canonical = client.post(ALICE_WEBHOOK_PATH, json={})
+        legacy = client.post(LEGACY_ALICE_WEBHOOK_PATH, json={})
+        robots = client.get(ROBOTS_PATH)
+
+    # 422 is the validating endpoint rejecting an empty body; 404 would mean it is gone.
+    assert canonical.status_code == legacy.status_code == 422
+    assert "Disallow: /webhooks/" in robots.text
+    assert "Disallow: /alice/" in robots.text
 
 
 def test_indexnow_key_is_served_so_submissions_are_accepted(offline_settings: Settings) -> None:
@@ -202,7 +215,7 @@ def test_secondary_pages_are_crawlable_and_self_describing(
     # Without a validator a reader keeps the previous release for the whole max-age.
     assert response.headers["cache-control"] == "public, max-age=300, stale-while-revalidate=3600"
     assert response.headers["etag"]
-    assert f'<link rel="canonical" href="https://chess.waxim.ru{path}">' in response.text
+    assert f'<link rel="canonical" href="https://yurachess.ru{path}">' in response.text
     # Every secondary page must lead back to the others, or a crawler reaches none of them.
     every_page = {
         LANDING_PATH,
@@ -278,7 +291,7 @@ def test_public_landing_page_uses_real_traffic_and_accepts_period_filters(
     assert default.status_code == test.status_code == head.status_code == 200
     assert default.headers["cache-control"] == "public, max-age=60, stale-while-revalidate=300"
     assert queries == [("real", "month"), ("real", "year"), ("real", "month"), ("real", "month")]
-    assert '<link rel="canonical" href="https://chess.waxim.ru/">' in test.text
+    assert '<link rel="canonical" href="https://yurachess.ru/">' in test.text
     assert invalid.status_code == 200
     assert invalid_period.status_code == 422
     assert removed_dashboard.status_code == 404
