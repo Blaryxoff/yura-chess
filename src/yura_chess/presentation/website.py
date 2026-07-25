@@ -151,7 +151,6 @@ SITE_CSS = (
     }
     a.piece:hover { transform: translateY(-5px) scale(1.05); }
     a.piece:focus-visible { outline: 2px solid var(--gold); outline-offset: 8px; border-radius: 12px; }
-    .breadcrumbs { margin: 0 0 8px; color: var(--muted); font-size: 15px; text-align: center; }
     .article p { color: var(--muted); }
     .article p:first-of-type { margin-top: 0; }
     .article li { color: var(--muted); }
@@ -387,17 +386,21 @@ def _absolute(path: str) -> str:
     return f"{PUBLIC_SITE_URL.rstrip('/')}{path}"
 
 
-def _breadcrumbs(title: str, path: str) -> tuple[str, Schema]:
-    """Trail plus its schema; the landing page is the only page without one."""
-    trail = f"""<p class="breadcrumbs"><a href="{LANDING_PATH}">Шахматы с Юрой</a> → {title}</p>"""
-    schema: Schema = {
+def _breadcrumb_schema(title: str, path: str) -> Schema:
+    """Search results get the trail; the page itself does not.
+
+    A visible trail above the hero orphaned a line of small text over the glyph
+    and broke the composition. The nav below the hero already says where you are
+    (`aria-current`) and how to leave (the glyph and «Навык»), so the trail only
+    ever earned its place in the SERP.
+    """
+    return {
         "@type": "BreadcrumbList",
         "itemListElement": [
             {"@type": "ListItem", "position": 1, "name": "Шахматы с Юрой", "item": PUBLIC_SITE_URL},
             {"@type": "ListItem", "position": 2, "name": title, "item": _absolute(path)},
         ],
     }
-    return trail, schema
 
 
 def _page_schema(name: str, path: str) -> Schema:
@@ -665,7 +668,7 @@ LANDING_PAGE_HTML = _document(
 )
 
 _HOW_TO_PLAY_TITLE = "Как играть в шахматы с Алисой голосом"
-_HOW_TO_PLAY_CRUMBS, _HOW_TO_PLAY_CRUMB_SCHEMA = _breadcrumbs(_HOW_TO_PLAY_TITLE, HOW_TO_PLAY_PATH)
+_HOW_TO_PLAY_CRUMB_SCHEMA = _breadcrumb_schema(_HOW_TO_PLAY_TITLE, HOW_TO_PLAY_PATH)
 
 HOW_TO_PLAY_PAGE_HTML = _document(
     title="Как играть в шахматы с Алисой голосом — пошаговая инструкция",
@@ -711,7 +714,6 @@ HOW_TO_PLAY_PAGE_HTML = _document(
         _HOW_TO_PLAY_CRUMB_SCHEMA,
     ],
     body=f"""    <header>
-      {_HOW_TO_PLAY_CRUMBS}
       <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♟</a>
       <h1>{_HOW_TO_PLAY_TITLE}</h1>
       <p class="lead">
@@ -778,7 +780,7 @@ HOW_TO_PLAY_PAGE_HTML = _document(
 )
 
 _COMMANDS_TITLE = "Все голосовые команды навыка"
-_COMMANDS_CRUMBS, _COMMANDS_CRUMB_SCHEMA = _breadcrumbs(_COMMANDS_TITLE, COMMANDS_PATH)
+_COMMANDS_CRUMB_SCHEMA = _breadcrumb_schema(_COMMANDS_TITLE, COMMANDS_PATH)
 
 COMMANDS_PAGE_HTML = _document(
     title="Голосовые команды шахмат в Алисе — полный список",
@@ -789,7 +791,6 @@ COMMANDS_PAGE_HTML = _document(
     path=COMMANDS_PATH,
     structured_data=[_page_schema(_COMMANDS_TITLE, COMMANDS_PATH), _COMMANDS_CRUMB_SCHEMA],
     body=f"""    <header>
-      {_COMMANDS_CRUMBS}
       <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♜</a>
       <h1>{_COMMANDS_TITLE}</h1>
       <p class="lead">
@@ -889,7 +890,7 @@ COMMANDS_PAGE_HTML = _document(
 )
 
 _ACCESSIBILITY_TITLE = "Шахматы для незрячих и слабовидящих голосом"
-_ACCESSIBILITY_CRUMBS, _ACCESSIBILITY_CRUMB_SCHEMA = _breadcrumbs(_ACCESSIBILITY_TITLE, ACCESSIBILITY_PATH)
+_ACCESSIBILITY_CRUMB_SCHEMA = _breadcrumb_schema(_ACCESSIBILITY_TITLE, ACCESSIBILITY_PATH)
 
 ACCESSIBILITY_PAGE_HTML = _document(
     title="Шахматы для незрячих голосом — играть с Алисой без экрана",
@@ -900,7 +901,6 @@ ACCESSIBILITY_PAGE_HTML = _document(
     path=ACCESSIBILITY_PATH,
     structured_data=[_page_schema(_ACCESSIBILITY_TITLE, ACCESSIBILITY_PATH), _ACCESSIBILITY_CRUMB_SCHEMA],
     body=f"""    <header>
-      {_ACCESSIBILITY_CRUMBS}
       <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♚</a>
       <h1>{_ACCESSIBILITY_TITLE}</h1>
       <p class="lead">
@@ -974,7 +974,7 @@ ACCESSIBILITY_PAGE_HTML = _document(
 
 
 _COACH_TITLE = "Шахматный тренер голосом в Алисе"
-_COACH_CRUMBS, _COACH_CRUMB_SCHEMA = _breadcrumbs(_COACH_TITLE, COACH_PATH)
+_COACH_CRUMB_SCHEMA = _breadcrumb_schema(_COACH_TITLE, COACH_PATH)
 
 COACH_PAGE_HTML = _document(
     title="Шахматный тренер голосом — оценка позиции и разбор партии с Алисой",
@@ -985,7 +985,6 @@ COACH_PAGE_HTML = _document(
     path=COACH_PATH,
     structured_data=[_page_schema(_COACH_TITLE, COACH_PATH), _COACH_CRUMB_SCHEMA],
     body=f"""    <header>
-      {_COACH_CRUMBS}
       <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♛</a>
       <h1>{_COACH_TITLE}</h1>
       <p class="lead">
@@ -1058,7 +1057,7 @@ COACH_PAGE_HTML = _document(
 )
 
 _PUZZLES_TITLE = "Шахматные задачи голосом"
-_PUZZLES_CRUMBS, _PUZZLES_CRUMB_SCHEMA = _breadcrumbs(_PUZZLES_TITLE, PUZZLES_PATH)
+_PUZZLES_CRUMB_SCHEMA = _breadcrumb_schema(_PUZZLES_TITLE, PUZZLES_PATH)
 
 PUZZLES_PAGE_HTML = _document(
     title="Шахматные задачи голосом — мат в два хода, вилки и связки с Алисой",
@@ -1069,7 +1068,6 @@ PUZZLES_PAGE_HTML = _document(
     path=PUZZLES_PATH,
     structured_data=[_page_schema(_PUZZLES_TITLE, PUZZLES_PATH), _PUZZLES_CRUMB_SCHEMA],
     body=f"""    <header>
-      {_PUZZLES_CRUMBS}
       <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♝</a>
       <h1>{_PUZZLES_TITLE}</h1>
       <p class="lead">
@@ -1129,7 +1127,7 @@ PUZZLES_PAGE_HTML = _document(
 )
 
 _BLINDFOLD_TITLE = "Шахматы вслепую с Алисой"
-_BLINDFOLD_CRUMBS, _BLINDFOLD_CRUMB_SCHEMA = _breadcrumbs(_BLINDFOLD_TITLE, BLINDFOLD_PATH)
+_BLINDFOLD_CRUMB_SCHEMA = _breadcrumb_schema(_BLINDFOLD_TITLE, BLINDFOLD_PATH)
 
 BLINDFOLD_PAGE_HTML = _document(
     title="Шахматы вслепую — играть и тренироваться голосом с Алисой",
@@ -1140,7 +1138,6 @@ BLINDFOLD_PAGE_HTML = _document(
     path=BLINDFOLD_PATH,
     structured_data=[_page_schema(_BLINDFOLD_TITLE, BLINDFOLD_PATH), _BLINDFOLD_CRUMB_SCHEMA],
     body=f"""    <header>
-      {_BLINDFOLD_CRUMBS}
       <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♘</a>
       <h1>{_BLINDFOLD_TITLE}</h1>
       <p class="lead">

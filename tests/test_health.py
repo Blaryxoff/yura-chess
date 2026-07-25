@@ -217,8 +217,9 @@ def test_secondary_pages_are_crawlable_and_self_describing(
         assert f'href="{linked}"' in response.text
     # Getting home must not depend on the browser's back button.
     assert 'class="piece home" href="/"' in response.text
-    assert response.text.index('class="breadcrumbs"') < response.text.index("<h1>")
     assert f'<a href="{path}" aria-current="page">' in response.text
+    # The trail belongs in the search result, not above the hero.
+    assert 'class="breadcrumbs"' not in response.text
     structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
     graph = json.loads(structured_data)["@graph"]
     assert "BreadcrumbList" in {item["@type"] for item in graph}
