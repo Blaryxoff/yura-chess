@@ -77,12 +77,21 @@ Only now flip the application's canonical host, in one release:
    graph and the IndexNow submitter all derive from it.
 2. Update the host literals in `tests/test_health.py` and
    `tests/e2e/test_deployed_webhook.py`.
-3. Replace the body of `chess.waxim.ru.conf`'s TLS server with
-   `return 301 https://yurachess.ru$request_uri;`, keeping the Yandex
-   verification file reachable so the old property stays verified during the move.
-4. Deploy, reinstall both vhosts, reload nginx.
-5. Point the Alice skill's webhook URL at `https://yurachess.ru/alice/webhook`
-   in the Dialogs console, then re-run the deployed smoke.
+3. Deploy and reload nginx. Both hosts still serve; nothing redirects yet.
+4. Point the Alice skill's webhook at `https://yurachess.ru/alice/webhook` in the
+   Dialogs console and confirm a real utterance still answers.
+
+**The webhook decides when the redirect is safe.** Alice POSTs to it, and a 301
+on a POST is not something to rely on: a client may drop the body or re-issue the
+request as a GET, and the skill would go silent for everyone mid-game. So the
+old host keeps serving `/alice/webhook` directly — it is never redirected — and
+the blanket redirect only goes up once the console points at the new host.
+
+5. Only then replace the rest of `chess.waxim.ru.conf`'s TLS server with
+   `return 301 https://yurachess.ru$request_uri;`, keeping two exceptions live:
+   `location = /alice/webhook` (proxied as before, as the safety net) and the
+   Yandex verification file, so the old property stays verified during the move.
+6. Re-run the deployed smoke against both hosts.
 
 ## 6. Afterwards
 
