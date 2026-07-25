@@ -38,7 +38,7 @@ DASHBOARD_CSS = """
     .stats-panel { margin-top: 18px; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: #1d1c19; }
     .stats-panel h3 { margin: 0 0 16px; font-size: 20px; }
     .stats-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-    .stats-card { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: #171613; }
+    .stats-card { position: relative; min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: #171613; }
     .stats-value { color: var(--gold); font-size: clamp(28px, 4vw, 42px); font-weight: 850; line-height: 1; }
     .stats-label { margin-top: 8px; color: var(--muted); overflow-wrap: anywhere; }
     .stats-chart {
@@ -86,18 +86,21 @@ DASHBOARD_CSS = """
     @keyframes stats-pop-in { to { opacity: 1; transform: none; } }
     @keyframes stats-bar-in { to { opacity: 1; transform: scaleY(1); } }
     @keyframes stats-label-in { from { opacity: 0; } to { opacity: 1; } }
+    /* The hint stays unpositioned on purpose: an inline span around one word is a
+       useless containing block, and anchoring the panel to it both mispositions it
+       and traps its z-index inside a sibling card's stacking context. The card owns
+       the geometry instead. */
     .stats-hint {
-      position: relative;
       border-bottom: 1px dashed #6d6555;
       cursor: help;
     }
     .stats-hint:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 3px; }
     .stats-tip {
       position: absolute;
-      bottom: calc(100% + 12px);
-      left: 0;
-      z-index: 3;
-      width: max(240px, 100%);
+      top: calc(100% + 12px);
+      left: 12px;
+      right: 12px;
+      z-index: 5;
       padding: 13px 15px;
       border: 1px solid #4c4638;
       border-radius: 14px;
@@ -109,17 +112,30 @@ DASHBOARD_CSS = """
       box-shadow: 0 18px 40px #00000059;
       opacity: 0;
       visibility: hidden;
-      transform: translateY(6px) scale(.97);
-      transform-origin: bottom left;
+      transform: translateY(-6px) scale(.97);
+      transform-origin: top center;
       transition: opacity 200ms ease, transform 420ms var(--spring), visibility 200ms;
     }
     .stats-tip strong { display: block; margin-bottom: 5px; color: var(--gold); }
     .stats-tip::after {
       content: "";
       position: absolute;
-      top: 100%;
-      left: 18px;
+      bottom: 100%;
+      left: 24px;
       border: 7px solid transparent;
+      border-bottom-color: #4c4638;
+    }
+    /* Flipped by script only when the panel would not fit under the card. */
+    .stats-card.tip-above .stats-tip {
+      top: auto;
+      bottom: calc(100% + 12px);
+      transform: translateY(6px) scale(.97);
+      transform-origin: bottom center;
+    }
+    .stats-card.tip-above .stats-tip::after {
+      top: 100%;
+      bottom: auto;
+      border-bottom-color: transparent;
       border-top-color: #4c4638;
     }
     .stats-hint:hover .stats-tip,
@@ -129,20 +145,12 @@ DASHBOARD_CSS = """
       visibility: visible;
       transform: none;
     }
-    /* The hint is an inline span, so it is a useless containing block on a narrow
-       screen: a 240px tooltip anchored to a ~120px word hangs off the card. Below
-       the single-column breakpoint the card takes over and the tooltip spans it. */
-    @media (max-width: 520px) {
-      .stats-hint { position: static; }
-      .stats-card { position: relative; }
-      .stats-tip {
-        left: 12px;
-        right: 12px;
-        width: auto;
-        transform-origin: bottom center;
-      }
-      .stats-tip::after { left: 24px; }
-    }
+    /* The open card is lifted so the cards after it in source order — each its own
+       stacking context while the reveal animation holds a transform — cannot paint
+       over the panel. */
+    .stats-card:hover,
+    .stats-card:focus-within,
+    .stats-card:has(.stats-hint:hover) { z-index: 4; }
     @media (hover: hover) {
       .stats-tab:hover { color: var(--gold); border-color: var(--gold); transform: translateY(-2px) scale(1.03); }
       .stats-tab.active:hover { color: #241d12; }
