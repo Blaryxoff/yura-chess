@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from yura_chess.presentation.dashboard import DASHBOARD_CSS
+from yura_chess.presentation.social_card import CARD_HEIGHT, CARD_WIDTH, SOCIAL_CARD_ALT, SOCIAL_CARD_PATH
 
 # One node of the schema.org graph embedded in every page.
 Schema = dict[str, Any]
@@ -194,17 +195,28 @@ SITE_CSS = (
       transition: transform 520ms var(--spring), border-color 220ms ease, box-shadow 220ms ease;
     }
     .has-motion .motion-item { opacity: 0; filter: blur(4px); transform: translateY(28px) scale(.985); }
-    .has-motion .motion-item.is-visible {
-      animation: page-reveal 760ms var(--spring) both;
-      animation-delay: var(--motion-delay, 0ms);
+    /* The visible state is set outright, never by the animation alone. `--spring`
+       is a linear() easing: where that is unsupported the var() substitution makes
+       the whole `animation` declaration invalid, and a page whose reveal lived only
+       in that declaration would stay blank for good. */
+    .has-motion .motion-item.is-visible { opacity: 1; filter: none; transform: none; }
+    @supports (animation-timing-function: linear(0, 1)) {
+      .has-motion .motion-item.is-visible {
+        animation: page-reveal 760ms var(--spring) both;
+        animation-delay: var(--motion-delay, 0ms);
+      }
     }
     @keyframes page-reveal { to { opacity: 1; filter: none; transform: none; } }
-    @media (hover: hover) {
+    @media (hover: hover) and (prefers-reduced-motion: no-preference) {
       .feature:hover, .faq > div:hover {
         border-color: #e8b85466;
         transform: translateY(-4px);
         box-shadow: 0 18px 42px #0000002e;
       }
+    }
+    /* Colour-only hover for anyone who asked not to be moved. */
+    @media (hover: hover) and (prefers-reduced-motion: reduce) {
+      .feature:hover, .faq > div:hover { border-color: #e8b85466; }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
@@ -217,6 +229,9 @@ SITE_CSS = (
         filter: none !important;
         transform: none !important;
       }
+      /* Killing the transition alone leaves the displacement — it just arrives
+         instantly instead of gliding, which is the jump the setting asks to avoid. */
+      a.piece:hover, .support-action:hover, .stats-tab:hover { transform: none !important; }
     }
     @media (max-width: 760px) {
       header { padding-top: 46px; }
@@ -240,6 +255,8 @@ SITE_SCRIPT = """
       window.addEventListener("load", () => showLatest(), { once: true });
 
       const formatter = new Intl.NumberFormat("ru-RU");
+      // Only the aria-hidden layer is animated; the figure a screen reader reads
+      // is the server-rendered one and never passes through "0".
       const animateCounter = (element) => {
         const target = Number(element.dataset.count || 0);
         const started = performance.now();
@@ -263,9 +280,13 @@ SITE_SCRIPT = """
         if (!reveal) return;
         section.querySelectorAll(".stats-cards, .stats-chart").forEach((element) => reveal.observe(element));
       };
+      // Clicking two periods quickly used to let the slower answer win and leave
+      // the section disagreeing with the address bar.
+      let statisticsRequest = 0;
       const loadStatistics = async (url, updateHistory = true) => {
         const current = document.querySelector("#statistics");
         if (!current) return;
+        const request = ++statisticsRequest;
         current.setAttribute("aria-busy", "true");
         try {
           const response = await fetch(url, { headers: { "X-Requested-With": "statistics" } });
@@ -273,39 +294,74 @@ SITE_SCRIPT = """
           const page = new DOMParser().parseFromString(await response.text(), "text/html");
           const replacement = page.querySelector("#statistics");
           if (!replacement) throw new Error("Statistics section is missing");
+          if (request !== statisticsRequest) return;
           const scrollPosition = window.scrollY;
+          const wasFocused = document.activeElement?.closest?.(".stats-tab") !== null
+            && document.activeElement?.classList?.contains("stats-tab");
           current.replaceWith(replacement);
           if (updateHistory) history.pushState({ statistics: true }, "", url);
           window.scrollTo({ top: scrollPosition });
+          // Replacing the section destroys the link that was just activated, which
+          // would otherwise drop keyboard focus to the top of the document.
+          if (wasFocused) replacement.querySelector(".stats-tab.active")?.focus({ preventScroll: true });
           prepareStatistics(replacement);
         } catch (error) {
           window.location.assign(url);
+        } finally {
+          if (request === statisticsRequest) {
+            document.querySelector("#statistics")?.setAttribute("aria-busy", "false");
+          }
         }
       };
-      // The tooltip sits under the card so it never covers the number it explains.
-      // Only when the viewport has no room below does it flip above.
+      // The tooltip sits under the card so it never covers the number it explains,
+      // and flips only when the side it is on has less room than the other.
       const placeTooltip = (hint) => {
         const card = hint.closest(".stats-card");
-        const tip = hint.querySelector(".stats-tip");
+        const tip = hint.nextElementSibling;
         if (!card || !tip) return;
         card.classList.remove("tip-above");
-        const below = window.innerHeight - card.getBoundingClientRect().bottom;
-        if (below < tip.offsetHeight + 24) card.classList.add("tip-above");
+        const box = card.getBoundingClientRect();
+        const needed = tip.offsetHeight + 24;
+        const below = window.innerHeight - box.bottom;
+        if (below < needed && box.top > below) card.classList.add("tip-above");
       };
+      const openTooltip = (hint) => {
+        placeTooltip(hint);
+        hint.setAttribute("aria-expanded", "true");
+      };
+      const closeTooltip = (hint) => hint.setAttribute("aria-expanded", "false");
+      const openHints = () => document.querySelectorAll('.stats-hint[aria-expanded="true"]');
       const wireTooltips = (root) => {
         (root || document).querySelectorAll(".stats-hint").forEach((hint) => {
-          ["pointerenter", "focus"].forEach((event) => hint.addEventListener(event, () => placeTooltip(hint)));
+          hint.addEventListener("pointerenter", () => placeTooltip(hint));
+          hint.addEventListener("focus", () => openTooltip(hint));
+          hint.addEventListener("blur", () => closeTooltip(hint));
+          // Touch has no hover, so the tap has to toggle. Pressing the button also
+          // focuses it, and focus opens the panel — so the state is read on
+          // pointerdown, before that happens, or every tap would close what it opened.
+          let wasOpen = false;
+          hint.addEventListener("pointerdown", () => {
+            wasOpen = hint.getAttribute("aria-expanded") === "true";
+          });
+          hint.addEventListener("click", (event) => {
+            event.preventDefault();
+            wasOpen ? closeTooltip(hint) : openTooltip(hint);
+            wasOpen = false;
+          });
         });
       };
       wireTooltips(document);
 
-      // A tooltip a keyboard user cannot dismiss is a trap: Escape closes it
-      // without moving focus off the word it explains.
+      // Escape must close the panel without throwing focus away — losing your
+      // place in the page is a worse outcome than the panel staying open.
       document.addEventListener("keydown", (event) => {
         if (event.key !== "Escape") return;
-        const hint = document.activeElement?.closest?.(".stats-hint");
-        if (hint) hint.blur();
+        openHints().forEach(closeTooltip);
       });
+      // An open panel is positioned against a box that scrolling and resizing move.
+      ["resize", "scroll"].forEach((event) =>
+        window.addEventListener(event, () => openHints().forEach(placeTooltip), { passive: true })
+      );
 
       document.addEventListener("click", (event) => {
         const tab = event.target.closest(".stats-tab");
@@ -323,7 +379,7 @@ SITE_SCRIPT = """
           if (!entry.isIntersecting) return;
           entry.target.classList.add("is-visible");
           if (entry.target.classList.contains("stats-cards")) {
-            entry.target.querySelectorAll("[data-count]").forEach(animateCounter);
+            entry.target.querySelectorAll(".stats-value-shown[data-count]").forEach(animateCounter);
           }
           observer.unobserve(entry.target);
         });
@@ -450,9 +506,15 @@ def _document(*, title: str, description: str, path: str, structured_data: list[
   <meta property="og:title" content="{title}">
   <meta property="og:description" content="{description}">
   <meta property="og:url" content="{canonical}">
-  <meta name="twitter:card" content="summary">
+  <meta property="og:image" content="{_absolute(SOCIAL_CARD_PATH)}">
+  <meta property="og:image:width" content="{CARD_WIDTH}">
+  <meta property="og:image:height" content="{CARD_HEIGHT}">
+  <meta property="og:image:alt" content="{SOCIAL_CARD_ALT}">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="{title}">
   <meta name="twitter:description" content="{description}">
+  <meta name="twitter:image" content="{_absolute(SOCIAL_CARD_PATH)}">
+  <meta name="twitter:image:alt" content="{SOCIAL_CARD_ALT}">
   <script type="application/ld+json">
 {graph}
   </script>
@@ -741,7 +803,7 @@ HOW_TO_PLAY_PAGE_HTML = _document(
         <li>
           <strong>Начните партию</strong>
           Скажите «новая игра белыми уровень пять» или «новая игра чёрными». Уровень Stockfish — от нуля
-          до двадцати: ноль подходит начинающим, двадцать играет в полную силу.
+          до двадцати: ноль подходит начинающим, двадцать — максимальный уровень.
         </li>
         <li>
           <strong>Называйте ходы обычными словами</strong>
@@ -946,7 +1008,7 @@ ACCESSIBILITY_PAGE_HTML = _document(
         Ошибка распознавания не приводит к случайному ходу. Если фраза допускает несколько прочтений,
         навык переспрашивает и не меняет позицию. Команда «что ты услышала» повторяет распознанную фразу,
         «повтори ответ» и «повтори медленно» возвращают прошлый ответ, а «повтори координаты по буквам»
-        проговаривает поле по буквам — на случай, когда «б» и «п» звучат одинаково.
+        проговаривает поле по буквам — на случай, когда Алиса путает «б» и «п».
       </p>
 
       <h3>Темп и подробность настраиваются</h3>
@@ -1019,7 +1081,7 @@ COACH_PAGE_HTML = _document(
 
       <h2>Ходы-кандидаты и угрозы</h2>
       <ul>
-        <li><code>«Какие ходы хорошие»</code> — до трёх ходов-кандидатов с объяснением идеи каждого</li>
+        <li><code>«Какие ходы хорошие»</code> — до трёх ходов-кандидатов, от лучшего к слабейшему</li>
         <li><code>«Чем ты угрожаешь»</code> — что готовит движок в ответ</li>
         <li><code>«Почему ты так сходил»</code> — цель последнего хода Алисы</li>
       </ul>
@@ -1037,11 +1099,12 @@ COACH_PAGE_HTML = _document(
         Вопрос <code>«где я ошибся»</code> находит последнюю существенную ошибку в партии.
       </p>
 
-      <h2>Предупреждение перед грубой ошибкой</h2>
+      <h2>Предупреждение о грубой ошибке</h2>
       <p>
-        Перед серьёзным зевком тренер может предупредить, но решение остаётся за игроком:
-        <code>«оставить мой ход»</code> подтверждает ход как есть. Навык никогда не переигрывает
-        за вас и не отменяет ход молча.
+        Если ход заметно испортил позицию, тренер скажет об этом сразу после него и назовёт цену
+        ошибки в пешках. Решение остаётся за игроком: <code>«оставить мой ход»</code> подтверждает
+        ход как есть, <code>«вернуть ход»</code> отменяет его. Навык не переигрывает за вас
+        и не отменяет ход молча.
       </p>
 
       <h2>Разбор сыгранной партии</h2>
@@ -1105,8 +1168,8 @@ PUZZLES_PAGE_HTML = _document(
       <h2>Если позиция не удержалась в голове</h2>
       <p>
         <code>«Повтори задачу»</code> читает позицию заново — столько раз, сколько нужно, без штрафа.
-        <code>«Подскажи»</code> даёт подсказку по ступеням, <code>«покажи решение»</code> объясняет
-        текущую задачу целиком, а <code>«следующая задача»</code> берёт новую.
+        <code>«Подскажи»</code> даёт подсказку по ступеням, <code>«покажи решение»</code> продиктует
+        оставшиеся ходы решения и закроет задачу, а <code>«следующая задача»</code> берёт новую.
       </p>
 
       <h2>Серия решений</h2>
@@ -1149,7 +1212,7 @@ BLINDFOLD_PAGE_HTML = _document(
       <h1>{_BLINDFOLD_TITLE}</h1>
       <p class="lead">
         Игра вслепую всегда упиралась в партнёра: кто-то должен вести доску и называть ходы.
-        Алиса делает это бесконечно терпеливо — и никогда не подглядывает за вас.
+        Алиса делает это бесконечно терпеливо — и не показывает подсказок, пока их не попросят.
       </p>
       {_nav(BLINDFOLD_PATH)}
     </header>
@@ -1158,8 +1221,10 @@ BLINDFOLD_PAGE_HTML = _document(
       <h2>Почему голосовой навык — удобный тренажёр вслепую</h2>
       <p>
         Обычный шахматный сайт с выключенной доской всё равно оставляет соблазн подсмотреть.
-        Здесь смотреть просто не на что: партия существует только в звуке. Соперник — Stockfish
-        с двадцатью уровнями силы, поэтому нагрузку можно поднимать по мере роста.
+        На колонке без экрана смотреть просто не на что: партия существует только в звуке.
+        На устройстве с экраном доска всё же показывается — если она мешает тренировке,
+        отверните экран или возьмите колонку. Соперник — Stockfish с двадцатью уровнями силы,
+        поэтому нагрузку можно поднимать по мере роста.
       </p>
 
       <h2>Как начать</h2>
@@ -1207,7 +1272,7 @@ BLINDFOLD_PAGE_HTML = _document(
 
       <h2>Не только тренировка</h2>
       <p>
-        Для незрячих и слабовидящих игроков это не упражнение, а основной способ играть.
+        Для незрячих и слабовидящих игроков это не упражнение, а обычный способ играть.
         Навык изначально проектировался под них — подробности на странице
         <a href="{ACCESSIBILITY_PATH}">«Шахматы для незрячих голосом»</a>.
       </p>

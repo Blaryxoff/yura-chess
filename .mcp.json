@@ -1,11 +1,16 @@
 {
   "mcpServers": {
+    "figma": {
+      "type": "http",
+      "url": "https://mcp.figma.com/mcp"
+    },
     "chrome-devtools": {
       "type": "stdio",
       "command": "npx",
       "args": [
         "-y",
-        "chrome-devtools-mcp@latest",
+        "chrome-devtools-mcp@1.6.0",
+        "--experimentalPageIdRouting",
         "--isolated"
       ],
       "env": {}

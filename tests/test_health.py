@@ -12,6 +12,7 @@ from settings_fixtures import TEST_IDENTITY_SALT
 
 from yura_chess.adapters.alice.webhook import ALICE_WEBHOOK_PATH, LEGACY_ALICE_WEBHOOK_PATH
 from yura_chess.main import _purge_retained_data, create_app
+from yura_chess.presentation.social_card import SOCIAL_CARD_PATH
 from yura_chess.presentation.website import (
     ACCESSIBILITY_PATH,
     BLINDFOLD_PATH,
@@ -121,14 +122,34 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert 'class="stats-hint"' in response.text
     assert 'aria-describedby="users-hint"' in response.text
     assert "Автоматические проверки" not in response.text
+    # A dismissible, touch-operable tooltip needs a real button, not a focusable span.
+    assert '<button type="button" class="stats-hint"' in response.text
+    assert 'aria-expanded="false"' in response.text
     # The card, not the inline word, positions the tooltip: an inline anchor both
     # mispositions the panel and traps its z-index inside a sibling stacking context.
     assert ".stats-card { position: relative;" in response.text
-    assert ".stats-card:has(.stats-hint:hover) { z-index: 4; }" in response.text
+    assert '.stats-card:has(.stats-hint[aria-expanded="true"]) { z-index: 4; }' in response.text
     # Default placement is under the card so the counter it explains stays readable.
     assert "top: calc(100% + 12px);" in response.text
     assert ".stats-card.tip-above .stats-tip {" in response.text
     assert 'card.classList.add("tip-above")' in response.text
+    # Escape closes the panel without taking focus away from the trigger.
+    assert "openHints().forEach(closeTooltip)" in response.text
+    # The reveal must not depend on linear() being supported, or the page is blank.
+    assert ".has-motion .motion-item.is-visible { opacity: 1; filter: none; transform: none; }" in response.text
+    assert "@supports (animation-timing-function: linear(0, 1))" in response.text
+    # The figure a screen reader reads is the server-rendered one, never the animated layer.
+    assert 'class="stats-value-shown" aria-hidden="true"' in response.text
+    assert '<span class="visually-hidden">' in response.text
+    # role="img" flattened the bars out of the tree, so the numbers live in a real table.
+    assert 'class="stats-chart" aria-hidden="true"' in response.text
+    assert 'class="stats-table visually-hidden"' in response.text
+    assert '<th scope="col">Запросов</th>' in response.text
+    # A stale period response must not overwrite a newer one.
+    assert "if (request !== statisticsRequest) return;" in response.text
+    # Sharing a link should unfurl into something.
+    assert f'<meta property="og:image" content="https://yurachess.ru{SOCIAL_CARD_PATH}">' in response.text
+    assert '<meta name="twitter:card" content="summary_large_image">' in response.text
 
 
 def test_yandex_webmaster_verification_file_is_served_verbatim(offline_settings: Settings) -> None:
@@ -177,6 +198,41 @@ def test_both_webhook_paths_answer_so_the_console_never_races_a_deploy(offline_s
     assert canonical.status_code == legacy.status_code == 422
     assert "Disallow: /webhooks/" in robots.text
     assert "Disallow: /alice/" in robots.text
+
+
+def test_social_card_is_served_for_link_previews(offline_settings: Settings) -> None:
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get(SOCIAL_CARD_PATH)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content.startswith(b"\x89PNG")
+
+
+def test_statistics_expose_the_chart_data_as_a_table(
+    monkeypatch: pytest.MonkeyPatch,
+    offline_settings: Settings,
+) -> None:
+    """The audience this site is built for cannot read a bar chart."""
+    snapshot = DashboardSnapshot(
+        "real",
+        "month",
+        datetime(2026, 7, 23, 12, 0, 0),
+        UsageTotals(2, 1, 1, 1, 1, 1, 0, 0),
+        (DailyUsage(date(2026, 7, 22), requests=7), DailyUsage(date(2026, 7, 23), requests=9)),
+    )
+    monkeypatch.setattr(
+        "yura_chess.main.UsageRepository.dashboard",
+        lambda self, source, *, period: snapshot,
+    )
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get("/")
+
+    assert '<th scope="row">22.07.2026</th><td>7</td>' in response.text
+    assert '<th scope="row">23.07.2026</th><td>9</td>' in response.text
+    # The decorative bars must not also be announced.
+    assert 'class="stats-chart" aria-hidden="true"' in response.text
+    assert 'role="img"' not in response.text
 
 
 def test_indexnow_key_is_served_so_submissions_are_accepted(offline_settings: Settings) -> None:

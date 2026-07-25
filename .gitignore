@@ -19,3 +19,5 @@ var/
 .DS_Store
 .claude/
 .cursor/
+.cursor/chrome-profile/
+.codex/
