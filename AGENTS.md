@@ -60,4 +60,8 @@ conduct directory wholesale.
 ### devkit-core
 
 - ~/.claude/agentic-devkit/plugins/core/conduct/overview.md
+
+### devkit-frontend
+
+- ~/.claude/agentic-devkit/plugins/frontend/conduct/overview.md
 <!-- devkit-toolkit:end -->
