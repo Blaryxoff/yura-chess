@@ -114,6 +114,32 @@ systemctl daemon-reload
 systemctl enable --now yura-chess-backup.timer yura-chess-restore-smoke.timer
 ```
 
+## Host nginx vhost
+
+`deploy.sh` never touches nginx: the vhost is a host file, installed by hand. The
+allowlist there names every public path one by one, so adding a page or a crawler
+file to the application is not enough — the vhost must be reinstalled in the same
+release, or nginx keeps answering 404 while every unit test passes.
+
+```bash
+install -m 0644 deploy/nginx/chess.waxim.ru.conf /etc/nginx/sites-available/chess.waxim.ru
+nginx -t && systemctl reload nginx
+```
+
+Verify the whole crawlable surface afterwards:
+
+```bash
+for path in / /robots.txt /sitemap.xml /how-to-play /commands /coach /puzzles \
+            /accessibility /blindfold /yandex_67cb474818f8d2b2.html /favicon.svg \
+            /3e123263cd3a154a8aa32da5bc28cebd.txt; do
+  printf '%s -> %s\n' "$path" "$(curl -s -o /dev/null -w '%{http_code}' "https://chess.waxim.ru$path")"
+done
+```
+
+Anything other than `200` means the deployed vhost is older than this repository.
+`nginx -T | grep -n -B3 -A8 'robots\|sitemap'` shows the effective configuration,
+including snippets, when a path 404s despite being listed here.
+
 ## Cutover checklist
 
 1. Confirm green CI and the published immutable image for `$TAG`.
@@ -121,5 +147,8 @@ systemctl enable --now yura-chess-backup.timer yura-chess-restore-smoke.timer
 3. `YURA_CHESS_DEPLOYED_URL=https://chess.waxim.ru uv run pytest tests/e2e/test_deployed_webhook.py`.
 4. External check through nginx: `curl -sS https://chess.waxim.ru/alice/webhook -X POST -d '{}'`
    returns 422 (the endpoint is reachable and validating), not 502.
-5. Voice-only and screen-device QA in the Alice console before submitting for moderation.
-6. Open `https://chess.waxim.ru/#statistics` and confirm real/test and period filters render aggregate counts without identifiers.
+   Reinstall the vhost too whenever a public path was added; see *Host nginx vhost*.
+5. `uv run python scripts/submit_indexnow.py` — tells Yandex and Bing the pages changed.
+   It exits non-zero when an endpoint rejects the submission; skipping it only delays the crawl.
+6. Voice-only and screen-device QA in the Alice console before submitting for moderation.
+7. Open `https://chess.waxim.ru/#statistics` and confirm real/test and period filters render aggregate counts without identifiers.

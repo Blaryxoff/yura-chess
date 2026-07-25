@@ -16,8 +16,22 @@ from yura_chess.adapters.yandex_images import BoardImageService
 from yura_chess.engine.stockfish import StockfishPool
 from yura_chess.presentation.dashboard import render_dashboard
 from yura_chess.presentation.website import (
+    ACCESSIBILITY_PAGE_HTML,
+    ACCESSIBILITY_PATH,
+    BLINDFOLD_PAGE_HTML,
+    BLINDFOLD_PATH,
+    COACH_PAGE_HTML,
+    COACH_PATH,
+    COMMANDS_PAGE_HTML,
+    COMMANDS_PATH,
     FAVICON_PATH,
     FAVICON_SVG,
+    HOW_TO_PLAY_PAGE_HTML,
+    HOW_TO_PLAY_PATH,
+    INDEXNOW_KEY,
+    INDEXNOW_KEY_PATH,
+    PUZZLES_PAGE_HTML,
+    PUZZLES_PATH,
     ROBOTS_PATH,
     ROBOTS_TEXT,
     SITEMAP_PATH,
@@ -132,9 +146,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers={"Cache-Control": "public, max-age=60, stale-while-revalidate=300"},
         )
 
+    def _static_page(path: str, html: str) -> None:
+        """Serve one crawlable page; the content is fixed, so only caching differs from the landing page."""
+
+        @app.api_route(path, methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
+        async def page() -> HTMLResponse:
+            return HTMLResponse(html, headers={"Cache-Control": "public, max-age=3600"})
+
+    _static_page(HOW_TO_PLAY_PATH, HOW_TO_PLAY_PAGE_HTML)
+    _static_page(COMMANDS_PATH, COMMANDS_PAGE_HTML)
+    _static_page(COACH_PATH, COACH_PAGE_HTML)
+    _static_page(PUZZLES_PATH, PUZZLES_PAGE_HTML)
+    _static_page(ACCESSIBILITY_PATH, ACCESSIBILITY_PAGE_HTML)
+    _static_page(BLINDFOLD_PATH, BLINDFOLD_PAGE_HTML)
+
     @app.get(WEBMASTER_VERIFICATION_PATH, response_class=HTMLResponse, include_in_schema=False)
     async def webmaster_verification() -> HTMLResponse:
         return HTMLResponse(WEBMASTER_VERIFICATION_HTML)
+
+    @app.api_route(INDEXNOW_KEY_PATH, methods=["GET", "HEAD"], include_in_schema=False)
+    async def indexnow_key() -> Response:
+        return Response(INDEXNOW_KEY, media_type="text/plain", headers={"Cache-Control": "public, max-age=86400"})
 
     @app.api_route(ROBOTS_PATH, methods=["GET", "HEAD"], include_in_schema=False)
     async def robots() -> Response:

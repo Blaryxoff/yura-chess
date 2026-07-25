@@ -12,9 +12,20 @@ from settings_fixtures import TEST_IDENTITY_SALT
 
 from yura_chess.main import _purge_retained_data, create_app
 from yura_chess.presentation.website import (
+    ACCESSIBILITY_PATH,
+    BLINDFOLD_PATH,
+    COACH_PATH,
+    COMMANDS_PATH,
     FAVICON_SVG,
+    HOW_TO_PLAY_PATH,
+    INDEXNOW_KEY,
+    INDEXNOW_KEY_PATH,
+    LANDING_FAQ,
+    LANDING_PATH,
+    PUZZLES_PATH,
     ROBOTS_PATH,
     ROBOTS_TEXT,
+    SITEMAP_ENTRIES,
     SITEMAP_PATH,
     SITEMAP_XML,
     WEBMASTER_VERIFICATION_HTML,
@@ -65,11 +76,10 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert "Включи режим тренера" in response.text
     assert "Настоящие шахматы в Алисе" in response.text
     assert "Продолжайте позже" in response.text
-    assert "Смотрите позицию" in response.text
-    assert "Есть ли режим тренера?" in response.text
-    assert "Можно ли разобрать партию?" in response.text
-    assert "Есть ли шахматные задачи?" in response.text
-    assert "Можно ли настроить речь и доску?" in response.text
+    assert "Играйте без экрана" in response.text
+    assert "Как играть в шахматы с Алисой?" in response.text
+    assert "Нужен ли экран, чтобы играть?" in response.text
+    assert "Есть ли режим тренера и разбор партии?" in response.text
     assert "Как узнать все команды?" in response.text
     assert "Задача на мат в два хода" in response.text
     assert 'class="command-list"' in response.text
@@ -97,15 +107,18 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     graph = json.loads(structured_data)["@graph"]
     assert {item["@type"] for item in graph} == {"WebSite", "SoftwareApplication", "FAQPage"}
     faq = next(item for item in graph if item["@type"] == "FAQPage")
-    assert [item["name"] for item in faq["mainEntity"]] == [
-        "Как запустить навык?",
-        "Есть ли режим тренера?",
-        "Можно ли разобрать партию?",
-        "Есть ли шахматные задачи?",
-        "Можно ли настроить речь и доску?",
-        "Как узнать все команды?",
-    ]
-    assert "незряч" not in response.text.lower()
+    assert [item["name"] for item in faq["mainEntity"]] == [question for question, _ in LANDING_FAQ]
+    # A FAQ rich result is dropped when the marked-up answer is not on the page.
+    for question, answer in LANDING_FAQ:
+        assert question in response.text
+        assert answer in response.text
+    assert "незряч" in response.text.lower()
+    for path in (HOW_TO_PLAY_PATH, COMMANDS_PATH, COACH_PATH, PUZZLES_PATH, ACCESSIBILITY_PATH, BLINDFOLD_PATH):
+        assert f'href="{path}"' in response.text
+    # The privacy wording moved into a hover tooltip on the word it explains.
+    assert "Что значит «пользователь»?" in response.text
+    assert 'class="stats-hint"' in response.text
+    assert "Автоматические проверки" not in response.text
 
 
 def test_yandex_webmaster_verification_file_is_served_verbatim(offline_settings: Settings) -> None:
@@ -128,6 +141,61 @@ def test_search_engine_discovery_files_are_public_and_cacheable(offline_settings
     assert sitemap.text == SITEMAP_XML
     assert "application/xml" in sitemap.headers["content-type"]
     assert "https://chess.waxim.ru/" in sitemap.text
+    for path, _ in SITEMAP_ENTRIES:
+        assert f"<loc>https://chess.waxim.ru{path}</loc>" in sitemap.text
+
+
+def test_indexnow_key_is_served_so_submissions_are_accepted(offline_settings: Settings) -> None:
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get(INDEXNOW_KEY_PATH)
+
+    assert response.status_code == 200
+    assert response.text == INDEXNOW_KEY
+    assert "text/plain" in response.headers["content-type"]
+
+
+@pytest.mark.parametrize(
+    ("path", "title", "marker"),
+    [
+        (HOW_TO_PLAY_PATH, "Как играть в шахматы с Алисой голосом", "Уровень Stockfish — от нуля"),
+        (COMMANDS_PATH, "Голосовые команды шахмат в Алисе", "«повтори координаты по буквам»"),
+        (COACH_PATH, "Шахматный тренер голосом", "Подсказки по ступеням"),
+        (PUZZLES_PATH, "Шахматные задачи голосом", "Мат по последней горизонтали"),
+        (ACCESSIBILITY_PATH, "Шахматы для незрячих голосом", "Тренер и задачи тоже без экрана"),
+        (BLINDFOLD_PATH, "Шахматы вслепую с Алисой", "Как наращивать сложность"),
+    ],
+)
+def test_secondary_pages_are_crawlable_and_self_describing(
+    offline_settings: Settings,
+    path: str,
+    title: str,
+    marker: str,
+) -> None:
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get(path)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert title in response.text
+    assert marker in response.text
+    assert f'<link rel="canonical" href="https://chess.waxim.ru{path}">' in response.text
+    # Every secondary page must lead back to the others, or a crawler reaches none of them.
+    every_page = {
+        LANDING_PATH,
+        HOW_TO_PLAY_PATH,
+        COMMANDS_PATH,
+        COACH_PATH,
+        PUZZLES_PATH,
+        ACCESSIBILITY_PATH,
+        BLINDFOLD_PATH,
+    }
+    for linked in every_page - {path}:
+        assert f'href="{linked}"' in response.text
+    structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
+    graph = json.loads(structured_data)["@graph"]
+    assert "BreadcrumbList" in {item["@type"] for item in graph}
+    # The statistics dashboard belongs to the landing page only.
+    assert 'id="statistics"' not in response.text
 
 
 def test_favicon_is_served_for_modern_and_legacy_browser_paths(offline_settings: Settings) -> None:
