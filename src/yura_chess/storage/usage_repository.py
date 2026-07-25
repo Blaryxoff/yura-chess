@@ -17,7 +17,16 @@ TrafficSource = Literal["real", "test"]
 DashboardSource = Literal["real", "test", "all"]
 ChartPeriod = Literal["month", "year", "all"]
 
+# Timestamps are stored in UTC; a report is only meaningful on the day boundaries
+# its readers live by. Both sides of that shift — the Python bounds and the SQL
+# grouping — derive from this one value, or a change to it would move the range
+# without moving the buckets inside it.
 _MOSCOW_OFFSET = timedelta(hours=3)
+
+
+def _in_moscow(column: str) -> str:
+    """The stored UTC column expressed in reporting time, for grouping and bucketing."""
+    return f"DATE_ADD({column}, INTERVAL {int(_MOSCOW_OFFSET.total_seconds())} SECOND)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,11 +208,11 @@ class UsageRepository:
         requests = self._session.execute(
             text(
                 f"""
-                SELECT DATE(DATE_ADD(r.created_at, INTERVAL 3 HOUR)) day, COUNT(*) requests,
+                SELECT DATE({_in_moscow("r.created_at")}) day, COUNT(*) requests,
                        COUNT(DISTINCT r.owner_key) users, COUNT(DISTINCT r.session_key) sessions
                 FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
                 WHERE r.created_at >= :start{source_filter}
-                GROUP BY DATE(DATE_ADD(r.created_at, INTERVAL 3 HOUR))
+                GROUP BY DATE({_in_moscow("r.created_at")})
                 """
             ),
             parameters,
@@ -215,10 +224,10 @@ class UsageRepository:
         games = self._session.execute(
             text(
                 f"""
-                SELECT DATE(DATE_ADD(g.created_at, INTERVAL 3 HOUR)) day, COUNT(*) games
+                SELECT DATE({_in_moscow("g.created_at")}) day, COUNT(*) games
                 FROM games g JOIN usage_users u ON u.owner_key = g.owner_key
                 WHERE g.created_at >= :start{source_filter}
-                GROUP BY DATE(DATE_ADD(g.created_at, INTERVAL 3 HOUR))
+                GROUP BY DATE({_in_moscow("g.created_at")})
                 """
             ),
             parameters,
@@ -229,11 +238,11 @@ class UsageRepository:
         moves = self._session.execute(
             text(
                 f"""
-                SELECT DATE(DATE_ADD(m.created_at, INTERVAL 3 HOUR)) day, COUNT(*) player_moves
+                SELECT DATE({_in_moscow("m.created_at")}) day, COUNT(*) player_moves
                 FROM game_moves m JOIN games g ON g.id = m.game_id
                 JOIN usage_users u ON u.owner_key = g.owner_key
                 WHERE m.actor = 'player' AND m.created_at >= :start{source_filter}
-                GROUP BY DATE(DATE_ADD(m.created_at, INTERVAL 3 HOUR))
+                GROUP BY DATE({_in_moscow("m.created_at")})
                 """
             ),
             parameters,
@@ -256,13 +265,13 @@ class UsageRepository:
         rows = self._session.execute(
             text(
                 f"""
-                SELECT YEAR(DATE_ADD(r.created_at, INTERVAL 3 HOUR)) year,
-                       MONTH(DATE_ADD(r.created_at, INTERVAL 3 HOUR)) month,
+                SELECT YEAR({_in_moscow("r.created_at")}) year,
+                       MONTH({_in_moscow("r.created_at")}) month,
                        COUNT(*) requests
                 FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
                 WHERE 1=1{source_filter}{time_filter}
-                GROUP BY YEAR(DATE_ADD(r.created_at, INTERVAL 3 HOUR)),
-                         MONTH(DATE_ADD(r.created_at, INTERVAL 3 HOUR))
+                GROUP BY YEAR({_in_moscow("r.created_at")}),
+                         MONTH({_in_moscow("r.created_at")})
                 ORDER BY year, month
                 """
             ),
