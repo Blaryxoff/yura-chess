@@ -91,7 +91,9 @@ SITE_CSS = (
       font: 17px/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; }
-    header { padding: 72px 0 52px; text-align: center; }
+    /* Tied to viewport height so the hero never fills a short screen on its own:
+       the next section has to peek above the fold, or nothing invites a scroll. */
+    header { padding: clamp(36px, 7vh, 72px) 0 clamp(28px, 5vh, 52px); text-align: center; }
     .piece { color: var(--gold); font-size: clamp(72px, 12vw, 126px); line-height: 1; }
     h1 { margin: 18px 0 12px; font-size: clamp(38px, 7vw, 72px); line-height: 1.05; }
     h2 { margin: 0 0 18px; font-size: clamp(26px, 4vw, 38px); }
@@ -324,7 +326,11 @@ SITE_SCRIPT = """
           }
           observer.unobserve(entry.target);
         });
-      }, { threshold: 0.14, rootMargin: "0px 0px -5%" });
+      // A ratio threshold is unreachable for a section taller than a few screens:
+      // the strip visible at the fold is a small fraction of it, so it would stay
+      // invisible until scrolled and the page would look like it ends at the hero.
+      // Firing on first contact, held off the very bottom edge, works at any height.
+      }, { threshold: 0, rootMargin: "0px 0px -10%" });
 
       document.querySelectorAll("main > header, main > section, .feature, .faq > div").forEach((element, index) => {
         element.classList.add("motion-item");
