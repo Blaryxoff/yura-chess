@@ -132,3 +132,21 @@ def test_dashboard_chart_supports_month_year_and_all_time_periods(session: Sessi
     )
     assert month_snapshot.totals.requests == year_snapshot.totals.requests == 1
     assert all_time_snapshot.totals.requests == 2
+
+
+def test_dashboard_groups_utc_timestamps_by_moscow_day_and_month(session: Session) -> None:
+    usage = UsageRepository(session)
+    usage.record_request(REAL_OWNER, "skill", "june", "1", "real", datetime(2026, 6, 30, 20, 59, 59))
+    usage.record_request(REAL_OWNER, "skill", "july", "1", "real", datetime(2026, 6, 30, 21, 0, 0))
+    usage.record_request(REAL_OWNER, "skill", "before-midnight", "1", "real", datetime(2026, 7, 23, 20, 59, 59))
+    usage.record_request(REAL_OWNER, "skill", "after-midnight", "1", "real", datetime(2026, 7, 23, 21, 0, 0))
+    session.commit()
+
+    month = usage.dashboard("real", datetime(2026, 7, 23, 21, 30, 0), period="month").daily
+    all_time = usage.dashboard("real", datetime(2026, 7, 23, 21, 30, 0), period="all").daily
+
+    daily_requests = {point.day: point.requests for point in month}
+    monthly_requests = {point.day: point.requests for point in all_time}
+    assert month[-1].day == date(2026, 7, 24)
+    assert (daily_requests[date(2026, 7, 23)], daily_requests[date(2026, 7, 24)]) == (1, 1)
+    assert (monthly_requests[date(2026, 6, 1)], monthly_requests[date(2026, 7, 1)]) == (1, 3)
