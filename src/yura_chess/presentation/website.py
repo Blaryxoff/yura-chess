@@ -18,7 +18,7 @@ INDEXNOW_KEY = "3e123263cd3a154a8aa32da5bc28cebd"
 INDEXNOW_KEY_PATH = f"/{INDEXNOW_KEY}.txt"
 ROBOTS_PATH = "/robots.txt"
 SITEMAP_PATH = "/sitemap.xml"
-PUBLIC_SITE_URL = "https://chess.waxim.ru/"
+PUBLIC_SITE_URL = "https://yurachess.ru/"
 LANDING_PATH = "/"
 HOW_TO_PLAY_PATH = "/how-to-play"
 COMMANDS_PATH = "/commands"
@@ -41,6 +41,7 @@ WEBMASTER_VERIFICATION_HTML = """<html>
 ROBOTS_TEXT = f"""User-agent: *
 Allow: /
 Disallow: /alice/
+Disallow: /webhooks/
 Disallow: /health/
 Clean-param: source&period /
 Sitemap: {PUBLIC_SITE_URL}sitemap.xml

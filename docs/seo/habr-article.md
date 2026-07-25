@@ -146,9 +146,9 @@ Stockfish — оптимизирующий поиск, а не арбитр пр
 Модульный монолит, исходники открыты.
 
 Попробовать: «Алиса, запусти навык Шахматы с Юрой».
-Сайт проекта: [chess.waxim.ru](https://chess.waxim.ru).
-Про игру без экрана — [отдельная страница](https://chess.waxim.ru/accessibility),
-про тренировку вслепую — [здесь](https://chess.waxim.ru/blindfold).
+Сайт проекта: [yurachess.ru](https://yurachess.ru).
+Про игру без экрана — [отдельная страница](https://yurachess.ru/accessibility),
+про тренировку вслепую — [здесь](https://yurachess.ru/blindfold).
 Код: [github.com/Blaryxoff/yura-chess](https://github.com/Blaryxoff/yura-chess).
 
 Замечания и разборы кейсов, где навык говорит непонятно, — то, ради чего эта

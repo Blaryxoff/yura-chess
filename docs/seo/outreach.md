@@ -29,7 +29,7 @@
 > подсказками, разбор сыгранной партии, голосовые шахматные задачи.
 > Экран не нужен ни для одного действия: навык создавался для незрячих и
 > слабовидящих игроков. Бесплатно, без рекламы и покупок.
-> Запуск: «Алиса, запусти навык Шахматы с Юрой». Сайт: https://chess.waxim.ru
+> Запуск: «Алиса, запусти навык Шахматы с Юрой». Сайт: https://yurachess.ru
 
 ## 2. Тифло-сообщества (ВОС, чаты и форумы незрячих пользователей)
 
@@ -58,7 +58,7 @@
 > Шахматы с Юрой». Буду благодарен за замечания — особенно за те места, где
 > навык говорит непонятно или слишком длинно.
 >
-> Описание: https://chess.waxim.ru/accessibility
+> Описание: https://yurachess.ru/accessibility
 
 ## 3. Шахматные сообщества (игра вслепую)
 
@@ -78,7 +78,7 @@
 > переиграть критическую позицию.
 >
 > Бесплатно. Запуск: «Алиса, запусти навык Шахматы с Юрой».
-> https://chess.waxim.ru/blindfold
+> https://yurachess.ru/blindfold
 
 ## 4. Хабр
 
@@ -93,7 +93,7 @@
 Репозиторий — тоже страница выдачи. Что настроить:
 
 - **Description**: `Голосовые шахматы для Яндекс Алисы: партия против Stockfish, тренер, разбор партий и задачи — полностью без экрана`
-- **Website**: `https://chess.waxim.ru`
+- **Website**: `https://yurachess.ru`
 - **Topics**: `chess`, `yandex-alice`, `voice-assistant`, `voice-ui`, `stockfish`,
   `accessibility`, `blind-accessibility`, `python`, `fastapi`, `screen-reader-friendly`
 
@@ -102,7 +102,7 @@
 ```bash
 gh repo edit Blaryxoff/yura-chess \
   --description 'Голосовые шахматы для Яндекс Алисы: партия против Stockfish, тренер, разбор партий и задачи — полностью без экрана' \
-  --homepage 'https://chess.waxim.ru' \
+  --homepage 'https://yurachess.ru' \
   --add-topic chess --add-topic yandex-alice --add-topic voice-assistant \
   --add-topic voice-ui --add-topic stockfish --add-topic accessibility \
   --add-topic blind-accessibility --add-topic python --add-topic fastapi
