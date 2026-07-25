@@ -16,6 +16,7 @@ from yura_chess.adapters.alice.webhook import build_router as build_alice_router
 from yura_chess.adapters.yandex_images import BoardImageService
 from yura_chess.engine.stockfish import StockfishPool
 from yura_chess.presentation.dashboard import render_dashboard
+from yura_chess.presentation.social_card import SOCIAL_CARD_PATH, SOCIAL_CARD_PNG
 from yura_chess.presentation.website import (
     ACCESSIBILITY_PAGE_HTML,
     ACCESSIBILITY_PATH,
@@ -173,6 +174,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(WEBMASTER_VERIFICATION_PATH, response_class=HTMLResponse, include_in_schema=False)
     async def webmaster_verification() -> HTMLResponse:
         return HTMLResponse(WEBMASTER_VERIFICATION_HTML)
+
+    @app.api_route(SOCIAL_CARD_PATH, methods=["GET", "HEAD"], include_in_schema=False)
+    async def social_card() -> Response:
+        return Response(SOCIAL_CARD_PNG, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
     @app.api_route(INDEXNOW_KEY_PATH, methods=["GET", "HEAD"], include_in_schema=False)
     async def indexnow_key() -> Response:

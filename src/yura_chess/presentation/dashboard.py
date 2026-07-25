@@ -90,8 +90,26 @@ DASHBOARD_CSS = """
        useless containing block, and anchoring the panel to it both mispositions it
        and traps its z-index inside a sibling card's stacking context. The card owns
        the geometry instead. */
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
+    }
+    /* A real button, not a focusable span: the panel has to be dismissible and
+       operable by keyboard and by touch, and only a button gets that for free. */
     .stats-hint {
+      padding: 0;
+      border: 0;
       border-bottom: 1px dashed #6d6555;
+      background: none;
+      color: inherit;
+      font: inherit;
       cursor: help;
     }
     .stats-hint:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 3px; }
@@ -138,9 +156,10 @@ DASHBOARD_CSS = """
       border-bottom-color: transparent;
       border-top-color: #4c4638;
     }
-    .stats-hint:hover .stats-tip,
-    .stats-hint:focus-visible .stats-tip,
-    .stats-hint:focus-within .stats-tip {
+    /* Hover is the mouse affordance; aria-expanded is the state the script owns,
+       so keyboard, touch and Escape all go through the same switch. */
+    .stats-hint:hover + .stats-tip,
+    .stats-hint[aria-expanded="true"] + .stats-tip {
       opacity: 1;
       visibility: visible;
       transform: none;
@@ -150,11 +169,12 @@ DASHBOARD_CSS = """
        over the panel. */
     .stats-card:hover,
     .stats-card:focus-within,
-    .stats-card:has(.stats-hint:hover) { z-index: 4; }
+    .stats-card:has(.stats-hint[aria-expanded="true"]) { z-index: 4; }
     @media (hover: hover) {
       .stats-tab:hover { color: var(--gold); border-color: var(--gold); transform: translateY(-2px) scale(1.03); }
       .stats-tab.active:hover { color: #241d12; }
     }
+    .stats-table caption { text-align: left; }
     @media (max-width: 850px) {
       .stats-top { align-items: start; flex-direction: column; }
       .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -170,33 +190,57 @@ def render_dashboard(snapshot: DashboardSnapshot) -> str:
     peak = max((point.requests for point in snapshot.daily), default=1) or 1
     date_format = "%d.%m" if snapshot.period == "month" else "%m.%y"
     bars = "".join(
-        f"""<div class="stats-day" style="--delay:{min(len(snapshot.daily) - index - 1, 20) * 28}ms" title="{point.day:{date_format}}: {point.requests} запросов">
+        f"""<div class="stats-day" style="--delay:{min(len(snapshot.daily) - index - 1, 20) * 28}ms">
           <div class="stats-bar-value">{point.requests}</div>
           <div class="stats-bar" style="height:{max(4, round(point.requests / peak * 150))}px"></div>
           <time datetime="{point.day.isoformat()}">{point.day:{date_format}}</time>
         </div>"""
         for index, point in enumerate(snapshot.daily)
     )
+    # The bars are a picture of the table below them, so they are hidden outright
+    # rather than labelled: role="img" flattens its children out of the
+    # accessibility tree, which left the whole chart as one contentless label.
+    rows = "".join(
+        f'<tr><th scope="row">{point.day:%d.%m.%Y}</th><td>{point.requests}</td></tr>' for point in snapshot.daily
+    )
+    # Visually hidden rather than behind a disclosure: the audience this site is
+    # built for should not have to open anything to reach what the chart shows.
+    table = f"""<table class="stats-table visually-hidden">
+        <caption>{_CHART_TITLES[snapshot.period]}</caption>
+        <thead><tr><th scope="col">Дата</th><th scope="col">Запросов</th></tr></thead>
+        <tbody>{rows}</tbody>
+      </table>"""
     periods = "".join(
-        f'<a class="stats-tab{" active" if key == snapshot.period else ""}" rel="nofollow" href="/?period={key}#statistics">{label}</a>'
+        f'<a class="stats-tab{" active" if key == snapshot.period else ""}"'
+        f"{' aria-current="page"' if key == snapshot.period else ''}"
+        f' rel="nofollow" href="/?period={key}#statistics">{label}</a>'
         for key, label in _PERIOD_LABELS.items()
     )
     generated = snapshot.generated_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Moscow"))
     return f"""<section id="statistics" class="stats">
       <div class="stats-top"><div><div class="stats-kicker">Использование навыка</div><h2>Статистика</h2><div class="stats-muted">Обновлено {generated:%d.%m.%Y %H:%M} МСК</div></div><nav class="stats-tabs" aria-label="Период статистики">{periods}</nav></div>
       <div class="stats-panel"><h3>{_TOTAL_TITLES[snapshot.period]}</h3>{_cards(snapshot.totals)}</div>
-      <div class="stats-panel"><h3>{_CHART_TITLES[snapshot.period]}</h3><div class="stats-chart" role="img" aria-label="Число запросов за выбранный период">{bars}</div></div>
+      <div class="stats-panel"><h3>{_CHART_TITLES[snapshot.period]}</h3>
+        <div class="stats-chart" aria-hidden="true">{bars}</div>
+        {table}
+      </div>
     </section>"""
 
 
 # The privacy wording that used to sit under the chart: kept one hover away from
 # the word it explains instead of taking a panel of its own.
 _USERS_HINT = (
-    '<span class="stats-hint" tabindex="0" aria-describedby="users-hint">пользователей'
+    '<button type="button" class="stats-hint" aria-describedby="users-hint" '
+    'aria-expanded="false">пользователей</button>'
     '<span class="stats-tip" id="users-hint" role="tooltip"><strong>Что значит «пользователь»?</strong>'
     "Это стабильный необратимый HMAC-ключ. Исходный Alice ID не сохраняется. "
-    "Запросы и сессии в этой статистике тоже представлены только хешами.</span></span>"
+    "Запросы и сессии в этой статистике тоже представлены только хешами.</span>"
 )
+
+
+def _ru(value: int) -> str:
+    """Group with the non-breaking space Russian uses, and that Intl produces client-side."""
+    return f"{value:,}".replace(",", "\u00a0")
 
 
 def _cards(totals: UsageTotals) -> str:
@@ -213,7 +257,15 @@ def _cards(totals: UsageTotals) -> str:
     return (
         '<div class="stats-cards">'
         + "".join(
-            f'<div class="stats-card" style="--delay:{index * 45}ms"><div class="stats-value" data-count="{value}">{value:,}</div><div class="stats-label">{label}</div></div>'
+            # Two layers: the counter animates the decorative one, while the
+            # canonical figure stays in the accessibility tree unchanged. Animating
+            # the real number meant a screen reader could read "0" mid-count.
+            f'<div class="stats-card" style="--delay:{index * 45}ms">'
+            f'<div class="stats-value">'
+            f'<span class="visually-hidden">{_ru(value)}</span>'
+            f'<span class="stats-value-shown" aria-hidden="true" data-count="{value}">{_ru(value)}</span>'
+            f"</div>"
+            f'<div class="stats-label">{label}</div></div>'
             for index, (value, label) in enumerate(values)
         )
         + "</div>"
