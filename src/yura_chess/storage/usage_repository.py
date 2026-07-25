@@ -17,6 +17,8 @@ TrafficSource = Literal["real", "test"]
 DashboardSource = Literal["real", "test", "all"]
 ChartPeriod = Literal["month", "year", "all"]
 
+_MOSCOW_OFFSET = timedelta(hours=3)
+
 
 @dataclass(frozen=True, slots=True)
 class UsageTotals:
@@ -126,10 +128,11 @@ class UsageRepository:
         period: ChartPeriod = "month",
     ) -> DashboardSnapshot:
         generated_at = now or datetime.utcnow()
+        reporting_day = _moscow_day(generated_at)
         chart = (
-            self._daily(source, generated_at.date() - timedelta(days=29), 30)
+            self._daily(source, reporting_day - timedelta(days=29), 30)
             if period == "month"
-            else self._monthly(source, generated_at.date(), limited=period == "year")
+            else self._monthly(source, reporting_day, limited=period == "year")
         )
         return DashboardSnapshot(
             source=source,
@@ -180,7 +183,7 @@ class UsageRepository:
 
     def _daily(self, source: DashboardSource, start: date, day_count: int) -> tuple[DailyUsage, ...]:
         source_filter = "" if source == "all" else " AND u.traffic_source = :source"
-        parameters: dict[str, object] = {"start": start}
+        parameters: dict[str, object] = {"start": _utc_start(start)}
         if source != "all":
             parameters["source"] = source
         days: dict[date, dict[str, int]] = {
@@ -196,11 +199,11 @@ class UsageRepository:
         requests = self._session.execute(
             text(
                 f"""
-                SELECT DATE(r.created_at) day, COUNT(*) requests,
+                SELECT DATE(DATE_ADD(r.created_at, INTERVAL 3 HOUR)) day, COUNT(*) requests,
                        COUNT(DISTINCT r.owner_key) users, COUNT(DISTINCT r.session_key) sessions
                 FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
-                WHERE DATE(r.created_at) >= :start{source_filter}
-                GROUP BY DATE(r.created_at)
+                WHERE r.created_at >= :start{source_filter}
+                GROUP BY DATE(DATE_ADD(r.created_at, INTERVAL 3 HOUR))
                 """
             ),
             parameters,
@@ -212,10 +215,10 @@ class UsageRepository:
         games = self._session.execute(
             text(
                 f"""
-                SELECT DATE(g.created_at) day, COUNT(*) games
+                SELECT DATE(DATE_ADD(g.created_at, INTERVAL 3 HOUR)) day, COUNT(*) games
                 FROM games g JOIN usage_users u ON u.owner_key = g.owner_key
-                WHERE DATE(g.created_at) >= :start{source_filter}
-                GROUP BY DATE(g.created_at)
+                WHERE g.created_at >= :start{source_filter}
+                GROUP BY DATE(DATE_ADD(g.created_at, INTERVAL 3 HOUR))
                 """
             ),
             parameters,
@@ -226,11 +229,11 @@ class UsageRepository:
         moves = self._session.execute(
             text(
                 f"""
-                SELECT DATE(m.created_at) day, COUNT(*) player_moves
+                SELECT DATE(DATE_ADD(m.created_at, INTERVAL 3 HOUR)) day, COUNT(*) player_moves
                 FROM game_moves m JOIN games g ON g.id = m.game_id
                 JOIN usage_users u ON u.owner_key = g.owner_key
-                WHERE m.actor = 'player' AND DATE(m.created_at) >= :start{source_filter}
-                GROUP BY DATE(m.created_at)
+                WHERE m.actor = 'player' AND m.created_at >= :start{source_filter}
+                GROUP BY DATE(DATE_ADD(m.created_at, INTERVAL 3 HOUR))
                 """
             ),
             parameters,
@@ -249,15 +252,18 @@ class UsageRepository:
         if source != "all":
             parameters["source"] = source
         if start is not None:
-            parameters["start"] = start
+            parameters["start"] = _utc_start(start)
         rows = self._session.execute(
             text(
                 f"""
-                SELECT YEAR(r.created_at) year, MONTH(r.created_at) month, COUNT(*) requests
+                SELECT YEAR(DATE_ADD(r.created_at, INTERVAL 3 HOUR)) year,
+                       MONTH(DATE_ADD(r.created_at, INTERVAL 3 HOUR)) month,
+                       COUNT(*) requests
                 FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
                 WHERE 1=1{source_filter}{time_filter}
-                GROUP BY YEAR(r.created_at), MONTH(r.created_at)
-                ORDER BY YEAR(r.created_at), MONTH(r.created_at)
+                GROUP BY YEAR(DATE_ADD(r.created_at, INTERVAL 3 HOUR)),
+                         MONTH(DATE_ADD(r.created_at, INTERVAL 3 HOUR))
+                ORDER BY year, month
                 """
             ),
             parameters,
@@ -289,9 +295,14 @@ def _add_months(value: date, count: int) -> date:
 def _period_cutoff(generated_at: datetime, period: ChartPeriod) -> datetime | None:
     if period == "all":
         return None
-    start = (
-        generated_at.date() - timedelta(days=29)
-        if period == "month"
-        else _add_months(generated_at.date().replace(day=1), -11)
-    )
-    return datetime.combine(start, time.min)
+    reporting_day = _moscow_day(generated_at)
+    start = reporting_day - timedelta(days=29) if period == "month" else _add_months(reporting_day.replace(day=1), -11)
+    return _utc_start(start)
+
+
+def _moscow_day(utc_value: datetime) -> date:
+    return (utc_value + _MOSCOW_OFFSET).date()
+
+
+def _utc_start(moscow_day: date) -> datetime:
+    return datetime.combine(moscow_day, time.min) - _MOSCOW_OFFSET

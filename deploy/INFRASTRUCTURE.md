@@ -93,6 +93,8 @@ Secrets that exist only on Firebat and never in git:
   (`command_kind`, resolver status and outcome). Retained normalized transcripts
   link to them only through the hashed request key and keep their shorter retention
   window; raw payloads and command text never enter permanent analytics.
+- MariaDB and persisted timestamps stay in UTC. Public usage reports shift UTC
+  timestamps to Moscow time before applying day, month and period boundaries.
 - Health checks: the application polls `/health/ready` (database connection,
   schema and ready worker count); MariaDB uses `healthcheck.sh --connect
   --innodb_initialized`. The engine pool count is reported by readiness without
