@@ -158,6 +158,11 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     # The fallback above is already the final state, so the animation needs an
     # explicit start frame instead of inheriting that same state at both ends.
     assert "from { opacity: 0; filter: blur(4px); transform: translateY(28px) scale(.985); }" in response.text
+    # Secondary pages reveal a heading with its content as one readable unit,
+    # rather than animating every paragraph independently.
+    assert 'element.matches("h2, h3")' in response.text
+    assert "const revealGroups = new WeakMap();" in response.text
+    assert 'targets.forEach((target) => target.classList.add("is-visible"))' in response.text
     # The figure a screen reader reads is the server-rendered one, never the animated layer.
     assert 'class="stats-value-shown" aria-hidden="true"' in response.text
     assert '<span class="visually-hidden">' in response.text

@@ -514,10 +514,27 @@ SITE_SCRIPT = """
       if (reducedMotion) return;
       document.documentElement.classList.add("has-motion");
 
+      const groupArticleContent = () => {
+        const sections = [...document.querySelectorAll("main > section")];
+        if (sections.length !== 1) return [];
+        const groups = [];
+        let group;
+        [...sections[0].children].forEach((element) => {
+          if (element.matches("h2, h3")) {
+            group = [];
+            groups.push(group);
+          }
+          if (group) group.push(element);
+        });
+        return groups;
+      };
+      const revealGroups = new WeakMap();
+
       reveal = new IntersectionObserver((entries, observer) => {
         entries.forEach((entry) => {
           if (!entry.isIntersecting) return;
-          entry.target.classList.add("is-visible");
+          const targets = revealGroups.get(entry.target) || [entry.target];
+          targets.forEach((target) => target.classList.add("is-visible"));
           if (entry.target.classList.contains("stats-cards")) {
             entry.target.querySelectorAll(".stats-value-shown[data-count]").forEach(animateCounter);
           }
@@ -529,10 +546,20 @@ SITE_SCRIPT = """
       // Firing on first contact, held off the very bottom edge, works at any height.
       }, { threshold: 0, rootMargin: "0px 0px -10%" });
 
-      document.querySelectorAll("main > header, main > section, .feature, .faq > div").forEach((element, index) => {
-        element.classList.add("motion-item");
-        element.style.setProperty("--motion-delay", `${(index % 4) * 45}ms`);
-        reveal.observe(element);
+      const contentGroups = groupArticleContent();
+      const motionGroups = contentGroups.length
+        ? [[document.querySelector("main > header")], ...contentGroups]
+        : [...document.querySelectorAll("main > header, main > section, .feature, .faq > div")].map(
+            (element) => [element]
+          );
+      motionGroups.forEach((elements, index) => {
+        const targets = elements.filter(Boolean);
+        targets.forEach((element) => {
+          element.classList.add("motion-item");
+          element.style.setProperty("--motion-delay", `${(index % 4) * 45}ms`);
+        });
+        revealGroups.set(targets[0], targets);
+        reveal.observe(targets[0]);
       });
       prepareStatistics(document.querySelector("#statistics"));
     })();
