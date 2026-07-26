@@ -139,18 +139,16 @@ SITE_CSS = (
       display: flex;
       justify-content: center;
       align-items: center;
-      gap: 12px;
+      gap: 18px 24px;
       flex-wrap: wrap;
       margin-top: 30px;
     }
     .launch {
       display: grid;
-      gap: 2px;
-      min-width: min(100%, 470px);
-      padding: 12px 18px;
-      border: 1px solid #9a783c;
-      border-radius: 16px;
-      background: linear-gradient(135deg, #302719, #24211b);
+      gap: 4px;
+      width: min(100%, 440px);
+      padding: 5px 0 5px 16px;
+      border-left: 2px solid var(--gold);
       text-align: left;
     }
     .launch-action {
@@ -371,6 +369,9 @@ SITE_CSS = (
         font-size: 14px;
       }
       header { padding-top: 32px; }
+      .hero-actions { gap: 18px; }
+      .launch { width: min(100%, 320px); padding-left: 14px; }
+      .launch-action { width: min(100%, 320px); }
       section { padding: 24px; }
       .grid { grid-template-columns: 1fr; }
       .faq { grid-template-columns: 1fr; }
@@ -798,7 +799,7 @@ LANDING_BODY = f"""    <header>
           <span class="launch-command">«Запусти навык Шахматы с Юрой»</span>
         </div>
         <a class="launch-action" href="{ALICE_SKILL_URL}" target="_blank" rel="noopener noreferrer">
-          Запустить навык
+          Запустить в браузере
         </a>
       </div>
     </header>

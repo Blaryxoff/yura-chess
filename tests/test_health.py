@@ -91,6 +91,7 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert response.text.index('class="site-top"') < response.text.index("<header>")
     assert response.text.count('aria-label="Разделы сайта"') == 1
     assert f'class="launch-action" href="{ALICE_SKILL_URL}"' in response.text
+    assert "Запустить в браузере" in response.text
     assert 'class="launch-label">Скажите Алисе</span>' in response.text
     assert response.text.index("«Запусти навык Шахматы с Юрой»") < response.text.index('class="launch-action"')
     assert 'class="voice-demo" aria-label="Пример голосовой партии"' in response.text
