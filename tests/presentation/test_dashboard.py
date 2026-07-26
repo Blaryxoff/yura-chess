@@ -31,6 +31,8 @@ def test_dashboard_is_aggregate_responsive_and_explains_pseudonymous_users() -> 
     assert "--delay:0ms" in html
     assert "overflow-y: hidden" in DASHBOARD_CSS
     assert "top: calc(100% + 10px)" in DASHBOARD_CSS
+    assert ".stats-card:first-child { grid-column: 1 / -1; }" in DASHBOARD_CSS
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in DASHBOARD_CSS
     assert "Запросы по дням · 30 дней" in html
     assert "owner_key" not in html
     assert "session_key" not in html

@@ -180,8 +180,12 @@ DASHBOARD_CSS = """
       .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 520px) {
-      .stats-cards { grid-template-columns: minmax(0, 1fr); }
-      .stats-card { padding: 14px; }
+      .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .stats-card { padding: 12px; }
+      .stats-card:first-child { grid-column: 1 / -1; }
+      .stats-value { font-size: 28px; }
+      .stats-label { font-size: 14px; line-height: 1.4; }
+      .stats-chart { height: 230px; padding-right: 18px; }
     }
 """
 

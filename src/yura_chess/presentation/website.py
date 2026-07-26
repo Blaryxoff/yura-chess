@@ -20,6 +20,9 @@ INDEXNOW_KEY_PATH = f"/{INDEXNOW_KEY}.txt"
 ROBOTS_PATH = "/robots.txt"
 SITEMAP_PATH = "/sitemap.xml"
 PUBLIC_SITE_URL = "https://yurachess.ru/"
+ALICE_SKILL_URL = "https://alice.yandex.ru/skill/1778b5e3-d1d2-487e-bcb2-cb335c1e0e5d/"
+YANDEX_DIALOG_URL = "https://dialogs.yandex.ru/store/skills/9ec272d2-shahmaty-s-yuroj"
+YANDEX_REVIEW_URL = f"{YANDEX_DIALOG_URL}#ratings"
 LANDING_PATH = "/"
 HOW_TO_PLAY_PATH = "/how-to-play"
 COMMANDS_PATH = "/commands"
@@ -94,9 +97,39 @@ SITE_CSS = (
       font: 17px/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; }
+    .site-top { display: flex; justify-content: center; padding-top: 18px; }
+    .site-nav {
+      display: inline-flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin: 0;
+      padding: 5px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: #1d1c19e8;
+      box-shadow: 0 12px 34px #00000026;
+    }
+    .site-nav a {
+      padding: 7px 11px;
+      border: 1px solid transparent;
+      border-radius: 11px;
+      color: var(--muted);
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: border-color 180ms ease, background 180ms ease, color 180ms ease;
+    }
+    .site-nav a:hover { border-color: #5a513f; background: #29261f; color: var(--text); }
+    .site-nav a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+    .site-nav a[aria-current="page"] {
+      border-color: #e8bd6659;
+      background: linear-gradient(135deg, #e8bd662e, #e8bd6614);
+      color: var(--text);
+    }
     /* Tied to viewport height so the hero never fills a short screen on its own:
        the next section has to peek above the fold, or nothing invites a scroll. */
-    header { padding: clamp(36px, 7vh, 72px) 0 clamp(28px, 5vh, 52px); text-align: center; }
+    header { padding: clamp(28px, 5vh, 52px) 0 clamp(28px, 5vh, 52px); text-align: center; }
     .piece { color: var(--gold); font-size: clamp(72px, 12vw, 126px); line-height: 1; }
     h1 { margin: 18px 0 12px; font-size: clamp(38px, 7vw, 72px); line-height: 1.05; }
     h2 { margin: 0 0 18px; font-size: clamp(26px, 4vw, 38px); }
@@ -111,14 +144,47 @@ SITE_CSS = (
       margin-top: 30px;
     }
     .launch {
-      display: inline-block;
-      padding: 14px 22px;
-      border: 1px solid #765f36;
-      border-radius: 999px;
-      background: #2d271c;
-      color: var(--gold);
-      font-weight: 700;
+      display: grid;
+      gap: 2px;
+      min-width: min(100%, 470px);
+      padding: 12px 18px;
+      border: 1px solid #9a783c;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #302719, #24211b);
+      text-align: left;
     }
+    .launch-action {
+      display: inline-flex;
+      min-width: min(100%, 210px);
+      min-height: 50px;
+      align-items: center;
+      justify-content: center;
+      padding: 13px 24px;
+      border: 1px solid #f0ca7a;
+      border-radius: 999px;
+      background: var(--gold);
+      box-shadow: 0 12px 30px #e8b85424;
+      color: #171613;
+      font-size: 17px;
+      font-weight: 800;
+      text-decoration: none;
+      transition: transform 520ms var(--spring), box-shadow 220ms ease, background 180ms ease;
+    }
+    .launch-action:hover {
+      background: #f3ca78;
+      transform: translateY(-3px) scale(1.025);
+      box-shadow: 0 16px 36px #e8b85433;
+    }
+    .launch-action:focus-visible { outline: 2px solid var(--text); outline-offset: 4px; }
+    .launch-label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .launch-command { display: block; color: var(--text); font-weight: 700; }
     section {
       margin: 0 0 24px;
       padding: 34px;
@@ -129,8 +195,35 @@ SITE_CSS = (
     .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
     .feature { padding: 22px; border-radius: 18px; background: #1d1c19; }
     .feature strong { display: block; margin-bottom: 7px; color: var(--gold); font-size: 19px; }
-    .faq { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 0; }
-    .faq div { padding: 22px; border-radius: 18px; background: #1d1c19; }
+    .voice-demo {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr);
+      align-items: center;
+      gap: 14px;
+      margin: 0 0 22px;
+      padding: 18px;
+      border: 1px solid #55472f;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #1b1915, #211d16);
+    }
+    .voice-turn { min-width: 0; }
+    .voice-speaker {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--gold);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .voice-phrase { color: var(--text); font-weight: 700; }
+    .voice-signal { display: flex; justify-content: center; align-items: center; gap: 4px; color: var(--gold); }
+    .voice-signal span { width: 3px; border-radius: 999px; background: currentColor; }
+    .voice-signal span:nth-child(1), .voice-signal span:nth-child(5) { height: 8px; opacity: .45; }
+    .voice-signal span:nth-child(2), .voice-signal span:nth-child(4) { height: 18px; opacity: .7; }
+    .voice-signal span:nth-child(3) { height: 28px; }
+    .faq { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 32px; margin: 0; }
+    .faq div { padding: 18px 0; border-top: 1px solid var(--line); }
     .faq dt { color: var(--gold); font-weight: 700; }
     .faq dd { margin: 8px 0 0; color: var(--muted); }
     ul { margin: 0; padding-left: 22px; }
@@ -140,15 +233,6 @@ SITE_CSS = (
     .command-list li { break-inside: avoid; }
     code { color: var(--gold); font: inherit; }
     a { color: var(--gold); }
-    .site-nav {
-      display: flex;
-      justify-content: center;
-      flex-wrap: wrap;
-      gap: 10px 20px;
-      margin-top: 26px;
-      font-size: 16px;
-    }
-    .site-nav a[aria-current="page"] { color: var(--text); font-weight: 700; text-decoration: none; }
     a.piece {
       display: inline-block;
       text-decoration: none;
@@ -157,6 +241,7 @@ SITE_CSS = (
     a.piece:hover { transform: translateY(-5px) scale(1.05); }
     a.piece:focus-visible { outline: 2px solid var(--gold); outline-offset: 8px; border-radius: 12px; }
     .article p { color: var(--muted); }
+    .article > * { max-width: 72ch; margin-inline: auto; }
     .article p:first-of-type { margin-top: 0; }
     .article li { color: var(--muted); }
     .article strong { color: var(--text); }
@@ -184,15 +269,48 @@ SITE_CSS = (
       box-shadow: 0 14px 34px #e8b8542e;
     }
     .support .support-note { margin-top: 16px; margin-bottom: 0; font-size: 14px; }
-    footer { padding: 24px 0 52px; color: var(--muted); text-align: center; }
-    footer nav { margin-bottom: 12px; }
+    .support .support-review { margin: 13px auto 0; font-size: 15px; }
+    footer {
+      display: grid;
+      grid-template-columns: minmax(220px, .7fr) minmax(0, 1.3fr);
+      gap: 34px;
+      align-items: start;
+      margin-top: 36px;
+      padding: 32px 4px 48px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .footer-brand { display: flex; align-items: center; gap: 13px; color: var(--text); text-decoration: none; }
+    .footer-piece {
+      display: grid;
+      width: 44px;
+      height: 44px;
+      place-items: center;
+      flex: 0 0 auto;
+      border: 1px solid #69542f;
+      border-radius: 13px;
+      background: #242018;
+      color: var(--gold);
+      font: 28px/1 Georgia, serif;
+    }
+    .footer-brand-copy strong { display: block; font-size: 17px; }
+    .footer-brand-copy span { display: block; margin-top: 2px; color: var(--muted); font-size: 14px; }
+    .footer-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 24px; }
+    .footer-nav a {
+      color: var(--muted);
+      text-decoration-color: #6d5d3d;
+      text-underline-offset: 4px;
+      transition: color 180ms ease, text-decoration-color 180ms ease;
+    }
+    .footer-nav a:hover { color: var(--gold); text-decoration-color: currentColor; }
+    .footer-brand:focus-visible, .footer-nav a:focus-visible { outline: 2px solid var(--gold); outline-offset: 4px; }
     :root {
       --spring: linear(
         0, .009, .035 2.1%, .141 4.4%, .723 12.9%, .938 16.7%, 1.017 20.4%,
         1.051 24.7%, 1.019 30.1%, .995 36%, 1.002 43%, 1
       );
     }
-    .feature, .faq > div, section {
+    .feature, section {
       transition: transform 520ms var(--spring), border-color 220ms ease, box-shadow 220ms ease;
     }
     .has-motion .motion-item { opacity: 0; filter: blur(4px); transform: translateY(28px) scale(.985); }
@@ -209,7 +327,7 @@ SITE_CSS = (
     }
     @keyframes page-reveal { to { opacity: 1; filter: none; transform: none; } }
     @media (hover: hover) and (prefers-reduced-motion: no-preference) {
-      .feature:hover, .faq > div:hover {
+      .feature:hover {
         border-color: #e8b85466;
         transform: translateY(-4px);
         box-shadow: 0 18px 42px #0000002e;
@@ -217,7 +335,7 @@ SITE_CSS = (
     }
     /* Colour-only hover for anyone who asked not to be moved. */
     @media (hover: hover) and (prefers-reduced-motion: reduce) {
-      .feature:hover, .faq > div:hover { border-color: #e8b85466; }
+      .feature:hover { border-color: #e8b85466; }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
@@ -232,14 +350,28 @@ SITE_CSS = (
       }
       /* Killing the transition alone leaves the displacement — it just arrives
          instantly instead of gliding, which is the jump the setting asks to avoid. */
-      a.piece:hover, .support-action:hover, .stats-tab:hover { transform: none !important; }
+      a.piece:hover, .launch-action:hover, .support-action:hover, .stats-tab:hover { transform: none !important; }
     }
     @media (max-width: 760px) {
-      header { padding-top: 46px; }
+      .site-top { padding-top: 12px; }
+      .site-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+      .site-nav a {
+        display: flex;
+        min-height: 40px;
+        align-items: center;
+        justify-content: center;
+        padding: 7px 6px;
+        font-size: 14px;
+      }
+      header { padding-top: 32px; }
       section { padding: 24px; }
       .grid { grid-template-columns: 1fr; }
       .faq { grid-template-columns: 1fr; }
+      .voice-demo { grid-template-columns: 1fr; gap: 12px; text-align: left; }
+      .voice-signal { justify-content: center; height: 28px; }
       .command-list { columns: 1; }
+      footer { grid-template-columns: 1fr; gap: 24px; margin-top: 28px; padding-inline: 2px; }
+      .footer-nav { gap: 12px 18px; }
     }
 """
     + DASHBOARD_CSS
@@ -423,16 +555,21 @@ def _nav(current: str) -> str:
 # Longer anchor text than the top nav: the same pages, described the way people
 # search for them.
 FOOTER_HTML = f"""<footer>
-    <nav aria-label="Дополнительные страницы">
-      <a href="{LANDING_PATH}">Шахматы с Юрой</a> ·
-      <a href="{HOW_TO_PLAY_PATH}">Как играть в шахматы голосом</a> ·
-      <a href="{COMMANDS_PATH}">Голосовые команды</a> ·
-      <a href="{COACH_PATH}">Шахматный тренер голосом</a> ·
-      <a href="{PUZZLES_PATH}">Шахматные задачи</a> ·
-      <a href="{ACCESSIBILITY_PATH}">Шахматы для незрячих</a> ·
+    <a class="footer-brand" href="{LANDING_PATH}">
+      <span class="footer-piece" aria-hidden="true">♞</span>
+      <span class="footer-brand-copy">
+        <strong>Шахматы с Юрой</strong>
+        <span>Голосовая игра с Алисой</span>
+      </span>
+    </a>
+    <nav class="footer-nav" aria-label="Дополнительные страницы">
+      <a href="{HOW_TO_PLAY_PATH}">Как играть в шахматы голосом</a>
+      <a href="{COMMANDS_PATH}">Голосовые команды</a>
+      <a href="{COACH_PATH}">Шахматный тренер голосом</a>
+      <a href="{PUZZLES_PATH}">Шахматные задачи</a>
+      <a href="{ACCESSIBILITY_PATH}">Шахматы для незрячих</a>
       <a href="{BLINDFOLD_PATH}">Игра вслепую</a>
     </nav>
-    Шахматы с Юрой · Голосовая игра с Алисой
   </footer>"""
 
 
@@ -524,6 +661,9 @@ def _document(*, title: str, description: str, path: str, structured_data: list[
 </head>
 <body>
   <main>
+    <div class="site-top">
+      {_nav(path)}
+    </div>
 {body}
   {FOOTER_HTML}
   </main>
@@ -542,6 +682,8 @@ SKILL_SCHEMA: Schema = {
     "description": "Голосовой навык Алисы: партии против Stockfish, тренер, разбор игр и шахматные задачи без экрана.",
     "applicationCategory": "GameApplication",
     "operatingSystem": "Яндекс Алиса",
+    "installUrl": ALICE_SKILL_URL,
+    "sameAs": [YANDEX_DIALOG_URL],
     "inLanguage": "ru-RU",
     "isAccessibleForFree": True,
     "accessibilityFeature": ["fullAudioDescription", "structuralNavigation", "synchronizedAudioText"],
@@ -617,19 +759,31 @@ LANDING_BODY = f"""    <header>
         с&nbsp;естественными командами, понятными объяснениями и сохранением игры. Экран не нужен.
       </p>
       <div class="hero-actions">
-        <div class="launch">Скажите: «Алиса, запусти навык Шахматы с Юрой»</div>
-        <a
-          class="support-action hero-support"
-          href="https://pay.cloudtips.ru/p/f604e20f"
-          target="_blank"
-          rel="noopener noreferrer nofollow"
-        >Поддержать проект</a>
+        <div class="launch">
+          <span class="launch-label">Скажите Алисе</span>
+          <span class="launch-command">«Запусти навык Шахматы с Юрой»</span>
+        </div>
+        <a class="launch-action" href="{ALICE_SKILL_URL}" target="_blank" rel="noopener noreferrer">
+          Запустить навык
+        </a>
       </div>
-      {_nav(LANDING_PATH)}
     </header>
 
     <section>
       <h2>Настоящие шахматы в Алисе</h2>
+      <div class="voice-demo" aria-label="Пример голосовой партии">
+        <div class="voice-turn">
+          <span class="voice-speaker">Вы</span>
+          <span class="voice-phrase">«Новая игра белыми, уровень пять»</span>
+        </div>
+        <div class="voice-signal" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <div class="voice-turn">
+          <span class="voice-speaker">Алиса</span>
+          <span class="voice-phrase">«Вы играете белыми, я — чёрными. Ваш ход»</span>
+        </div>
+      </div>
       <div class="grid">
         <div class="feature">
           <strong>Говорите естественно</strong>
@@ -712,6 +866,10 @@ LANDING_BODY = f"""    <header>
         rel="noopener noreferrer nofollow"
       >Поддержать «Шахматы с Юрой»</a>
       <p class="support-note">Поддержка не предоставляет платных функций или преимуществ в игре.</p>
+      <p class="support-review">
+        Уже сыграли?
+        <a href="{YANDEX_REVIEW_URL}" target="_blank" rel="noopener noreferrer">Оставьте отзыв в Яндексе</a>.
+      </p>
     </section>
 
     <section>
@@ -790,7 +948,6 @@ HOW_TO_PLAY_PAGE_HTML = _document(
         Пять шагов от запуска навыка до первой партии против Stockfish. Ничего запоминать не нужно:
         навык понимает обычную шахматную речь и сам подсказывает, что сказать дальше.
       </p>
-      {_nav(HOW_TO_PLAY_PATH)}
     </header>
 
     <section class="article">
@@ -867,7 +1024,6 @@ COMMANDS_PAGE_HTML = _document(
         Дословно запоминать команды не нужно — навык понимает разные формулировки. Этот список показывает,
         о чём вообще можно попросить. В самом навыке те же разделы читает команда «все команды».
       </p>
-      {_nav(COMMANDS_PATH)}
     </header>
 
     <section class="article">
@@ -977,7 +1133,6 @@ ACCESSIBILITY_PAGE_HTML = _document(
         «Шахматы с Юрой» создавались в первую очередь для незрячих и слабовидящих игроков.
         Экран не нужен ни для одного действия: вся партия ведётся голосом.
       </p>
-      {_nav(ACCESSIBILITY_PATH)}
     </header>
 
     <section class="article">
@@ -1062,7 +1217,6 @@ COACH_PAGE_HTML = _document(
         Тренер — отдельный режим, который включается одной фразой и объясняет позицию словами,
         а не строкой вариантов.
       </p>
-      {_nav(COACH_PATH)}
     </header>
 
     <section class="article">
@@ -1145,7 +1299,6 @@ PUZZLES_PAGE_HTML = _document(
         Задача читается вслух — позицию нужно удержать в голове и найти решение на слух.
         Это тренирует ровно тот навык, который отличает сильного игрока: счёт вариантов без доски.
       </p>
-      {_nav(PUZZLES_PATH)}
     </header>
 
     <section class="article">
@@ -1215,7 +1368,6 @@ BLINDFOLD_PAGE_HTML = _document(
         Игра вслепую всегда упиралась в партнёра: кто-то должен вести доску и называть ходы.
         Алиса делает это бесконечно терпеливо — и не показывает подсказок, пока их не попросят.
       </p>
-      {_nav(BLINDFOLD_PATH)}
     </header>
 
     <section class="article">

@@ -15,6 +15,7 @@ from yura_chess.main import _purge_retained_data, create_app
 from yura_chess.presentation.social_card import SOCIAL_CARD_PATH
 from yura_chess.presentation.website import (
     ACCESSIBILITY_PATH,
+    ALICE_SKILL_URL,
     BLINDFOLD_PATH,
     COACH_PATH,
     COMMANDS_PATH,
@@ -32,6 +33,8 @@ from yura_chess.presentation.website import (
     SITEMAP_XML,
     WEBMASTER_VERIFICATION_HTML,
     WEBMASTER_VERIFICATION_PATH,
+    YANDEX_DIALOG_URL,
+    YANDEX_REVIEW_URL,
 )
 from yura_chess.settings import Settings
 from yura_chess.storage.usage_repository import DailyUsage, DashboardSnapshot, UsageTotals
@@ -85,14 +88,25 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert "Как узнать все команды?" in response.text
     assert "Задача на мат в два хода" in response.text
     assert 'class="command-list"' in response.text
-    assert response.text.index('class="support-action hero-support"') < response.text.index("Настоящие шахматы в Алисе")
+    assert response.text.index('class="site-top"') < response.text.index("<header>")
+    assert response.text.count('aria-label="Разделы сайта"') == 1
+    assert f'class="launch-action" href="{ALICE_SKILL_URL}"' in response.text
+    assert 'class="launch-label">Скажите Алисе</span>' in response.text
+    assert response.text.index("«Запусти навык Шахматы с Юрой»") < response.text.index('class="launch-action"')
+    assert 'class="voice-demo" aria-label="Пример голосовой партии"' in response.text
+    assert ".hero-support" not in response.text
+    assert 'class="footer-brand"' in response.text
+    assert 'class="footer-brand" href="/" aria-label=' not in response.text
+    assert 'class="footer-nav" aria-label="Дополнительные страницы"' in response.text
     assert response.text.index('id="statistics"') < response.text.index("Конфиденциальность")
     assert response.text.index('id="statistics"') < response.text.index('id="support"')
     assert response.text.index('id="support"') < response.text.index("Конфиденциальность")
     assert 'href="https://pay.cloudtips.ru/p/f604e20f"' in response.text
-    assert response.text.count('href="https://pay.cloudtips.ru/p/f604e20f"') == 2
+    assert response.text.count('href="https://pay.cloudtips.ru/p/f604e20f"') == 1
     assert 'rel="noopener noreferrer nofollow"' in response.text
     assert "Поддержка не предоставляет платных функций" in response.text
+    assert f'href="{YANDEX_REVIEW_URL}"' in response.text
+    assert "Оставьте отзыв в Яндексе" in response.text
     assert '<link rel="icon" href="/favicon.svg"' in response.text
     assert '<link rel="canonical" href="https://yurachess.ru/">' in response.text
     assert '<meta property="og:type" content="website">' in response.text
@@ -108,6 +122,9 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
     graph = json.loads(structured_data)["@graph"]
     assert {item["@type"] for item in graph} == {"WebSite", "SoftwareApplication", "FAQPage"}
+    skill = next(item for item in graph if item["@type"] == "SoftwareApplication")
+    assert skill["installUrl"] == ALICE_SKILL_URL
+    assert skill["sameAs"] == [YANDEX_DIALOG_URL]
     faq = next(item for item in graph if item["@type"] == "FAQPage")
     assert [item["name"] for item in faq["mainEntity"]] == [question for question, _ in LANDING_FAQ]
     # A FAQ rich result is dropped when the marked-up answer is not on the page.
@@ -287,6 +304,10 @@ def test_secondary_pages_are_crawlable_and_self_describing(
     # Getting home must not depend on the browser's back button.
     assert 'class="piece home" href="/"' in response.text
     assert f'<a href="{path}" aria-current="page">' in response.text
+    assert response.text.index('class="site-top"') < response.text.index("<header>")
+    assert response.text.count('aria-label="Разделы сайта"') == 1
+    assert response.text.count('class="footer-brand"') == 1
+    assert response.text.count('class="footer-nav"') == 1
     # The trail belongs in the search result, not above the hero.
     assert 'class="breadcrumbs"' not in response.text
     structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
