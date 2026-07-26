@@ -155,6 +155,9 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     # The reveal must not depend on linear() being supported, or the page is blank.
     assert ".has-motion .motion-item.is-visible { opacity: 1; filter: none; transform: none; }" in response.text
     assert "@supports (animation-timing-function: linear(0, 1))" in response.text
+    # The fallback above is already the final state, so the animation needs an
+    # explicit start frame instead of inheriting that same state at both ends.
+    assert "from { opacity: 0; filter: blur(4px); transform: translateY(28px) scale(.985); }" in response.text
     # The figure a screen reader reads is the server-rendered one, never the animated layer.
     assert 'class="stats-value-shown" aria-hidden="true"' in response.text
     assert '<span class="visually-hidden">' in response.text

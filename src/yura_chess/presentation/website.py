@@ -325,7 +325,10 @@ SITE_CSS = (
         animation-delay: var(--motion-delay, 0ms);
       }
     }
-    @keyframes page-reveal { to { opacity: 1; filter: none; transform: none; } }
+    @keyframes page-reveal {
+      from { opacity: 0; filter: blur(4px); transform: translateY(28px) scale(.985); }
+      to { opacity: 1; filter: none; transform: none; }
+    }
     @media (hover: hover) and (prefers-reduced-motion: no-preference) {
       .feature:hover {
         border-color: #e8b85466;
@@ -352,9 +355,13 @@ SITE_CSS = (
          instantly instead of gliding, which is the jump the setting asks to avoid. */
       a.piece:hover, .launch-action:hover, .support-action:hover, .stats-tab:hover { transform: none !important; }
     }
+    @media (min-width: 761px) {
+      .site-top { position: sticky; top: -12px; z-index: 20; }
+      .site-nav { background: #1d1c19; }
+    }
     @media (max-width: 760px) {
       .site-top { padding-top: 12px; }
-      .site-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+      .site-nav { display: flex; width: 100%; }
       .site-nav a {
         display: flex;
         min-height: 40px;
