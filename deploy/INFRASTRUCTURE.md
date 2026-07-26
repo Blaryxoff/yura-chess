@@ -24,7 +24,7 @@ production environment. The step-by-step runbook is in [README.md](README.md).
               └──────────────────────┘
 ```
 
-Host nginx owns TLS for `chess.waxim.ru` and is the only public listener.
+Host nginx owns TLS for canonical `yurachess.ru` and redirect-only `chess.waxim.ru`, and is the only public listener.
 Neither MariaDB is published beyond its container network.
 
 ## Environment
@@ -36,7 +36,7 @@ Neither MariaDB is published beyond its container network.
 | Compose project | `yura-chess-production` |
 | Database | MariaDB 11.4, volume `mariadb-data` |
 | App port | container `8000` → loopback `127.0.0.1:8082` |
-| Public name | `https://chess.waxim.ru` |
+| Public name | `https://yurachess.ru` |
 | `YURA_CHESS_ENVIRONMENT` | `production` |
 
 ## Incus proxy-devices
@@ -71,7 +71,7 @@ Secrets that exist only on Firebat and never in git:
 
 | Port | Scope | Purpose |
 | --- | --- | --- |
-| 443/tcp | public | nginx TLS for `chess.waxim.ru` |
+| 443/tcp | public | nginx TLS for `yurachess.ru` and the retired-host redirect |
 | 80/tcp | public | ACME challenge and redirect to 443 |
 | 127.0.0.1:8082 | host loopback | production application via proxy-device |
 | 3306/tcp | container network only | MariaDB; never published |
@@ -137,10 +137,10 @@ docker compose --project-name yura-chess-production start app
 
 ```bash
 # Is the public endpoint alive end to end?
-curl -i -X POST https://chess.waxim.ru/alice/webhook -H 'Content-Type: application/json' -d '{}'
+curl -i -X POST https://yurachess.ru/webhooks/alice -H 'Content-Type: application/json' -d '{}'
 
 # Landing page with aggregate usage statistics (real traffic by default)
-curl -I https://chess.waxim.ru/
+curl -I https://yurachess.ru/
 
 # Application readiness from the host (never exposed publicly)
 curl -s http://127.0.0.1:8082/health/ready | jq
@@ -158,7 +158,7 @@ docker compose --project-name yura-chess-production exec mariadb \
 
 # nginx
 nginx -t && systemctl reload nginx
-tail -f /var/log/nginx/chess.waxim.ru.error.log
+tail -f /var/log/nginx/yurachess.ru.error.log
 
 # Incus
 incus list yura-chess

@@ -13,7 +13,6 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from typing import Any
-from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
@@ -83,27 +82,6 @@ async def test_deployed_crawlable_surface_is_published(
     response = await deployed.get(path)
 
     assert response.status_code == 200, f"{path} is not reachable through nginx"
-    assert marker in response.text
-
-
-# The Webmaster proof is issued per host, so it is asserted only against the host
-# it was issued for. A new domain needs its own file before it can be verified.
-WEBMASTER_PROOFS = {"chess.waxim.ru": ("/yandex_67cb474818f8d2b2.html", "Verification: 67cb474818f8d2b2")}
-
-
-async def test_deployed_webmaster_proof_is_served_for_its_own_host(
-    deployed: httpx.AsyncClient,
-    deployed_url: str,
-) -> None:
-    host = urlsplit(deployed_url).netloc
-    proof = WEBMASTER_PROOFS.get(host)
-    if not proof:
-        pytest.skip(f"no Webmaster proof issued for {host} yet")
-    path, marker = proof
-
-    response = await deployed.get(path)
-
-    assert response.status_code == 200
     assert marker in response.text
 
 

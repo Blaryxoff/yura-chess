@@ -10,7 +10,8 @@ Operational runbook. The topology, ports and secrets themselves are described in
 | `compose.production.yml` | Firebat production; own MariaDB 11.4 in the `yura-chess` Incus stack |
 | `deploy.sh` | Idempotent deploy of one immutable tag, with migrations and health smoke |
 | `rollback.sh` | Put the previous application image back |
-| `nginx/chess.waxim.ru.conf` | Host nginx vhost: TLS, limits, rate limiting |
+| `nginx/yurachess.ru.conf` | Canonical host nginx vhost: TLS, limits, rate limiting |
+| `nginx/chess.waxim.ru.conf` | Permanent redirects from the retired host |
 | `mariadb/backup.sh` | Scheduled dump, off-host copy, retention, alerting |
 | `mariadb/restore-smoke.sh` | Restore the latest dump into a temporary database and verify it |
 | `systemd/` | Daily backup and weekly restore-smoke units for the production Incus container |
@@ -60,7 +61,7 @@ the complete local and MariaDB suites. After deployment, an opt-in smoke talks t
 the public webhook with throwaway Alice identities:
 
 ```bash
-YURA_CHESS_DEPLOYED_URL=https://chess.waxim.ru \
+YURA_CHESS_DEPLOYED_URL=https://yurachess.ru \
   uv run pytest tests/e2e/test_deployed_webhook.py
 ```
 
@@ -122,7 +123,8 @@ file to the application is not enough — the vhost must be reinstalled in the s
 release, or nginx keeps answering 404 while every unit test passes.
 
 ```bash
-install -m 0644 deploy/nginx/chess.waxim.ru.conf /etc/nginx/sites-available/chess.waxim.ru
+install -m 0644 deploy/nginx/yurachess.ru.conf /etc/nginx/sites-available/yurachess.ru.conf
+install -m 0644 deploy/nginx/chess.waxim.ru.conf /etc/nginx/sites-available/chess.waxim.ru.conf
 nginx -t && systemctl reload nginx
 ```
 
@@ -130,10 +132,12 @@ Verify the whole crawlable surface afterwards:
 
 ```bash
 for path in / /robots.txt /sitemap.xml /how-to-play /commands /coach /puzzles \
-            /accessibility /blindfold /yandex_67cb474818f8d2b2.html /favicon.svg \
+            /accessibility /blindfold /favicon.svg \
             /3e123263cd3a154a8aa32da5bc28cebd.txt; do
-  printf '%s -> %s\n' "$path" "$(curl -s -o /dev/null -w '%{http_code}' "https://chess.waxim.ru$path")"
+  printf '%s -> %s\n' "$path" "$(curl -s -o /dev/null -w '%{http_code}' "https://yurachess.ru$path")"
 done
+
+curl -sI https://chess.waxim.ru/how-to-play | grep -i '^location: https://yurachess.ru/how-to-play$'
 ```
 
 Anything other than `200` means the deployed vhost is older than this repository.
@@ -144,11 +148,11 @@ including snippets, when a path 404s despite being listed here.
 
 1. Confirm green CI and the published immutable image for `$TAG`.
 2. `deploy/deploy.sh production "$TAG"`.
-3. `YURA_CHESS_DEPLOYED_URL=https://chess.waxim.ru uv run pytest tests/e2e/test_deployed_webhook.py`.
-4. External check through nginx: `curl -sS https://chess.waxim.ru/alice/webhook -X POST -d '{}'`
+3. `YURA_CHESS_DEPLOYED_URL=https://yurachess.ru uv run pytest tests/e2e/test_deployed_webhook.py`.
+4. External check through nginx: `curl -sS https://yurachess.ru/webhooks/alice -X POST -d '{}'`
    returns 422 (the endpoint is reachable and validating), not 502.
    Reinstall the vhost too whenever a public path was added; see *Host nginx vhost*.
 5. `uv run python scripts/submit_indexnow.py` — tells Yandex and Bing the pages changed.
    It exits non-zero when an endpoint rejects the submission; skipping it only delays the crawl.
 6. Voice-only and screen-device QA in the Alice console before submitting for moderation.
-7. Open `https://chess.waxim.ru/#statistics` and confirm real/test and period filters render aggregate counts without identifiers.
+7. Open `https://yurachess.ru/#statistics` and confirm real/test and period filters render aggregate counts without identifiers.

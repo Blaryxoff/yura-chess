@@ -1,5 +1,9 @@
 # Switching the canonical host to `yurachess.ru`
 
+Status: completed on 27 July 2026. `yurachess.ru` is canonical and receives the
+published `/webhooks/alice` traffic. `chess.waxim.ru` permanently redirects all
+requests to the canonical host.
+
 Run this once, in order. Steps 1–4 are safe at any time and change nothing for
 visitors; step 5 is the cutover. Do the whole thing **before** Google Search
 Console verification and before the outreach push — every link published against
@@ -78,19 +82,16 @@ Only now flip the application's canonical host, in one release:
 2. Update the host literals in `tests/test_health.py` and
    `tests/e2e/test_deployed_webhook.py`.
 3. Deploy and reload nginx. Both hosts still serve; nothing redirects yet.
-4. Point the Alice skill's webhook at `https://yurachess.ru/alice/webhook` in the
+4. Point the Alice skill's webhook at `https://yurachess.ru/webhooks/alice` in the
    Dialogs console and confirm a real utterance still answers.
 
 **The webhook decides when the redirect is safe.** Alice POSTs to it, and a 301
 on a POST is not something to rely on: a client may drop the body or re-issue the
-request as a GET, and the skill would go silent for everyone mid-game. So the
-old host keeps serving `/alice/webhook` directly — it is never redirected — and
-the blanket redirect only goes up once the console points at the new host.
+request as a GET. Enable the old host's blanket redirect only after production
+traffic reaches the new webhook successfully.
 
-5. Only then replace the rest of `chess.waxim.ru.conf`'s TLS server with
-   `return 301 https://yurachess.ru$request_uri;`, keeping two exceptions live:
-   `location = /alice/webhook` (proxied as before, as the safety net) and the
-   Yandex verification file, so the old property stays verified during the move.
+5. Only then replace `chess.waxim.ru.conf` with permanent HTTP and HTTPS
+   redirects to `https://yurachess.ru$request_uri`.
 6. Re-run the deployed smoke against both hosts.
 
 ## 6. Afterwards

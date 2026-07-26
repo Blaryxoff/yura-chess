@@ -45,7 +45,8 @@ Before implementation, read the active product and dev plans under `docs/plans/`
 
 ## Firebat
 
-- Production webhook: `https://chess.waxim.ru/alice/webhook`.
+- Production webhook: `https://yurachess.ru/webhooks/alice`.
+- `chess.waxim.ru` permanently redirects all requests to `yurachess.ru`.
 - Host nginx owns TLS; the application exposes only a loopback port through an Incus proxy-device.
 - Production secrets stay on Firebat with restrictive permissions.
 - Production deploys require green CI, an immutable image, health checks, and the public webhook smoke. Backup and
