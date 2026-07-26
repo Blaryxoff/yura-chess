@@ -44,9 +44,18 @@ class CommandKind(StrEnum):
     # «что ты услышал» — replays the previous normalised utterance.
     REPEAT_HEARD = "repeat_heard"
     REPEAT_SLOW = "repeat_slow"
+    REPEAT_REPLY = "repeat_reply"
     HELP = "help"
     HELP_EXIT = "help_exit"
     EXIT = "exit"
+    PLATFORM = "platform"
+    ATTENTION = "attention"
+    SOCIAL = "social"
+    BACKCHANNEL = "backchannel"
+    PAUSE = "pause"
+    AMBIGUOUS_TURN = "ambiguous_turn"
+    WHY = "why"
+    DONT_KNOW = "dont_know"
     BOARD_SETUP = "board_setup"
     # A durable presentation setting: how much is said, how, and from which side.
     PREFERENCE = "preference"
@@ -209,9 +218,46 @@ _HELP_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         CommandKind.HELP,
         re.compile(
             r"помощь$|помощь (по|с|про)\b|что ты (умеешь|можешь делать)|справка|справку|справке|как играть|"
-            r"какие команды|список команд|все команды|что можно сказать|какие еще (есть )?опции|^настройки$"
+            r"какие команды|список команд|все команды|что можно сказать|какие еще (есть )?опции|^настройки$|"
+            r"^что (?:мне )?делать$|как (?:с тобой )?играть|как (?:сделать|назвать) ход"
         ),
     ),
+)
+
+_CONVERSATION_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
+    (
+        CommandKind.PLATFORM,
+        re.compile(
+            r"^(?:алиса )?(?:(?:включи|поставь|запусти|выключи|останови)(?: мне)? "
+            r"(?:музык|песн|трек|радио|сказк|истори)\w*(?: .*)?|"
+            r"расскажи (?:сказк|истори)\w*(?: .*)?|"
+            r"(?:какая|расскажи|покажи|скажи)? ?"
+            r"(?:погод\w*|прогноз погод\w*)(?: .*)?)$"
+        ),
+    ),
+    (CommandKind.ATTENTION, re.compile(r"^(?:алиса|алис|юра)$")),
+    (
+        CommandKind.SOCIAL,
+        re.compile(
+            r"^(?:привет|здравствуй|здравствуйте|доброе утро|добрый день|добрый вечер|"
+            r"ты тут|ты здесь|как тебя зовут|кто ты)$"
+        ),
+    ),
+    (
+        CommandKind.BACKCHANNEL,
+        re.compile(r"^(?:понятно|понял|поняла|хорошо|ладно|нормально|угу|поехали|погнали|начали|начинаем)$"),
+    ),
+    (CommandKind.REPEAT_REPLY, re.compile(r"^(?:повтори|еще раз)$")),
+    (
+        CommandKind.PAUSE,
+        re.compile(
+            r"^(?:подожди|погоди|пауза|секунду|минуту)(?: пожалуйста)?$|"
+            r"^я еще (?:поле|доску|фигуры) выставляю$"
+        ),
+    ),
+    (CommandKind.AMBIGUOUS_TURN, re.compile(r"^ходы?$")),
+    (CommandKind.WHY, re.compile(r"^почему$")),
+    (CommandKind.DONT_KNOW, re.compile(r"^(?:не знаю|не помню)$")),
 )
 
 _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
@@ -224,7 +270,8 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         CommandKind.NEW_GAME,
         re.compile(
             r"нов(ая|ую) (игра|игру|партия|партию)|начн?ем заново|сначала|заново|"
-            r"(?:хочу |буду )?(?:сыграть|играть) за (бел|черн)"
+            r"(?:хочу |буду )?(?:сыграть|играть) за (бел|черн)|"
+            r"можно (?:мне )?за (бел|черн)"
         ),
     ),
     (
@@ -243,21 +290,24 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         CommandKind.START,
         re.compile(
             r"начать игру|начн?ем игру|давай (?:по)?играем(?: в шахматы)?|"
-            r"давай играть|поехали|старт"
+            r"давай играть|старт"
         ),
     ),
     (
         CommandKind.CONTINUE,
         re.compile(
-            r"^(?:алиса )?продолж(?:ай|аем|им|ить)?(?: (?:игру|партию|последнюю партию))?$|"
+            r"^(?:алиса )?(?:(?:да|ага) )?(?:давай )?"
+            r"продолж(?:ай|аем|им|ить)?(?: (?:игру|партию|последнюю партию))?$|"
             r"^(?:алиса )?(?:теперь )?твой ход$"
         ),
     ),
     (
         CommandKind.EXIT,
         re.compile(
-            r"^(?:алиса )?(выход|выйти|стоп|выключи|пауза|замолчи)$|выключись|"
+            r"^(?:алиса )?(выход|выйти|стоп|выключи|замолчи)$|выключись|"
+            r"^(?:алиса |юра )?отключи(?:сь|ться)(?: |$)|"
             r"(?:выключи|отключи|убери)( этот| мне)? (навык|шахматы|юру)|"
+            r"(?:убрать шахмат|шахмат\w* убрать)|"
             r"как (тебя|это) выключить|"
             r"(?:выйди|выйти) из (шахмат|навыка|игры|партии)|до свидания|закрой навык|"
             r"(?:закончить|закрой|останови) (навык|шахматы)|не хочу (больше )?играть|хватит играть"
@@ -289,7 +339,8 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"последн(ий|его) ход|как (ты|я) походил|ход(а|ов)? назад|раз(а)? назад|повтори координат|"
             r"что (сделали|делали) (белые|черные)|назови еще раз (свой|последний) ход|"
             r"какой (ты )?ход (сделал|сделала|сыграл|сыграла)|"
-            r"^повтори ход$|повтори (свой|последний свой|предыдущий свой) ход|"
+            r"^повтори ход$|повтори(?: еще раз)? "
+            r"(свой|последний свой|предыдущий свой) ход|"
             r"твой последний ход|^(дальше|далее)$"
         ),
     ),
@@ -326,7 +377,7 @@ _PREFERENCE_PATTERNS: tuple[tuple[PreferenceChange, re.Pattern[str]], ...] = (
     # Before the detailed style, whose «подробность» it also contains.
     (
         PreferenceChange(detail_level=DetailLevel.NORMAL),
-        re.compile(r"обычн\w* (подробност|ответ|детальност)"),
+        re.compile(r"обычн\w* (подробност|ответ|детальност)|говори обычно"),
     ),
     (
         PreferenceChange(detail_level=DetailLevel.DETAILED),
@@ -380,11 +431,17 @@ _PREFERENCE_PATTERNS: tuple[tuple[PreferenceChange, re.Pattern[str]], ...] = (
 _TRAINING_PATTERNS: tuple[tuple[TrainingQuestion, re.Pattern[str]], ...] = (
     (
         TrainingQuestion.ENABLE,
-        re.compile(r"(включи|запусти|давай)\w*( режим)? тренер|режим тренера|будь тренером|тренируй"),
+        re.compile(
+            r"(включи|запусти|давай)\w*( режим)? тренер|режим тренера|будь тренером|тренируй|"
+            r"^включи режим трения$"
+        ),
     ),
     (
         TrainingQuestion.DISABLE,
-        re.compile(r"(выключи|отключи|убери)\w*( режим)? тренер|без подсказок|играй честно"),
+        re.compile(
+            r"(выключи|отключи|убери)\w*( режим)? тренер|без подсказок|играй честно|"
+            r"^выключи (?:режим трения|стримеры)$"
+        ),
     ),
     (TrainingQuestion.KEEP_MOVE, re.compile(r"оставить мой ход|оставь мой ход|оставляю ход")),
     (TrainingQuestion.WHERE_WRONG, re.compile(r"где я ошиб|в чем моя ошибка|где была ошибка")),
@@ -408,7 +465,7 @@ _TRAINING_PATTERNS: tuple[tuple[TrainingQuestion, re.Pattern[str]], ...] = (
     (TrainingQuestion.PREVIEW, re.compile(r"что будет,? если|что если я|стоит ли (мне )?(играть|ходить)")),
     (
         TrainingQuestion.CANDIDATES,
-        re.compile(r"хорошие ходы|какие ходы|что мне сыграть|как мне (лучше )?сыграть|какой ход .*посовет"),
+        re.compile(r"хорошие (?:ходы|годы)|какие ходы|что мне сыграть|как мне (лучше )?сыграть|какой ход .*посовет"),
     ),
     # «подскажи» — the imperative the help advertises — carries the ж stem.
     (TrainingQuestion.HINT, re.compile(r"подсказ|подскаж|дай совет|посоветуй|помоги с ходом")),
@@ -467,7 +524,7 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
         PuzzleQuestion.START,
         re.compile(
             r"(дай|покажи|предложи|начни|запусти|хочу|решать|решить|порешаем)\w*.*(задач|головоломк)"
-            r"|^задачи?$|^(шахматн\w* )?(задач|головоломк)\w* (на|моего|по)"
+            r"|^задач[аи]?$|^(шахматн\w* )?(задач|головоломк)\w* (на|моего|по)"
             r"|^мат в (один|два)$|одноходов|двуходов"
         ),
     ),
@@ -492,24 +549,30 @@ _PREVIEW_PREFIX = re.compile(
 
 _REMATCH = re.compile(
     r"реванш|еще (одну )?(партию|игру)|следующ\w* (игр|парт)|сыграем еще|сыграем сложнее|"
-    r"сложнее|потруднее|усложни|смен(и|им|ить) цвет|поменя\w* цвет"
+    r"сложнее|потруднее|усложни|смен(и|им|ить) цвет|поменя\w* цвет|другим цветом"
 )
 _REMATCH_SWAP = re.compile(r"друг(им|ой) цвет|смен(и|им|ить) цвет|поменя\w* цвет|другой стороной")
 _REMATCH_HARDER = re.compile(r"сложнее|потруднее|усложни|уровень выше|посильнее|потяжелее")
 _REMATCH_WHITE = re.compile(r"\bбел(ыми|ые)\b")
 _REMATCH_BLACK = re.compile(r"\bчерн(ыми|ые)\b")
 
-_AFFIRM = re.compile(r"^(да|ага|верно|точно|правильно|подтверждаю)$")
-_DECLINE = re.compile(r"^(нет|не|отмена|неверно|неправильно)$")
+_AFFIRM_EXPLICIT = re.compile(r"^(?:да|ага|верно|точно|правильно|подтверждаю|да подтверждаю)$")
+_AFFIRM_FRIENDLY = re.compile(r"^(?:угу|конечно|давай|да давай|да конечно)$")
+_AFFIRM_CONTINUE = re.compile(r"^(?:поехали|погнали|начали|начинаем|продолжать|продолжи партию)$")
+_DECLINE = re.compile(r"^(?:нет|не|отмена|неверно|неправильно|не надо|давай не будем)$")
 
 
-def confirmation_answer(utterance: str) -> bool | None:
-    """Return a bare yes/no answer, or ``None`` for any other utterance."""
+def confirmation_answer(utterance: str, pending_kind: CommandKind | None = None) -> bool | None:
+    """Return a context-safe confirmation answer for the pending action."""
     text = normalize(utterance).text
-    if _AFFIRM.match(text):
-        return True
     if _DECLINE.match(text):
         return False
+    if _AFFIRM_EXPLICIT.match(text):
+        return True
+    if pending_kind is not None and pending_kind is not CommandKind.RESIGN and _AFFIRM_FRIENDLY.match(text):
+        return True
+    if pending_kind is CommandKind.CONTINUE and _AFFIRM_CONTINUE.match(text):
+        return True
     return None
 
 
@@ -542,6 +605,10 @@ def route(
     training = parse_training(normalized.text)
     if training is not None:
         return RoutedCommand(CommandKind.TRAINING, normalized, training=training, clarification=None)
+
+    for kind, pattern in _CONVERSATION_PATTERNS:
+        if pattern.search(normalized.text):
+            return RoutedCommand(kind, normalized, clarification=None)
 
     for kind, pattern in _CONTROL_PATTERNS:
         if pattern.search(normalized.text):
@@ -634,10 +701,10 @@ def parse_rematch(text: str) -> RematchRequest | None:
 
 
 def _answer_clarification(normalized: Normalized, pending: PendingClarification) -> RoutedCommand | None:
-    """Handle only a bare yes/no; anything else is re-read as a fresh utterance."""
+    """Handle only an explicit yes/no; anything else is re-read as a fresh utterance."""
     if _DECLINE.match(normalized.text):
         return RoutedCommand(CommandKind.CANCEL_CLARIFY, normalized, clarification=None)
-    if _AFFIRM.match(normalized.text):
+    if _AFFIRM_EXPLICIT.match(normalized.text):
         if len(pending.candidates) == 1:
             return RoutedCommand(CommandKind.MOVE, normalized, move=pending.candidates[0], clarification=None)
         # «да» cannot pick between several candidates; keep waiting.

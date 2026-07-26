@@ -16,6 +16,7 @@ from yura_chess.application.command_router import (
     RematchColor,
     RematchRequest,
     TrainingQuestion,
+    confirmation_answer,
     route,
 )
 from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle, PauseStyle
@@ -357,7 +358,7 @@ def test_production_command_phrases_are_routed(utterance: str, expected: Command
         ("выключись", CommandKind.EXIT),
         ("выключи мне юру", CommandKind.EXIT),
         ("как тебя выключить а", CommandKind.EXIT),
-        ("пауза", CommandKind.EXIT),
+        ("пауза", CommandKind.PAUSE),
         ("замолчи", CommandKind.EXIT),
         ("алиса выйти", CommandKind.EXIT),
         ("я сдался", CommandKind.RESIGN),
@@ -365,13 +366,38 @@ def test_production_command_phrases_are_routed(utterance: str, expected: Command
         ("игра окончена", CommandKind.RESIGN),
         ("давай поиграем в шахматы", CommandKind.START),
         ("алиса твой ход", CommandKind.CONTINUE),
+        ("да давай продолжим", CommandKind.CONTINUE),
         ("повтори свой ход", CommandKind.POSITION_QUERY),
         ("повтори ход", CommandKind.POSITION_QUERY),
+        ("повтори еще раз свой ход", CommandKind.POSITION_QUERY),
         ("оценка позиции", CommandKind.TRAINING),
+        ("включи режим трения", CommandKind.TRAINING),
+        ("выключи стримеры", CommandKind.TRAINING),
         ("продиктуй всю партию", CommandKind.REVIEW),
         ("сделай разбор всей партии", CommandKind.REVIEW),
+        ("задача", CommandKind.PUZZLE),
         ("задачи", CommandKind.PUZZLE),
+        ("можно мне за черных", CommandKind.NEW_GAME),
+        ("другим цветом черный", CommandKind.REMATCH),
+        ("говори обычно", CommandKind.PREFERENCE),
+        ("отключись", CommandKind.EXIT),
+        ("алиса убрать шахматы", CommandKind.EXIT),
+        ("шахматы убрать", CommandKind.EXIT),
         ("сейчас я расставлю фигуры", CommandKind.BOARD_SETUP),
+        ("алиса", CommandKind.ATTENTION),
+        ("доброе утро", CommandKind.SOCIAL),
+        ("ты тут", CommandKind.SOCIAL),
+        ("понятно", CommandKind.BACKCHANNEL),
+        ("угу", CommandKind.BACKCHANNEL),
+        ("повтори", CommandKind.REPEAT_REPLY),
+        ("подожди", CommandKind.PAUSE),
+        ("я еще поле выставляю", CommandKind.PAUSE),
+        ("ход", CommandKind.AMBIGUOUS_TURN),
+        ("почему", CommandKind.WHY),
+        ("не знаю", CommandKind.DONT_KNOW),
+        ("что мне делать", CommandKind.HELP),
+        ("как сделать ход", CommandKind.HELP),
+        ("хорошие годы", CommandKind.TRAINING),
     ],
 )
 def test_observed_production_phrases_are_routed(utterance: str, expected: CommandKind) -> None:
@@ -380,6 +406,57 @@ def test_observed_production_phrases_are_routed(utterance: str, expected: Comman
 
 def test_unrelated_continue_phrase_is_not_a_chess_command() -> None:
     assert route("алиса продолжай трек", chess.Board()).kind is CommandKind.UNKNOWN
+
+
+def test_compound_confirmation_stays_explicit_and_does_not_capture_another_request() -> None:
+    assert confirmation_answer("да подтверждаю") is True
+    assert confirmation_answer("да просто песню поставь") is None
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "включи музыку",
+        "поставь мне песню пожалуйста",
+        "расскажи сказку про шахматы",
+        "расскажи погоду",
+        "прогноз погоды на сегодня",
+    ],
+)
+def test_platform_requests_are_handed_back_before_move_resolution(utterance: str) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.PLATFORM
+    assert routed.move is None
+    assert routed.resolution is None
+
+
+def test_negated_exit_is_not_claimed_as_a_command() -> None:
+    assert route("не отключись", chess.Board()).kind is CommandKind.UNKNOWN
+
+
+@pytest.mark.parametrize("utterance", ["поехали", "погнали", "начали", "начинаем"])
+def test_start_like_phrases_only_confirm_a_pending_continuation(utterance: str) -> None:
+    assert confirmation_answer(utterance, CommandKind.CONTINUE) is True
+    assert confirmation_answer(utterance, CommandKind.RESIGN) is None
+
+
+@pytest.mark.parametrize("utterance", ["угу", "конечно", "давай", "да давай"])
+def test_friendly_answers_confirm_safe_pending_actions_but_not_resignation(utterance: str) -> None:
+    assert confirmation_answer(utterance, CommandKind.CONTINUE) is True
+    assert confirmation_answer(utterance, CommandKind.RESIGN) is None
+
+
+@pytest.mark.parametrize("utterance", ["нет", "не надо", "давай не будем", "отмена"])
+def test_natural_negative_answers_cancel_any_pending_action(utterance: str) -> None:
+    assert confirmation_answer(utterance, CommandKind.CONTINUE) is False
+
+
+def test_colloquial_knight_name_is_still_resolved_only_against_legal_moves() -> None:
+    routed = route("лошадь эф три", chess.Board())
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == "g1f3"
 
 
 def test_incomplete_and_compound_moves_require_clarification() -> None:

@@ -183,7 +183,7 @@ async def test_confirmation_analytics_are_request_linked_and_not_reported_as_unm
     conversation = subject(session_factory, offline_settings)
     started = await conversation.handle(OWNER, "", context(1))
     asked = await conversation.handle(OWNER, "новая игра", context(2), started.state)
-    await conversation.handle(OWNER, "да", context(3), asked.state)
+    await conversation.handle(OWNER, "да подтверждаю", context(3), asked.state)
     key = request_key("shell", "conversation", "3")
 
     with session_scope(session_factory) as session:
@@ -351,7 +351,12 @@ async def test_moderation_help_commands_return_an_instruction_in_a_new_session(
     assert "пешка е два е четыре" in reply.speech.text
 
 
+@pytest.mark.parametrize(
+    "resume_utterance",
+    ["да", "да, давай", "да давай продолжим", "поехали", "погнали", "начали", "начинаем"],
+)
 async def test_new_session_offers_the_latest_unfinished_game_and_last_two_moves(
+    resume_utterance: str,
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
 ) -> None:
@@ -378,10 +383,127 @@ async def test_new_session_offers_the_latest_unfinished_game_and_last_two_moves(
     assert usage is not None
     assert (usage.release_id, usage.command_kind, usage.routing_outcome) == ("development", "empty", "empty")
 
-    resumed = await conversation.handle(OWNER, "да", context(2), prompt.state)
+    resumed = await conversation.handle(OWNER, resume_utterance, context(2), prompt.state)
 
     assert resumed.turn is not None
     assert resumed.turn.game_id == game.id
+
+
+@pytest.mark.parametrize("utterance", ["поехали", "да давай продолжим"])
+async def test_resume_answer_is_recorded_as_the_final_confirmation_intent(
+    utterance: str,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).create_game(OWNER, PlayerColor.WHITE)
+    conversation = subject(session_factory, offline_settings)
+    prompt = await conversation.handle(OWNER, "", context(1, new=True), ConversationState())
+
+    resumed = await conversation.handle(OWNER, utterance, context(2), prompt.state)
+
+    assert resumed.turn is not None
+    assert resumed.turn.game_id == game.id
+    with session_scope(session_factory) as session:
+        usage = session.get(UsageRequestRow, request_key("shell", "conversation", "2"))
+    assert usage is not None
+    assert (usage.command_kind, usage.routing_outcome) == ("confirmation", "confirmation")
+
+
+async def test_start_like_phrase_never_confirms_resignation(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    asked = await conversation.handle(OWNER, "сдаюсь", context(2), started.state)
+
+    refused = await conversation.handle(OWNER, "поехали", context(3), asked.state)
+
+    assert refused.speech.text == "Скажите «да» или «нет»."
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert game.status is GameStatus.ACTIVE
+
+
+@pytest.mark.parametrize("utterance", ["поехали", "погнали", "начали", "начинаем"])
+async def test_start_like_phrase_acknowledges_an_active_game_without_restarting_it(
+    utterance: str,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    reply = await conversation.handle(OWNER, utterance, context(2), started.state)
+
+    assert reply.speech.text == "Хорошо. Ваш ход."
+    assert reply.state.pending_action is None
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert game.moves == ()
+
+
+async def test_platform_command_ends_only_the_skill_and_preserves_the_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    handed_off = await conversation.handle(OWNER, "включи музыку", context(2), started.state)
+
+    assert handed_off.end_session is True
+    assert "повторите команду Алисе" in handed_off.speech.text
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert game.status is GameStatus.ACTIVE
+    assert game.moves == ()
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("алиса", "Слушаю. Ваш ход."),
+        ("привет", "Здравствуйте! Ваш ход."),
+        ("как тебя зовут", "Я Юра, шахматный помощник Алисы. Ваш ход."),
+        ("понятно", "Хорошо. Ваш ход."),
+        ("ход", "Что вы хотите: сделать ход, услышать последний ход или открыть помощь?"),
+        ("подожди", "Хорошо, подожду. Партия сохранена."),
+    ],
+)
+async def test_short_conversational_turns_are_human_and_do_not_change_the_game(
+    utterance: str,
+    expected: str,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    reply = await conversation.handle(OWNER, utterance, context(2), started.state)
+
+    assert reply.speech.text == expected
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert game.moves == ()
+
+
+async def test_bare_repeat_replays_the_previous_reply_without_replacing_it(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    position = await conversation.handle(OWNER, "что на е два", context(2), started.state)
+
+    repeated = await conversation.handle(OWNER, "повтори", context(3), position.state)
+
+    assert repeated.speech.text == position.state.last_reply
+    assert repeated.state.last_reply == position.state.last_reply
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert game.moves == ()
 
 
 @pytest.mark.parametrize("utterance", ["помощь", "что ты умеешь"])
@@ -492,6 +614,19 @@ async def test_new_session_greeting_explains_the_skill_when_resuming_a_puzzle(
     assert "скажите «помощь»" in prompted.speech.text.lower()
     assert prompted.state.pending_action is not None
     assert prompted.state.pending_action.kind is CommandKind.PUZZLE
+
+
+async def test_bare_dont_know_reveals_the_solution_only_inside_a_puzzle(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    offered = await conversation.handle(OWNER, "дай задачу", context(1))
+
+    solved = await conversation.handle(OWNER, "не знаю", context(2), offered.state)
+
+    assert solved.speech.text.startswith("Решение:")
+    assert PuzzleService(session_factory).find_open(OWNER) is None
 
 
 async def test_unplayed_game_is_not_described_as_played_today(
@@ -976,6 +1111,45 @@ async def test_help_navigation_leaves_an_open_review_where_it_stopped(
     with session_scope(session_factory) as session:
         after = ReviewRepository(session).find(game_id, OWNER)
     assert after == before
+
+
+async def test_help_topic_navigation_is_recorded_as_help_after_contextual_interpretation(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    helped = await conversation.handle(OWNER, "помощь", context(2), started.state)
+
+    topic = await conversation.handle(OWNER, "партия", context(3), helped.state)
+
+    assert topic.state.help is not None
+    with session_scope(session_factory) as session:
+        usage = session.get(UsageRequestRow, request_key("shell", "conversation", "3"))
+        transcript = session.scalars(
+            select(AsrTranscriptRow).where(AsrTranscriptRow.request_key == request_key("shell", "conversation", "3"))
+        ).one()
+    assert usage is not None
+    assert (usage.command_kind, usage.routing_outcome) == ("help", "handled")
+    assert transcript.outcome == "help"
+
+
+async def test_review_navigation_is_recorded_as_review_after_contextual_interpretation(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    asked = await conversation.handle(OWNER, "сдаюсь", context(2), started.state)
+    resigned = await conversation.handle(OWNER, "да", context(3), asked.state)
+    dictated = await conversation.handle(OWNER, "продиктуй ходы", context(4), resigned.state)
+
+    await conversation.handle(OWNER, "назад", context(5), dictated.state)
+
+    with session_scope(session_factory) as session:
+        usage = session.get(UsageRequestRow, request_key("shell", "conversation", "5"))
+    assert usage is not None
+    assert (usage.command_kind, usage.routing_outcome) == ("review", "handled")
 
 
 async def test_the_puzzle_section_points_back_to_the_game_while_a_puzzle_is_open(

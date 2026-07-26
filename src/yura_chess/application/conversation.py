@@ -15,12 +15,15 @@ from yura_chess.application.command_router import (
     CommandKind,
     PendingClarification,
     PreferenceChange,
+    PuzzleQuestion,
+    PuzzleRequest,
     RematchColor,
     RematchRequest,
     ReviewQuestion,
     ReviewRequest,
     RoutedCommand,
     TrainingQuestion,
+    TrainingRequest,
     confirmation_answer,
     contains_multiple_moves,
     route,
@@ -208,7 +211,7 @@ class ConversationService:
                 if replayed is not None
                 else await self._handle(owner_key, utterance, request, prior_state, preferences)
             )
-        if route(utterance).kind is not CommandKind.REPEAT_SLOW:
+        if route(utterance).kind not in {CommandKind.REPEAT_REPLY, CommandKind.REPEAT_SLOW}:
             # Stored before the pauses are added, so a repeat reads words rather
             # than speech markup.
             reply = replace(reply, state=replace(reply.state, last_reply=reply.speech.spoken()[:512]))
@@ -292,7 +295,24 @@ class ConversationService:
             last_heard=state.last_heard,
             confidence_threshold=self._settings.voice_move_confidence_threshold,
         )
-        self._record(owner_key, routed, board, request, state.pending_action)
+        open_puzzle = self._puzzles.find_open(owner_key)
+        mode = _help_mode(game, open_puzzle is not None)
+        help_navigation = (
+            help_speech.navigate(utterance, state.help, mode) or help_speech.bare_topic(utterance, mode)
+            if state.help is not None
+            else None
+        )
+        review_step = (
+            _review_step(routed.normalized.text) if state.reviewing and routed.kind is not CommandKind.REVIEW else None
+        )
+        interpreted_kind = (
+            CommandKind.HELP
+            if help_navigation is not None
+            else CommandKind.REVIEW
+            if review_step is not None
+            else routed.kind
+        )
+        self._record(owner_key, routed, board, request, state.pending_action, interpreted_kind)
 
         repeated = {CommandKind.REPEAT_HEARD, CommandKind.REPEAT_SLOW}
         next_heard = state.last_heard if routed.kind in repeated else routed.normalized.text
@@ -305,6 +325,14 @@ class ConversationService:
             reviewing=False,
         )
 
+        if routed.kind is CommandKind.PLATFORM:
+            saved = " Партия сохранена." if game is not None and game.status is GameStatus.ACTIVE else ""
+            return ConversationReply(
+                Speech.of(f"Это команда Алисе, а не шахматный ход.{saved} Выхожу из навыка — повторите команду Алисе."),
+                replace(next_state, pending_action=None),
+                end_session=True,
+            )
+
         if routed.kind is CommandKind.EXIT:
             saved = " Партия сохранена." if game is not None and game.status is GameStatus.ACTIVE else ""
             return ConversationReply(
@@ -314,8 +342,6 @@ class ConversationService:
             )
 
         if state.pending_action is not None and routed.kind is CommandKind.HELP:
-            open_puzzle = self._puzzles.find_open(owner_key)
-            mode = _help_mode(game, open_puzzle is not None)
             return self._help_reply(
                 help_speech.answer_help(utterance, mode, state.help),
                 replace(next_state, pending_action=None),
@@ -323,6 +349,32 @@ class ConversationService:
             )
 
         pending_action = state.pending_action
+        pending_confirmation = (
+            confirmation_answer(utterance, pending_action.kind) if pending_action is not None else None
+        )
+
+        if routed.kind is CommandKind.REPEAT_REPLY:
+            speech = (
+                Speech.of(state.last_reply) if state.last_reply is not None else Speech.of("Пока нечего повторять.")
+            )
+            return ConversationReply(speech, state)
+
+        if help_navigation is None and routed.kind in {
+            CommandKind.ATTENTION,
+            CommandKind.SOCIAL,
+            CommandKind.PAUSE,
+            CommandKind.AMBIGUOUS_TURN,
+        }:
+            return ConversationReply(
+                _conversational_reply(
+                    routed.kind,
+                    routed.normalized.text,
+                    game,
+                    open_puzzle is not None,
+                    pending_action,
+                ),
+                state,
+            )
         if (
             pending_action is not None
             and pending_action.kind is CommandKind.CONTINUE
@@ -345,6 +397,7 @@ class ConversationService:
                 CommandKind.START,
                 CommandKind.NEW_GAME,
             }
+            and pending_confirmation is None
         ):
             return await self._start(
                 owner_key,
@@ -383,7 +436,7 @@ class ConversationService:
             confirmation = (
                 True
                 if pending_action.kind is CommandKind.CONTINUE and routed.kind is CommandKind.CONTINUE
-                else confirmation_answer(utterance)
+                else pending_confirmation
             )
             if confirmation is None:
                 return ConversationReply(Speech.of("Скажите «да» или «нет»."), next_state)
@@ -441,14 +494,11 @@ class ConversationService:
                     result = await self._games.continue_game(owner_key, candidate.id, request)
                     return self._turn_reply(owner_key, result, next_state, preferences)
 
-        open_puzzle = self._puzzles.find_open(owner_key)
-        mode = _help_mode(game, open_puzzle is not None)
         # Open help owns «дальше», «назад» and «сначала»: otherwise they would be
         # read as board pagination, as a new game, or as a step of the puzzle.
         if state.help is not None:
-            navigated = help_speech.navigate(utterance, state.help, mode) or help_speech.bare_topic(utterance, mode)
-            if navigated is not None:
-                return self._help_reply(navigated, next_state, game)
+            if help_navigation is not None:
+                return self._help_reply(help_navigation, next_state, game)
 
         # An open puzzle owns moves and hints: they are judged against its own
         # position, so they must not reach the game's move resolution at all.
@@ -460,10 +510,9 @@ class ConversationService:
         # exactly as open help owns them.
         if state.reviewing and routed.kind is not CommandKind.REVIEW:
             reviewed = self._reviewable(owner_key, game)
-            step = _review_step(routed.normalized.text)
-            if reviewed is not None and step is not None:
+            if reviewed is not None and review_step is not None:
                 return ConversationReply(
-                    self._review.dictate(owner_key, reviewed, step),
+                    self._review.dictate(owner_key, reviewed, review_step),
                     replace(self._with_game(next_state, reviewed), reviewing=True),
                 )
         if routed.kind is CommandKind.REVIEW and routed.review is not None:
@@ -537,6 +586,38 @@ class ConversationService:
                 )
             speech = await self._training.answer(owner_key, game, routed.training, request)
             return ConversationReply(speech, self._with_game(next_state, self._reload(owner_key, game)))
+
+        if routed.kind is CommandKind.BACKCHANNEL:
+            return ConversationReply(
+                _conversational_reply(
+                    routed.kind,
+                    routed.normalized.text,
+                    game,
+                    open_puzzle is not None,
+                    None,
+                ),
+                self._with_game(next_state, game) if game is not None else next_state,
+            )
+
+        if routed.kind is CommandKind.WHY:
+            if game is not None and game.mode is GameMode.TRAINING and game.moves:
+                speech = await self._training.answer(
+                    owner_key,
+                    game,
+                    TrainingRequest(TrainingQuestion.WHY_MOVE),
+                    request,
+                )
+                return ConversationReply(speech, self._with_game(next_state, game))
+            return ConversationReply(
+                Speech.of("Что именно объяснить: последний ход, позицию или правило?"),
+                self._with_game(next_state, game) if game is not None else next_state,
+            )
+
+        if routed.kind is CommandKind.DONT_KNOW:
+            return ConversationReply(
+                Speech.of("Ничего страшного. Скажите «помощь», и я подскажу, что можно сделать дальше."),
+                self._with_game(next_state, game) if game is not None else next_state,
+            )
 
         if game is None:
             if routed.kind is CommandKind.GAME_FACT:
@@ -699,6 +780,16 @@ class ConversationService:
         if routed.kind is CommandKind.PUZZLE and routed.puzzle is not None:
             return ConversationReply(
                 self._puzzles.answer(owner_key, routed.puzzle, request, open_puzzle).speech,
+                state,
+            )
+        if routed.kind is CommandKind.DONT_KNOW:
+            return ConversationReply(
+                self._puzzles.answer(
+                    owner_key,
+                    PuzzleRequest(PuzzleQuestion.SOLUTION),
+                    request,
+                    open_puzzle,
+                ).speech,
                 state,
             )
         if (
@@ -1022,12 +1113,17 @@ class ConversationService:
         board: chess.Board | None,
         request: RequestContext,
         pending_action: PendingAction | None,
+        interpreted_kind: CommandKind | None = None,
     ) -> None:
-        resolution = routed.resolution
-        confirmation = pending_action is not None and confirmation_answer(routed.normalized.text) is not None
+        effective_kind = interpreted_kind or routed.kind
+        resolution = routed.resolution if effective_kind is routed.kind else None
+        confirmation = pending_action is not None and (
+            confirmation_answer(routed.normalized.text, pending_action.kind) is not None
+            or (pending_action.kind is CommandKind.CONTINUE and routed.kind is CommandKind.CONTINUE)
+        )
         empty = not routed.normalized.text
-        command_kind = "empty" if empty else "confirmation" if confirmation else routed.kind.value
-        routing_outcome = "empty" if empty else "confirmation" if confirmation else _routing_outcome(routed.kind)
+        command_kind = "empty" if empty else "confirmation" if confirmation else effective_kind.value
+        routing_outcome = "empty" if empty else "confirmation" if confirmation else _routing_outcome(effective_kind)
         resolved_request_key = usage_request_key(request.skill_id, request.session_id, request.message_id)
         with session_scope(self._session_factory) as session:
             UsageRepository(session).record_request(
@@ -1046,7 +1142,7 @@ class ConversationService:
                 TranscriptRepository(session, self._settings.asr_transcript_text_limit).record(
                     owner_key,
                     routed.normalized.text,
-                    "confirmation" if confirmation else resolution.status if resolution is not None else routed.kind,
+                    "confirmation" if confirmation else resolution.status if resolution is not None else effective_kind,
                     confidence=resolution.confidence if resolution is not None else 0.0,
                     candidate_count=len(resolution.candidates) if resolution is not None else 0,
                     legal_move_count=board.legal_moves.count() if board is not None else 0,
@@ -1096,6 +1192,42 @@ def _routing_outcome(kind: CommandKind) -> str:
     if kind is CommandKind.CLARIFY:
         return "clarification"
     return "handled"
+
+
+def _conversational_reply(
+    kind: CommandKind,
+    text: str,
+    game: GameState | None,
+    solving_puzzle: bool,
+    pending_action: PendingAction | None,
+) -> Speech:
+    """Keep short conversational turns useful without changing chess state."""
+    if kind is CommandKind.PAUSE:
+        saved = " Партия сохранена." if game is not None and game.status is GameStatus.ACTIVE else ""
+        return Speech.of(f"Хорошо, подожду.{saved}")
+    if kind is CommandKind.AMBIGUOUS_TURN:
+        return Speech.of("Что вы хотите: сделать ход, услышать последний ход или открыть помощь?")
+
+    if pending_action is not None:
+        expectation = "Скажите «да» или «нет»."
+    elif solving_puzzle:
+        expectation = "Назовите ход, попросите подсказку или покажите решение."
+    elif game is not None and game.status is GameStatus.ACTIVE:
+        expectation = "Ваш ход."
+    elif game is not None:
+        expectation = "Можно разобрать партию или начать новую."
+    else:
+        expectation = "Скажите «новая игра», чтобы начать."
+
+    if kind is CommandKind.ATTENTION:
+        return Speech.of(f"Слушаю. {expectation}")
+    if kind is CommandKind.SOCIAL:
+        if text in {"как тебя зовут", "кто ты"}:
+            return Speech.of(f"Я Юра, шахматный помощник Алисы. {expectation}")
+        if text in {"ты тут", "ты здесь"}:
+            return Speech.of(f"Да, я здесь. {expectation}")
+        return Speech.of(f"Здравствуйте! {expectation}")
+    return Speech.of(f"Хорошо. {expectation}")
 
 
 def _display_uci(uci: str) -> str:
