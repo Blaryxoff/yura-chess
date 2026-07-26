@@ -69,6 +69,37 @@ Stockfish доступны только в режиме тренера: обыч
 вычисляется из неё. Повторная доставка одного запроса Алисы идемпотентна и не
 может привести ко второму ходу.
 
+## Локальная проверка без Docker
+
+На рабочей машине проект можно проверять через DBngin; Laravel Herd для тестов
+FastAPI не требуется. Запустите DBngin и создайте отдельную одноразовую базу:
+
+```bash
+open -a DBngin
+/Users/Shared/DBngin/mysql/8.0.33/bin/mysql \
+  --protocol=tcp -h127.0.0.1 -P3306 -uroot \
+  -e "CREATE DATABASE IF NOT EXISTS yura_chess_codex_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+```
+
+Focused-тесты и полный локальный smoke запускаются с одним DSN:
+
+```bash
+export YURA_CHESS_TEST_DATABASE_URL='mysql+pymysql://root@127.0.0.1:3306/yura_chess_codex_test?charset=utf8mb4'
+uv run pytest tests/voice/test_move_resolver.py
+uv run pytest
+```
+
+DBngin использует MySQL 8.0.33, поэтому полный прогон намеренно останавливается
+только на `test_database_is_mariadb_11_4`. Это не заменяет обязательную проверку
+на MariaDB 11.4 в CI и перед релизом. После локального прогона удалите только
+одноразовую тестовую базу:
+
+```bash
+/Users/Shared/DBngin/mysql/8.0.33/bin/mysql \
+  --protocol=tcp -h127.0.0.1 -P3306 -uroot \
+  -e "DROP DATABASE yura_chess_codex_test"
+```
+
 ## Подробнее
 
 - [Продуктовый план MVP](docs/plans/product/20260718-yura-chess-mvp.md)

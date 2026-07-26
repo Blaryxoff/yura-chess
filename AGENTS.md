@@ -31,6 +31,18 @@ Before implementation, read the active product and dev plans under `docs/plans/`
 - Prefer captured Alice ASR transcripts over invented synonyms.
 - Never commit `.env`, credentials, Yandex tokens, certificates, databases, generated board images, or Stockfish binaries.
 
+## Local verification
+
+- On this workstation, do not launch Docker Desktop for local tests. Start the existing DBngin instance with
+  `open -a DBngin`; Laravel Herd is not needed for the Python/FastAPI test suite.
+- DBngin provides MySQL 8.0.33 at `127.0.0.1:3306` with local user `root` and no password. Create only the disposable
+  database `yura_chess_codex_test` and use
+  `YURA_CHESS_TEST_DATABASE_URL=mysql+pymysql://root@127.0.0.1:3306/yura_chess_codex_test?charset=utf8mb4`.
+- DBngin is a fast local compatibility smoke, not the authoritative database gate. The full local suite should pass
+  except for `test_database_is_mariadb_11_4`, which must continue to reject MySQL. CI and release verification still
+  require MariaDB 11.4; never weaken or skip that assertion in committed tests.
+- Drop only `yura_chess_codex_test` after the run. Never point tests at the development or production database.
+
 ## Firebat
 
 - Production webhook: `https://chess.waxim.ru/alice/webhook`.
