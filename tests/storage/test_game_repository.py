@@ -27,6 +27,7 @@ from yura_chess.storage.game_repository import (
     RevisionConflictError,
 )
 from yura_chess.storage.models import GameMoveRow, GameRow, RequestReplayRow
+from yura_chess.storage.usage_repository import UsageRepository
 
 OWNER = "a" * 64
 OTHER_OWNER = "b" * 64
@@ -454,6 +455,35 @@ def test_replay_retention_removes_only_expired_rows(repository: GameRepository, 
 
     assert removed == 1
     assert session.scalars(select(RequestReplayRow.id)).all() == [fresh.id]
+
+
+def test_test_game_retention_removes_only_expired_test_games(repository: GameRepository, session: Session) -> None:
+    now = datetime(2026, 7, 27, 12, 0, 0)
+    real_owner = "c" * 64
+    usage = UsageRepository(session)
+    usage.record_request(OWNER, "skill", "test-old", "1", "test", now)
+    usage.record_request(OTHER_OWNER, "skill", "test-fresh", "1", "test", now)
+    usage.record_request(real_owner, "skill", "real-old", "1", "real", now)
+
+    stale_test = repository.create_game(OWNER, PlayerColor.WHITE)
+    fresh_test = repository.create_game(OTHER_OWNER, PlayerColor.WHITE)
+    stale_real = repository.create_game(real_owner, PlayerColor.WHITE)
+    stale_test_row = session.get(GameRow, stale_test.id)
+    fresh_test_row = session.get(GameRow, fresh_test.id)
+    stale_real_row = session.get(GameRow, stale_real.id)
+    assert stale_test_row is not None
+    assert fresh_test_row is not None
+    assert stale_real_row is not None
+    stale_test_row.created_at = now - timedelta(days=8)
+    fresh_test_row.created_at = now - timedelta(days=7)
+    stale_real_row.created_at = now - timedelta(days=30)
+    session.flush()
+
+    removed = repository.purge_test_games(now, retention_days=7)
+    session.commit()
+
+    assert removed == 1
+    assert session.scalars(select(GameRow.id).order_by(GameRow.id)).all() == sorted([fresh_test.id, stale_real.id])
 
 
 def test_replay_recovery_sees_a_row_committed_after_the_snapshot_opened(

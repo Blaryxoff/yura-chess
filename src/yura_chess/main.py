@@ -98,7 +98,9 @@ def _purge_retained_data(app: FastAPI) -> None:
     now = datetime.now(UTC).replace(tzinfo=None)
     with session_scope(app.state.session_factory) as session:
         TranscriptRepository(session).purge_expired(now, app.state.settings.asr_transcript_retention_days)
-        GameRepository(session).purge_request_replays(now, app.state.settings.request_replay_retention_days)
+        games = GameRepository(session)
+        games.purge_request_replays(now, app.state.settings.request_replay_retention_days)
+        games.purge_test_games(now, app.state.settings.test_game_retention_days)
         AnalysisRepository(session).purge_expired(now, app.state.settings.analysis_checkpoint_retention_days)
         ReviewRepository(session).purge_expired(now, app.state.settings.review_state_retention_days)
     app.state.board_images.maintain_cache()

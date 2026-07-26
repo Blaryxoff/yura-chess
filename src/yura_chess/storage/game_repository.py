@@ -31,6 +31,7 @@ from yura_chess.storage.models import (
     GameRow,
     PendingEngineTurnRow,
     RequestReplayRow,
+    UsageUserRow,
 )
 from yura_chess.storage.usage_repository import TrafficSource, UsageRepository
 
@@ -434,6 +435,18 @@ class GameRepository:
         """Delete replay responses after their retry value has expired."""
         cutoff = now - timedelta(days=retention_days)
         removed = self._session.query(RequestReplayRow).filter(RequestReplayRow.created_at < cutoff).delete()
+        self._session.flush()
+        return removed
+
+    def purge_test_games(self, now: datetime, retention_days: int) -> int:
+        """Delete synthetic games after their operational debugging window."""
+        cutoff = now - timedelta(days=retention_days)
+        test_owners = select(UsageUserRow.owner_key).where(UsageUserRow.traffic_source == "test")
+        removed = (
+            self._session.query(GameRow)
+            .filter(GameRow.owner_key.in_(test_owners), GameRow.created_at < cutoff)
+            .delete(synchronize_session=False)
+        )
         self._session.flush()
         return removed
 

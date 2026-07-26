@@ -93,6 +93,9 @@ Secrets that exist only on Firebat and never in git:
   (`command_kind`, resolver status and outcome). Retained normalized transcripts
   link to them only through the hashed request key and keep their shorter retention
   window; raw payloads and command text never enter permanent analytics.
+- Synthetic game state is retained for `YURA_CHESS_TEST_GAME_RETENTION_DAYS`
+  (seven days by default) and then deleted with its game-scoped children. Durable
+  aggregate `usage_users` and `usage_requests` rows remain available for release diagnostics.
 - MariaDB and persisted timestamps stay in UTC. Public usage reports shift UTC
   timestamps to Moscow time before applying day, month and period boundaries.
 - Health checks: the application polls `/health/ready` (database connection,
