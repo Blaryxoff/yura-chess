@@ -84,6 +84,7 @@ SITE_CSS = (
       --line: #3c3830;
     }
     * { box-sizing: border-box; }
+    html { background: var(--bg); }
     body {
       margin: 0;
       background:
