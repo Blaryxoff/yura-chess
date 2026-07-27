@@ -16,6 +16,7 @@ from yura_chess.application.puzzle_service import OpenPuzzle, PuzzleService
 from yura_chess.domain.analysis import PositionAnalysis
 from yura_chess.domain.game import PlayerColor
 from yura_chess.domain.puzzle import Puzzle, PuzzleAttemptStatus, PuzzleBucket, PuzzleProfile, catalogue
+from yura_chess.presentation.help_speech import HelpState, HelpTopic
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
@@ -493,6 +494,70 @@ def test_repeating_a_puzzle_is_read_only(session_factory: sessionmaker[Session])
     assert attempt(session_factory, MATE_IN_TWO).revision == before.revision
 
 
+@pytest.mark.parametrize("utterance", ["какая сейчас задача", "напомни условие", "какие задачи сейчас открыты"])
+async def test_current_puzzle_questions_repeat_it_without_changing_the_attempt(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+) -> None:
+    puzzles = service(session_factory, MATE_IN_TWO)
+    conversation = ConversationService(session_factory, FakeEngine(), offline_settings, puzzles)
+    opened = await conversation.handle(OWNER, "дай задачу", context(1, new=True))
+    before = attempt(session_factory, MATE_IN_TWO)
+
+    reply = await conversation.handle(OWNER, utterance, context(2), opened.state)
+
+    assert reply.speech.text.startswith("Повторяю. Задача")
+    assert attempt(session_factory, MATE_IN_TWO) == before
+
+
+async def test_a_current_puzzle_question_without_one_explains_how_to_start(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    puzzles = service(session_factory)
+    conversation = ConversationService(session_factory, FakeEngine(), offline_settings, puzzles)
+
+    reply = await conversation.handle(OWNER, "какая сейчас задача", context(1))
+
+    assert reply.speech.text == "Сейчас нет задачи. Скажите «дай задачу»."
+    assert puzzles.find_open(OWNER) is None
+
+
+@pytest.mark.parametrize("utterance", ["какие задачи я решал", "сколько задач я решил", "история моих задач"])
+async def test_history_questions_give_an_honest_read_only_answer(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+) -> None:
+    puzzles = service(session_factory, MATE_IN_TWO)
+    conversation = ConversationService(session_factory, FakeEngine(), offline_settings, puzzles)
+    opened = await conversation.handle(OWNER, "дай задачу", context(1, new=True))
+    before = attempt(session_factory, MATE_IN_TWO)
+
+    reply = await conversation.handle(OWNER, utterance, context(2), opened.state)
+
+    assert "пока не считаю" in reply.speech.text
+    assert "какая у меня серия" in reply.speech.text
+    assert attempt(session_factory, MATE_IN_TWO) == before
+
+
+async def test_catalogue_help_during_a_puzzle_does_not_change_the_attempt(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    puzzles = service(session_factory, MATE_IN_TWO)
+    conversation = ConversationService(session_factory, FakeEngine(), offline_settings, puzzles)
+    opened = await conversation.handle(OWNER, "дай задачу", context(1, new=True))
+    before = attempt(session_factory, MATE_IN_TWO)
+
+    reply = await conversation.handle(OWNER, "на какие темы есть задачи", context(2), opened.state)
+
+    assert reply.state.help == HelpState(topic=HelpTopic.PUZZLES, page=0)
+    assert "Темы:" in reply.speech.text
+    assert attempt(session_factory, MATE_IN_TWO) == before
+
+
 def test_puzzles_are_isolated_between_owners(session_factory: sessionmaker[Session]) -> None:
     other = "q" * 64
     puzzles = service(session_factory, MATE_IN_ONE)
@@ -631,6 +696,8 @@ def test_puzzle_commands_are_routed_before_the_game_commands() -> None:
     assert route("покажи решение").puzzle == PuzzleRequest(PuzzleQuestion.SOLUTION)
     assert route("повтори задачу").puzzle == PuzzleRequest(PuzzleQuestion.REPEAT)
     assert route("какая задача").kind is not CommandKind.PUZZLE
+    assert route("какая сейчас задача").puzzle == PuzzleRequest(PuzzleQuestion.REPEAT)
+    assert route("какие задачи я решал").puzzle == PuzzleRequest(PuzzleQuestion.HISTORY)
     assert route("задача на мат в два").puzzle == PuzzleRequest(PuzzleQuestion.START, theme="mateIn2")
     assert route("следующая задача на вилку").puzzle == PuzzleRequest(PuzzleQuestion.NEXT, theme="fork")
     # A game command that merely mentions another game stays a game command.

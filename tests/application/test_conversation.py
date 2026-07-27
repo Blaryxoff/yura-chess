@@ -8,7 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
-from yura_chess.application.command_router import CommandKind, PendingClarification, route
+from yura_chess.application.command_router import (
+    CommandKind,
+    PendingClarification,
+    ReviewQuestion,
+    TrainingQuestion,
+    route,
+)
 from yura_chess.application.conversation import (
     MAX_SKILL_LEVEL,
     ConversationReply,
@@ -19,7 +25,7 @@ from yura_chess.application.game_service import RequestContext
 from yura_chess.application.puzzle_service import PuzzleService
 from yura_chess.domain.analysis import MoveCandidate, PositionAnalysis, Score
 from yura_chess.domain.game import GameStatus, PlayerColor
-from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle
+from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle, PauseStyle
 from yura_chess.presentation.board_image import position_hash
 from yura_chess.presentation.help_speech import SECTIONS, HelpState, HelpTopic
 from yura_chess.presentation.move_speech import PAUSE_MARKUP, Speech
@@ -800,6 +806,252 @@ async def test_every_help_section_can_be_asked_for_by_name(
 
     assert reply.state.help == HelpState(topic=expected, page=0)
     assert phrase in reply.speech.text
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "какие у тебя есть задачи",
+        "какие задачи у тебя есть",
+        "какие бывают шахматные задачи",
+        "какие виды задач у тебя есть",
+        "какие типы задач доступны",
+        "какие категории задач есть",
+        "темы шахматных задач",
+        "расскажи про задачи",
+        "что за задачи у тебя есть",
+        "какие у тебя есть головоломки",
+        "у тебя какие задачи",
+        "есть какие нибудь задачи",
+        "на какие темы есть задачи",
+        "по каким темам можно порешать",
+        "что можно порешать",
+        "какие задачи ты можешь предложить",
+    ],
+)
+async def test_natural_puzzle_catalogue_questions_open_help_without_starting_a_puzzle(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, utterance, context(1))
+
+    assert reply.state.help == HelpState(topic=HelpTopic.PUZZLES, page=0)
+    assert "Темы:" in reply.speech.text
+    assert "мат в два хода, вилка, связка и сквозной удар" in reply.speech.text
+    assert reply.state.game_id is None
+    assert reply.turn is None
+
+
+async def test_puzzle_catalogue_help_is_read_only_and_replay_safe_during_a_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    with session_scope(session_factory) as session:
+        before = GameRepository(session).load(started.state.game_id or "", OWNER)
+    request = context(2)
+
+    first = await conversation.handle(OWNER, "что можно порешать", request, started.state)
+    replayed = await conversation.handle(OWNER, "что можно порешать", request, started.state)
+
+    with session_scope(session_factory) as session:
+        after = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert first.speech == replayed.speech
+    assert first.state.help == HelpState(topic=HelpTopic.PUZZLES, page=0)
+    assert (after.moves, after.revision, after.pending_engine_turn) == (
+        before.moves,
+        before.revision,
+        before.pending_engine_turn,
+    )
+
+
+async def test_puzzle_catalogue_question_works_after_declining_an_unfinished_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        repository.create_game(OWNER, PlayerColor.WHITE)
+
+    conversation = subject(session_factory, offline_settings)
+    prompt = await conversation.handle(OWNER, "", context(1, new=True))
+    declined = await conversation.handle(OWNER, "нет", context(2), prompt.state)
+
+    reply = await conversation.handle(OWNER, "какие у тебя есть задачи", context(3), declined.state)
+
+    assert declined.speech.text == "Хорошо. Скажите «новая игра», если хотите начать другую."
+    assert reply.state.help == HelpState(topic=HelpTopic.PUZZLES, page=0)
+    assert "Темы:" in reply.speech.text
+    assert reply.turn is None
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("что еще ты умеешь", CommandKind.HELP),
+        ("расскажи о возможностях", CommandKind.HELP),
+        ("что ты можешь", CommandKind.HELP),
+        ("давай сыграем", CommandKind.START),
+        ("хочу играть", CommandKind.START),
+        ("вернемся к игре", CommandKind.CONTINUE),
+        ("закончим на сегодня", CommandKind.EXIT),
+        ("какие у меня фигуры", CommandKind.POSITION_QUERY),
+        ("не так подробно", CommandKind.PREFERENCE),
+        ("можно помедленнее", CommandKind.PREFERENCE),
+        ("разверни доску", CommandKind.ORIENTATION_QUERY),
+        ("вернись", CommandKind.NAVIGATE_BACK),
+        ("отмена", CommandKind.CANCEL_CLARIFY),
+        ("я передумал", CommandKind.CANCEL_CLARIFY),
+        ("я не это имел в виду", CommandKind.CANCEL_CLARIFY),
+        ("что лучше сыграть", CommandKind.TRAINING),
+        ("объясни свой ход", CommandKind.TRAINING),
+        ("как я сыграл", CommandKind.REVIEW),
+        ("давай разберем игру", CommandKind.REVIEW),
+        ("покажи мои ошибки", CommandKind.REVIEW),
+        ("где я играл плохо", CommandKind.REVIEW),
+    ],
+)
+def test_natural_non_puzzle_phrases_have_explicit_intents(utterance: str, expected: CommandKind) -> None:
+    assert route(utterance, chess.Board()).kind is expected
+
+
+def test_natural_trainer_and_review_phrases_keep_their_specific_questions() -> None:
+    candidates = route("что лучше сыграть", chess.Board())
+    explanation = route("объясни свой ход", chess.Board())
+    summary = route("как я сыграл", chess.Board())
+    mistake = route("где я играл плохо", chess.Board())
+
+    assert candidates.training is not None and candidates.training.question is TrainingQuestion.CANDIDATES
+    assert explanation.training is not None and explanation.training.question is TrainingQuestion.WHY_MOVE
+    assert summary.review is not None and summary.review.question is ReviewQuestion.SUMMARY
+    assert mistake.review is not None and mistake.review.question is ReviewQuestion.MAIN_MISTAKE
+
+
+@pytest.mark.parametrize("utterance", ["что еще ты умеешь", "расскажи о возможностях", "что ты можешь"])
+async def test_natural_capability_questions_open_the_help_menu(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, utterance, context(1))
+
+    assert "Разделы справки" in reply.speech.text
+    assert reply.state.help == HelpState(topic=None, page=0)
+    assert reply.state.game_id is None
+
+
+@pytest.mark.parametrize("utterance", ["давай сыграем", "хочу играть"])
+async def test_natural_start_phrases_begin_a_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, utterance, context(1))
+
+    assert "Новая партия" in reply.speech.text
+    assert reply.state.game_id is not None
+
+
+async def test_natural_continue_and_exit_phrases_preserve_the_saved_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    resumed = await conversation.handle(OWNER, "вернемся к игре", context(2), ConversationState())
+    ended = await conversation.handle(OWNER, "закончим на сегодня", context(3), resumed.state)
+
+    assert resumed.state.game_id == started.state.game_id
+    assert ended.end_session is True
+    with session_scope(session_factory) as session:
+        stored = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert stored.status is GameStatus.ACTIVE
+
+
+async def test_elliptical_settings_and_orientation_clarification_are_safe(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    with session_scope(session_factory) as session:
+        before = GameRepository(session).load(started.state.game_id or "", OWNER)
+
+    brief = await conversation.handle(OWNER, "не так подробно", context(2), started.state)
+    slow = await conversation.handle(OWNER, "можно помедленнее", context(3), brief.state)
+    asked = await conversation.handle(OWNER, "разверни доску", context(4), slow.state)
+    oriented = await conversation.handle(OWNER, "за черных", context(5), asked.state)
+
+    assert brief.preferences is not None and brief.preferences.detail_level is DetailLevel.BRIEF
+    assert slow.preferences is not None and slow.preferences.pause_style is PauseStyle.EXTENDED
+    assert asked.speech.text == "Как показать доску: за белых или за черных?"
+    assert oriented.preferences is not None and oriented.preferences.board_orientation is BoardOrientation.BLACK
+    with session_scope(session_factory) as session:
+        after = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert (after.moves, after.revision) == (before.moves, before.revision)
+
+
+@pytest.mark.parametrize("utterance", ["отмена", "я передумал", "я не это имел в виду"])
+async def test_natural_cancellation_phrases_decline_pending_resignation(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    prompted = await conversation.handle(OWNER, "сдаюсь", context(2), started.state)
+
+    cancelled = await conversation.handle(OWNER, utterance, context(3), prompted.state)
+
+    assert cancelled.speech.text == "Хорошо, отменяю."
+    with session_scope(session_factory) as session:
+        stored = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert stored.status is GameStatus.ACTIVE
+
+
+async def test_back_and_rotate_never_undo_a_move(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    played = await conversation.handle(OWNER, "пешка е четыре", context(2), started.state)
+    with session_scope(session_factory) as session:
+        before = GameRepository(session).load(started.state.game_id or "", OWNER)
+
+    rotated = await conversation.handle(OWNER, "разверни доску", context(3), played.state)
+    backed = await conversation.handle(OWNER, "вернись", context(4), rotated.state)
+
+    assert "за белых или за черных" in rotated.speech.text
+    assert backed.speech.text == "Куда вернуться: к партии, выйти из задач или закрыть справку?"
+    with session_scope(session_factory) as session:
+        after = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert (after.moves, after.revision) == (before.moves, before.revision)
+    assert route("отмени ход", chess.Board()).kind is CommandKind.UNDO
+    assert route("верни последний ход", chess.Board()).kind is CommandKind.UNDO
+
+
+async def test_natural_trainer_and_review_questions_reach_their_services(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    trainer = await conversation.handle(OWNER, "что лучше сыграть", context(2), started.state)
+    review = await conversation.handle(OWNER, "как я сыграл", context(3), trainer.state)
+
+    assert "включи режим тренера" in trainer.speech.text
+    assert review.speech.text == "Законченной партии еще нет, разбирать нечего. Скажите «новая игра»."
 
 
 async def test_help_navigation_walks_the_catalogue_forward_back_and_to_the_start(

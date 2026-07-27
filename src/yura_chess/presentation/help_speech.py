@@ -213,7 +213,7 @@ _TOPIC_ALIASES: tuple[tuple[HelpTopic, re.Pattern[str]], ...] = (
     (HelpTopic.SETTINGS, re.compile(r"^(настройк|настрой|предпочт|нотац|громкост)")),
     (HelpTopic.TRAINING, re.compile(r"^(трен|подсказ|совет|обучен)")),
     (HelpTopic.REVIEW, re.compile(r"^(разбор|разбер|разбир|pgn|пгн|итог)")),
-    (HelpTopic.PUZZLES, re.compile(r"^(задач|головоломк|тактик)")),
+    (HelpTopic.PUZZLES, re.compile(r"^(задач|головоломк|тактик|пореш)")),
     (HelpTopic.GAME, re.compile(r"^(парти|игр|уров|сложност|реванш)")),
     (HelpTopic.SPEECH, re.compile(r"^(реч|повтор|распозна|произнош)")),
 )
@@ -288,6 +288,9 @@ _TRIGGER_WORDS = frozenset(
         "разделе",
         "твои",
         "твоя",
+        "еще",
+        "возможности",
+        "возможностях",
         "а",
         "и",
     }

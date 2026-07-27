@@ -364,6 +364,8 @@ class ConversationService:
             CommandKind.SOCIAL,
             CommandKind.PAUSE,
             CommandKind.AMBIGUOUS_TURN,
+            CommandKind.ORIENTATION_QUERY,
+            CommandKind.NAVIGATE_BACK,
         }:
             return ConversationReply(
                 _conversational_reply(
@@ -493,6 +495,17 @@ class ConversationService:
                 if candidate is not None:
                     result = await self._games.continue_game(owner_key, candidate.id, request)
                     return self._turn_reply(owner_key, result, next_state, preferences)
+
+        if routed.kind is CommandKind.CANCEL_CLARIFY:
+            cancellation_text = (
+                "Хорошо, ход не делаю. Назовите другой ход."
+                if state.clarification is not None
+                else "Хорошо, ничего не меняю. Назовите команду или попросите помощь."
+            )
+            return ConversationReply(
+                Speech.of(cancellation_text),
+                self._with_game(next_state, game) if game is not None else next_state,
+            )
 
         # Open help owns «дальше», «назад» and «сначала»: otherwise they would be
         # read as board pagination, as a new game, or as a step of the puzzle.
@@ -683,11 +696,6 @@ class ConversationService:
                 reply,
                 speech=Speech.of(reply.speech.text + " Теперь повторите новый ход."),
             )
-        if routed.kind is CommandKind.CANCEL_CLARIFY:
-            return ConversationReply(
-                Speech.of("Хорошо, ход не делаю. Назовите другой ход."),
-                self._with_game(next_state, game),
-            )
         if routed.kind is CommandKind.CLARIFY:
             pending = routed.clarification or state.clarification
             return ConversationReply(
@@ -806,8 +814,6 @@ class ConversationService:
         if routed.kind is CommandKind.CLARIFY:
             pending = routed.clarification or prior.clarification
             return ConversationReply(self._clarification_speech(pending), replace(state, clarification=pending))
-        if routed.kind is CommandKind.CANCEL_CLARIFY:
-            return ConversationReply(Speech.of("Хорошо, ход не делаю. Назовите другой ход."), state)
         if routed.kind is CommandKind.POSITION_QUERY:
             answer = answer_position_query(utterance, board, prior.position_page)
             return ConversationReply(answer.speech, replace(state, position_page=answer.page))
@@ -1207,6 +1213,10 @@ def _conversational_reply(
         return Speech.of(f"Хорошо, подожду.{saved}")
     if kind is CommandKind.AMBIGUOUS_TURN:
         return Speech.of("Что вы хотите: сделать ход, услышать последний ход или открыть помощь?")
+    if kind is CommandKind.ORIENTATION_QUERY:
+        return Speech.of("Как показать доску: за белых или за черных?")
+    if kind is CommandKind.NAVIGATE_BACK:
+        return Speech.of("Куда вернуться: к партии, выйти из задач или закрыть справку?")
 
     if pending_action is not None:
         expectation = "Скажите «да» или «нет»."

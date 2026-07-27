@@ -127,6 +127,14 @@ class PuzzleService:
         """Answer one puzzle command; read-only questions never claim the request."""
         if request.question is PuzzleQuestion.STREAK:
             return self._streak(owner_key, open_puzzle is not None)
+        if request.question is PuzzleQuestion.HISTORY:
+            return PuzzleReply(
+                Speech.of(
+                    "Полную историю решений и общее число решенных задач я пока не считаю. "
+                    "Могу назвать текущую серию: скажите «какая у меня серия»."
+                ),
+                active=open_puzzle is not None,
+            )
         if request.question is PuzzleQuestion.REPEAT:
             if open_puzzle is None:
                 return PuzzleReply(Speech.of("Сейчас нет задачи. Скажите «дай задачу»."), active=False)
