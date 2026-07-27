@@ -134,6 +134,7 @@ SITE_CSS = (
     h1 { margin: 18px 0 12px; font-size: clamp(38px, 7vw, 72px); line-height: 1.05; }
     h2 { margin: 0 0 18px; font-size: clamp(26px, 4vw, 38px); }
     h3 { margin: 26px 0 10px; font-size: clamp(20px, 2.6vw, 24px); color: var(--gold); }
+    section > h2:not(:first-child) { margin-top: 26px; }
     .lead { max-width: 900px; margin: 0 auto; color: var(--muted); font-size: clamp(19px, 3vw, 24px); }
     .hero-actions {
       display: flex;
@@ -1098,7 +1099,7 @@ COMMANDS_PAGE_HTML = _document(
 
       <h2>Настройки речи и доски</h2>
       <ul>
-        <li><code>«говори кратко»</code>, <code>«обычная подробность ответов»</code>,
+        <li><code>«говори кратко»</code>, <code>«говори обычно»</code>,
             <code>«говори подробно»</code></li>
         <li><code>«говори медленнее»</code>, <code>«говори быстрее»</code> — паузы между фразами</li>
         <li><code>«короткая нотация»</code>, <code>«полная нотация»</code></li>
@@ -1119,13 +1120,14 @@ COMMANDS_PAGE_HTML = _document(
       <h2>Разбор сыгранной партии</h2>
       <ul>
         <li><code>«разбери партию»</code>, <code>«продолжить разбор»</code>, <code>«выйти из разбора»</code></li>
-        <li><code>«где перелом»</code>, <code>«главная ошибка»</code>, <code>«сколько я ошибся»</code></li>
+        <li><code>«где перелом»</code>, <code>«главная ошибка»</code>, <code>«сколько раз я ошибся»</code>,
+            <code>«сколько ошибок я сделал»</code>, <code>«сколько у меня ошибок»</code></li>
         <li><code>«продиктуй ходы»</code>, <code>«покажи pgn»</code>, <code>«сыграть эту позицию заново»</code></li>
       </ul>
 
       <h2>Шахматные задачи</h2>
       <ul>
-        <li><code>«дай задачу»</code>, <code>«задача на мат в два хода»</code> — темы: мат в один, мат в два,
+        <li><code>«дай задачу»</code>, <code>«задача на мат в два хода»</code> — темы: мат в один ход, мат в два хода,
             вилка, связка, сквозной удар</li>
         <li><code>«повтори задачу»</code>, <code>«следующая задача»</code>, <code>«покажи решение»</code></li>
         <li><code>«какая у меня серия»</code>, <code>«вернуться к партии»</code></li>
@@ -1301,7 +1303,7 @@ COACH_PAGE_HTML = _document(
       <p>
         После партии скажите <code>«разбери партию»</code>. Навык назовёт результат, перелом партии,
         главную ошибку, лучший практический ход и число неточностей. <code>«Где перелом»</code>,
-        <code>«главная ошибка»</code> и <code>«сколько я ошибся»</code> спрашивают о том же по частям,
+        <code>«главная ошибка»</code> и <code>«сколько ошибок я сделал»</code> спрашивают о том же по частям,
         <code>«продиктуй ходы»</code> читает партию постранично, <code>«покажи pgn»</code> выдаёт запись,
         а <code>«сыграть эту позицию заново»</code> начинает тренировку от переломного момента.
       </p>
@@ -1345,7 +1347,7 @@ PUZZLES_PAGE_HTML = _document(
 
       <h2>Темы задач</h2>
       <ul>
-        <li><strong>Мат в один ход</strong> — <code>«задача на мат в один»</code></li>
+        <li><strong>Мат в один ход</strong> — <code>«задача на мат в один ход»</code></li>
         <li><strong>Мат в два хода</strong> — <code>«задача на мат в два хода»</code></li>
         <li><strong>Вилка</strong> — двойной удар одной фигурой</li>
         <li><strong>Связка</strong> — фигура не может уйти, не подставив ту, что за ней</li>

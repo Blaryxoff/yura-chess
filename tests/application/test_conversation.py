@@ -957,6 +957,7 @@ _CATEGORY_PHRASES = (
     "что изменил последний ход",
     # Settings.
     "говори кратко",
+    "говори обычно",
     "говори подробно",
     "говори медленнее",
     "говори быстрее",
@@ -980,13 +981,16 @@ _CATEGORY_PHRASES = (
     "продолжить разбор",
     "где перелом",
     "главная ошибка",
-    "сколько я ошибся",
+    "сколько раз я ошибся",
+    "сколько ошибок я сделал",
+    "сколько у меня ошибок",
     "продиктуй ходы",
     "покажи pgn",
     "сыграть эту позицию заново",
     "выйти из разбора",
     # Puzzles.
     "дай задачу",
+    "задача на мат в один ход",
     "следующая задача",
     "покажи решение",
     "какая у меня серия",
@@ -1329,6 +1333,20 @@ async def test_detail_preference_shortens_or_extends_only_the_advice(
     assert "новая игра уровень десять" not in brief.speech.text
     assert "новая игра уровень десять" in detailed.speech.text
     assert detailed_move.speech.text.endswith("Сейчас ваш ход.")
+
+
+async def test_normal_detail_uses_natural_command_and_confirmation(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "говори кратко", context(1))
+
+    reply = await conversation.handle(OWNER, "говори обычно", context(2), started.state)
+
+    assert reply.preferences is not None
+    assert reply.preferences.detail_level is DetailLevel.NORMAL
+    assert reply.speech.text == "Буду отвечать как обычно."
 
 
 async def test_orientation_preference_survives_a_new_session(

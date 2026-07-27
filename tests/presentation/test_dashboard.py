@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+import pytest
+
 from yura_chess.presentation.dashboard import DASHBOARD_CSS, render_dashboard
+from yura_chess.presentation.website import SITE_CSS
 from yura_chess.storage.usage_repository import DailyUsage, DashboardSnapshot, UsageTotals
 
 
@@ -36,3 +39,97 @@ def test_dashboard_is_aggregate_responsive_and_explains_pseudonymous_users() -> 
     assert "Запросы по дням · 30 дней" in html
     assert "owner_key" not in html
     assert "session_key" not in html
+
+
+@pytest.mark.parametrize(
+    ("value", "user_adjective", "user_noun", "expected_labels"),
+    [
+        (
+            1,
+            "активный",
+            "пользователь",
+            (
+                "запрос",
+                "сессия",
+                "ход игрока",
+                "новая партия",
+                "партия с ходом",
+                "завершённая партия",
+                "шахматная задача",
+            ),
+        ),
+        (
+            2,
+            "активных",
+            "пользователя",
+            (
+                "запроса",
+                "сессии",
+                "хода игроков",
+                "новые партии",
+                "партии с ходом",
+                "завершённые партии",
+                "шахматные задачи",
+            ),
+        ),
+        (
+            5,
+            "активных",
+            "пользователей",
+            (
+                "запросов",
+                "сессий",
+                "ходов игроков",
+                "новых партий",
+                "партий с ходом",
+                "завершённых партий",
+                "шахматных задач",
+            ),
+        ),
+        (
+            11,
+            "активных",
+            "пользователей",
+            (
+                "запросов",
+                "сессий",
+                "ходов игроков",
+                "новых партий",
+                "партий с ходом",
+                "завершённых партий",
+                "шахматных задач",
+            ),
+        ),
+        (
+            21,
+            "активный",
+            "пользователь",
+            (
+                "запрос",
+                "сессия",
+                "ход игрока",
+                "новая партия",
+                "партия с ходом",
+                "завершённая партия",
+                "шахматная задача",
+            ),
+        ),
+    ],
+)
+def test_dashboard_uses_russian_plural_forms(
+    value: int,
+    user_adjective: str,
+    user_noun: str,
+    expected_labels: tuple[str, ...],
+) -> None:
+    totals = UsageTotals(value, value, value, value, value, value, value, value)
+    html = render_dashboard(DashboardSnapshot("real", "month", datetime(2026, 7, 23, 12, 0, 0), totals, ()))
+
+    assert f'<div class="stats-label">{user_adjective} <button' in html
+    assert f'aria-expanded="false">{user_noun}</button>' in html
+    for label in expected_labels:
+        assert f'<div class="stats-label">{label}</div>' in html
+
+
+def test_content_headings_have_space_from_the_preceding_block() -> None:
+    assert "section > h2:not(:first-child) { margin-top: 26px; }" in SITE_CSS

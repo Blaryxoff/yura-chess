@@ -1264,7 +1264,7 @@ def _rematch_color(previous: PlayerColor, requested: RematchColor) -> PlayerColo
 
 _DETAIL_CONFIRMATIONS: dict[DetailLevel, str] = {
     DetailLevel.BRIEF: "Буду отвечать кратко.",
-    DetailLevel.NORMAL: "Возвращаю обычную подробность ответов.",
+    DetailLevel.NORMAL: "Буду отвечать как обычно.",
     DetailLevel.DETAILED: "Буду отвечать подробнее.",
 }
 

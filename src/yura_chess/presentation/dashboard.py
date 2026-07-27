@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from zoneinfo import ZoneInfo
 
+from yura_chess.presentation.russian import plural_form
 from yura_chess.storage.usage_repository import DashboardSnapshot, UsageTotals
 
 _PERIOD_LABELS = {"month": "Месяц", "year": "Год", "all": "Всё время"}
@@ -233,13 +234,14 @@ def render_dashboard(snapshot: DashboardSnapshot) -> str:
 
 # The privacy wording that used to sit under the chart: kept one hover away from
 # the word it explains instead of taking a panel of its own.
-_USERS_HINT = (
-    '<button type="button" class="stats-hint" aria-describedby="users-hint" '
-    'aria-expanded="false">пользователей</button>'
-    '<span class="stats-tip" id="users-hint" role="tooltip"><strong>Что значит «пользователь»?</strong>'
-    "Это стабильный необратимый HMAC-ключ. Исходный Alice ID не сохраняется. "
-    "Запросы и сессии в этой статистике тоже представлены только хешами.</span>"
-)
+def _users_hint(form: str) -> str:
+    return (
+        '<button type="button" class="stats-hint" aria-describedby="users-hint" '
+        f'aria-expanded="false">{form}</button>'
+        '<span class="stats-tip" id="users-hint" role="tooltip"><strong>Что значит «пользователь»?</strong>'
+        "Это стабильный необратимый HMAC-ключ. Исходный Alice ID не сохраняется. "
+        "Запросы и сессии в этой статистике тоже представлены только хешами.</span>"
+    )
 
 
 def _ru(value: int) -> str:
@@ -249,14 +251,33 @@ def _ru(value: int) -> str:
 
 def _cards(totals: UsageTotals) -> str:
     values = (
-        (totals.users, f"активных {_USERS_HINT}"),
-        (totals.requests, "запросов"),
-        (totals.sessions, "сессий"),
-        (totals.player_moves, "ходов игроков"),
-        (totals.games, "новых партий"),
-        (totals.engaged_games, "партий с ходом"),
-        (totals.finished_games, "завершённых партий"),
-        (totals.puzzle_attempts, "шахматных задач"),
+        (
+            totals.users,
+            f"{plural_form(totals.users, ('активный', 'активных', 'активных'))} "
+            f"{_users_hint(plural_form(totals.users, ('пользователь', 'пользователя', 'пользователей')))}",
+        ),
+        (totals.requests, plural_form(totals.requests, ("запрос", "запроса", "запросов"))),
+        (totals.sessions, plural_form(totals.sessions, ("сессия", "сессии", "сессий"))),
+        (totals.player_moves, plural_form(totals.player_moves, ("ход игрока", "хода игроков", "ходов игроков"))),
+        (totals.games, plural_form(totals.games, ("новая партия", "новые партии", "новых партий"))),
+        (
+            totals.engaged_games,
+            plural_form(totals.engaged_games, ("партия с ходом", "партии с ходом", "партий с ходом")),
+        ),
+        (
+            totals.finished_games,
+            plural_form(
+                totals.finished_games,
+                ("завершённая партия", "завершённые партии", "завершённых партий"),
+            ),
+        ),
+        (
+            totals.puzzle_attempts,
+            plural_form(
+                totals.puzzle_attempts,
+                ("шахматная задача", "шахматные задачи", "шахматных задач"),
+            ),
+        ),
     )
     return (
         '<div class="stats-cards">'

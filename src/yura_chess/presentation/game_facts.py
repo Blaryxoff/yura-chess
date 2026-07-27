@@ -25,6 +25,7 @@ from yura_chess.presentation.move_speech import (
 )
 from yura_chess.presentation.opening import describe_opening, describe_stage
 from yura_chess.presentation.position_speech import describe_last_move
+from yura_chess.presentation.russian import plural_form
 from yura_chess.voice.normalizer import normalize
 
 
@@ -147,16 +148,16 @@ def describe_moves_played(board: chess.Board, player: chess.Color, question: str
         color = player if subject == "я" else not player
         count = _moves_by_color(board)[color]
         lead = "Вы сделали" if subject == "я" else "Я сделал"
-        return Speech.of(f"{lead} {count} {_plural(count, _MOVE_FORMS)}.")
+        return Speech.of(f"{lead} {count} {plural_form(count, _MOVE_FORMS)}.")
     plies = len(board.move_stack)
     if plies == 0:
         return Speech.of("Ходов еще не было.")
     full = plies // 2
-    played = f"Сыграно {plies} {_plural(plies, _MOVE_FORMS)}"
+    played = f"Сыграно {plies} {plural_form(plies, _MOVE_FORMS)}"
     if full == 0:
         return Speech.of(f"{played}, ни одного полного хода еще нет.")
-    full_forms = _plural(full, ("полный", "полных", "полных"))
-    return Speech.of(f"{played}, это {full} {full_forms} {_plural(full, _MOVE_FORMS)}.")
+    full_forms = plural_form(full, ("полный", "полных", "полных"))
+    return Speech.of(f"{played}, это {full} {full_forms} {plural_form(full, _MOVE_FORMS)}.")
 
 
 def describe_captured(board: chess.Board, player: chess.Color) -> Speech:
@@ -294,7 +295,7 @@ def _piece_listing(piece_types: list[int]) -> str:
         if count == 0:
             continue
         forms = _PIECE_COUNT_FORMS[piece_type]
-        parts.append(PIECE_NAMES_ACCUSATIVE[piece_type] if count == 1 else f"{count} {_plural(count, forms)}")
+        parts.append(PIECE_NAMES_ACCUSATIVE[piece_type] if count == 1 else f"{count} {plural_form(count, forms)}")
     return ", ".join(parts)
 
 
@@ -318,13 +319,3 @@ def _moves_by_color(board: chess.Board) -> dict[chess.Color, int]:
         counts[replay.turn] += 1
         replay.push(move)
     return counts
-
-
-def _plural(count: int, forms: tuple[str, str, str]) -> str:
-    if count % 100 in range(11, 15):
-        return forms[2]
-    if count % 10 == 1:
-        return forms[0]
-    if count % 10 in (2, 3, 4):
-        return forms[1]
-    return forms[2]

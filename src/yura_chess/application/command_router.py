@@ -482,7 +482,10 @@ _REVIEW_PATTERNS: tuple[tuple[ReviewQuestion, re.Pattern[str]], ...] = (
     ),
     (ReviewQuestion.TURNING_POINT, re.compile(r"перелом")),
     (ReviewQuestion.MAIN_MISTAKE, re.compile(r"главн(ая|ую) ошибк|сам(ая|ую) больш(ая|ую) ошибк|худший ход")),
-    (ReviewQuestion.MISTAKE_COUNT, re.compile(r"сколько (я )?ошиб|сколько ошибок|число ошибок")),
+    (
+        ReviewQuestion.MISTAKE_COUNT,
+        re.compile(r"сколько (?:раз (?:я )?ошиб\w*|(?:у меня )?ошибок(?: я сделал\w*)?|я ошиб\w*)|число ошибок"),
+    ),
     (ReviewQuestion.PGN, re.compile(r"\bpgn\b|\bпгн\b|покажи нотацию|партию в нотации")),
     (
         ReviewQuestion.MOVES,
@@ -525,7 +528,7 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
         re.compile(
             r"(дай|покажи|предложи|начни|запусти|хочу|решать|решить|порешаем)\w*.*(задач|головоломк)"
             r"|^задач[аи]?$|^(шахматн\w* )?(задач|головоломк)\w* (на|моего|по)"
-            r"|^мат в (один|два)$|одноходов|двуходов"
+            r"|^мат в (один(?: ход)?|два(?: хода)?)$|одноходов|двуходов"
         ),
     ),
 )
