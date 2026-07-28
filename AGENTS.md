@@ -65,6 +65,10 @@ Devkit policy:
 - Review/test/QA routing follows `plugins/core/conduct/review-routing.md`: `docs/plans/**` uses plan-reviewer; code or a whole branch uses reviewer-deep plus reviewer-business-logic; "test"/"протестируй" uses browser.
 - `devkit-plan-creator` and `devkit-plan-reviewer` require the literal token `ralphex`, except that a review target under `docs/plans/**` may invoke plan-reviewer. Claude Code's built-in `/plan` mode invokes neither.
 - When a skill applies, state which one and why, then activate it. When none applies, proceed without mentioning skill evaluation.
+- Before a top-level final response when completed work may have revealed durable project knowledge, apply
+  `~/.claude/agentic-devkit/plugins/core/conduct/learning-capture-gate.md`. When a candidate passes, Claude Code calls
+  `Skill(devkit-core--learn)`; Codex/Cursor activate `devkit-learn` through their native skill mechanism. Otherwise finish
+  silently. Dispatched subagents never run this gate.
 
 Enabled plugins define eligible conduct, not mandatory context. Follow the loading policy below only when the task
 touches that plugin. Start from its index and open further documents only for concrete layers or risks; never read a
