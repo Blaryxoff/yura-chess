@@ -15,8 +15,11 @@ from yura_chess.domain.preferences import NotationStyle, PauseStyle
 from yura_chess.domain.results import GameEnd, GameOutcome, TurnResult, TurnStatus
 from yura_chess.presentation.move_speech import (
     PAUSE_MARKUP,
+    SoundEvent,
+    SoundLibrary,
     Speech,
     add_pauses,
+    add_sound,
     describe_move,
     describe_played_move,
     spell_slowly,
@@ -72,6 +75,22 @@ def test_no_separate_tts_when_pronunciation_matches_the_text() -> None:
 
     assert speech.tts is None
     assert speech.spoken() == "Партия окончена."
+
+
+def test_one_sound_is_added_to_tts_without_changing_visible_or_spoken_words() -> None:
+    library = SoundLibrary("start.opus", "move.opus", "check.opus", "mate.opus", "dialogs-upload/skill/audio.opus")
+    speech = add_sound(Speech.of("Задача решена."), SoundEvent.SUCCESS, True, library)
+
+    assert speech.text == "Задача решена."
+    assert speech.tts == '<speaker audio="dialogs-upload/skill/audio.opus"> Задача решена.'
+
+
+def test_disabled_or_untrusted_sound_markup_is_not_added() -> None:
+    library = SoundLibrary('bad"> injected', "move", "check", "mate", "success")
+    speech = Speech.of("Новая партия.")
+
+    assert add_sound(speech, SoundEvent.START, False, library) == speech
+    assert add_sound(speech, SoundEvent.START, True, library) == speech
 
 
 def test_capture_check_castling_and_promotion_are_named_unambiguously() -> None:

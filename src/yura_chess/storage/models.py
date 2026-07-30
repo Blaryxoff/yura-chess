@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy import (
     CHAR,
     BigInteger,
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -168,6 +169,7 @@ class PlayerPreferencesRow(Base):
         Enum("game", "training", name="player_default_mode"),
         server_default="game",
     )
+    sounds_enabled: Mapped[bool] = mapped_column(Boolean, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

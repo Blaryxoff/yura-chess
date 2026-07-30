@@ -58,6 +58,17 @@ def test_help_ends_with_the_current_state_and_the_expected_command(mode: HelpMod
     assert answer_help("помощь", mode).speech.text.endswith(tail)
 
 
+def test_settings_help_names_the_sound_switch() -> None:
+    first = answer_help("справка про настройки", HelpMode.NO_GAME)
+    assert first.state is not None
+    second = navigate("дальше", first.state, HelpMode.NO_GAME)
+    assert second is not None
+    speech = second.speech.text
+
+    assert "«включи звуки»" in speech
+    assert "«выключи звуки»" in speech
+
+
 @pytest.mark.parametrize("mode", list(HelpMode))
 def test_help_menu_fits_the_alice_limits(mode: HelpMode) -> None:
     # The longest form: extended pauses add markup to every sentence end.

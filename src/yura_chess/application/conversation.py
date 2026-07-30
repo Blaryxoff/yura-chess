@@ -40,12 +40,12 @@ from yura_chess.domain.preferences import (
     PauseStyle,
     PlayerPreferences,
 )
-from yura_chess.domain.results import TurnResult, TurnStatus
+from yura_chess.domain.results import GameEnd, TurnResult, TurnStatus
 from yura_chess.presentation import help_speech
 from yura_chess.presentation.commentary import comment_on
 from yura_chess.presentation.game_facts import answer_game_fact
 from yura_chess.presentation.help_speech import HelpAnswer, HelpMode, HelpState
-from yura_chess.presentation.move_speech import Speech, add_pauses
+from yura_chess.presentation.move_speech import SoundEvent, SoundLibrary, Speech, add_pauses, add_sound
 from yura_chess.presentation.position_speech import answer_position_query, describe_recent_moves
 from yura_chess.presentation.response_composer import (
     BoardCard,
@@ -156,6 +156,8 @@ class ConversationReply:
     # Only explicit skill-exit commands end the Alice session. The game remains
     # server-side and can be resumed on the next launch.
     end_session: bool = False
+    # One optional non-verbal cue; `handle` applies it after pauses and settings.
+    sound: SoundEvent | None = None
 
 
 class ChessEngine(MoveSearch, PositionSearch, Protocol):
@@ -179,6 +181,13 @@ class ConversationService:
         self._puzzles = puzzles or PuzzleService(session_factory)
         self._games = GameService(session_factory, engine, observer=self._training)
         self._settings = settings
+        self._sounds = SoundLibrary(
+            start=settings.alice_sound_start,
+            move=settings.alice_sound_move,
+            check=settings.alice_sound_check,
+            checkmate=settings.alice_sound_checkmate,
+            success=settings.alice_sound_success,
+        )
 
     async def handle(
         self,
@@ -201,7 +210,7 @@ class ConversationService:
             )
             reply = self._with_puzzle_card(
                 owner_key,
-                ConversationReply(replayed_puzzle.speech, replay_state),
+                ConversationReply(replayed_puzzle.speech, replay_state, sound=replayed_puzzle.sound),
                 preferences,
             )
         else:
@@ -217,7 +226,9 @@ class ConversationService:
             reply = replace(reply, state=replace(reply.state, last_reply=reply.speech.spoken()[:512]))
         # A settings command answers with the preferences it just stored.
         effective = reply.preferences or preferences
-        return replace(reply, speech=add_pauses(reply.speech, effective.pause_style), preferences=effective)
+        speech = add_pauses(reply.speech, effective.pause_style)
+        speech = add_sound(speech, reply.sound, effective.sounds_enabled, self._sounds)
+        return replace(reply, speech=speech, preferences=effective)
 
     def _preferences(self, owner_key: str) -> PlayerPreferences:
         with session_scope(self._session_factory) as session:
@@ -339,6 +350,13 @@ class ConversationService:
                 Speech.of(f"До свидания.{saved}"),
                 replace(next_state, pending_action=None),
                 end_session=True,
+            )
+
+        if routed.kind is CommandKind.EXIT_CONFIRM:
+            asked = self._with_game(next_state, game) if game is not None else next_state
+            return ConversationReply(
+                Speech.of("Выйти из навыка? Скажите «да» или «нет»."),
+                replace(asked, pending_action=PendingAction(CommandKind.EXIT_CONFIRM, utterance[:255])),
             )
 
         if state.pending_action is not None and routed.kind is CommandKind.HELP:
@@ -481,7 +499,11 @@ class ConversationService:
                     return ConversationReply(
                         speech,
                         self._with_game(next_state, branch) if branch is not None else next_state,
+                        sound=SoundEvent.START if branch is not None else None,
                     )
+            if confirmed.kind is CommandKind.EXIT_CONFIRM:
+                saved = " Партия сохранена." if game is not None and game.status is GameStatus.ACTIVE else ""
+                return ConversationReply(Speech.of(f"До свидания.{saved}"), next_state, end_session=True)
             if confirmed.kind is CommandKind.NEW_GAME:
                 return await self._start(owner_key, confirmed.utterance, request, next_state, preferences)
             if confirmed.kind is CommandKind.RESIGN and game is not None:
@@ -587,6 +609,7 @@ class ConversationService:
                 ConversationReply(
                     chosen.speech,
                     self._with_game(next_state, game) if game is not None else next_state,
+                    sound=chosen.sound,
                 ),
                 preferences,
             )
@@ -786,19 +809,23 @@ class ConversationService:
             self._puzzles.abandon(owner_key, open_puzzle)
             return None
         if routed.kind is CommandKind.PUZZLE and routed.puzzle is not None:
+            answered = self._puzzles.answer(owner_key, routed.puzzle, request, open_puzzle)
             return ConversationReply(
-                self._puzzles.answer(owner_key, routed.puzzle, request, open_puzzle).speech,
+                answered.speech,
                 state,
+                sound=answered.sound,
             )
         if routed.kind is CommandKind.DONT_KNOW:
+            answered = self._puzzles.answer(
+                owner_key,
+                PuzzleRequest(PuzzleQuestion.SOLUTION),
+                request,
+                open_puzzle,
+            )
             return ConversationReply(
-                self._puzzles.answer(
-                    owner_key,
-                    PuzzleRequest(PuzzleQuestion.SOLUTION),
-                    request,
-                    open_puzzle,
-                ).speech,
+                answered.speech,
                 state,
+                sound=answered.sound,
             )
         if (
             routed.kind is CommandKind.TRAINING
@@ -807,7 +834,8 @@ class ConversationService:
         ):
             return ConversationReply(self._puzzles.hint(owner_key, open_puzzle, request).speech, state)
         if routed.kind is CommandKind.MOVE and routed.move is not None:
-            return ConversationReply(self._puzzles.play(owner_key, open_puzzle, routed.move, request).speech, state)
+            played = self._puzzles.play(owner_key, open_puzzle, routed.move, request)
+            return ConversationReply(played.speech, state, sound=played.sound)
         if routed.kind is CommandKind.ILLEGAL_MOVE:
             text = routed.explanation.text if routed.explanation is not None else "Так пойти нельзя."
             return ConversationReply(Speech.of(text), state)
@@ -913,10 +941,12 @@ class ConversationService:
                         f"Назовите ход, например «пешка е два е четыре». {reply.speech.text}"
                     )
                 ),
+                sound=reply.sound or SoundEvent.START,
             )
         return replace(
             reply,
             speech=Speech.of(f"Новая партия. Вы играете {side}, уровень {level}. {reply.speech.text}"),
+            sound=reply.sound or SoundEvent.START,
         )
 
     async def _rematch(
@@ -950,6 +980,7 @@ class ConversationService:
         return replace(
             reply,
             speech=Speech.of(f"Реванш. Вы играете {side}, уровень {level}. {reply.speech.text}"),
+            sound=reply.sound or SoundEvent.START,
         )
 
     def _turn_reply(
@@ -981,6 +1012,7 @@ class ConversationService:
             speech,
             self._state_from_turn(state, result),
             result,
+            sound=_turn_sound(result),
         )
 
     def _commentary(
@@ -1026,6 +1058,7 @@ class ConversationService:
             return replace(
                 reply,
                 speech=Speech.of(f"Новая партия. Вы играете {side}, уровень {level}. {reply.speech.text}"),
+                sound=reply.sound or SoundEvent.START,
             )
         return reply
 
@@ -1262,6 +1295,17 @@ def _player_to_move(result: TurnResult) -> bool:
     return result.status is TurnStatus.OK and chess.Board(result.fen).turn == result.player_color.to_chess()
 
 
+def _turn_sound(result: TurnResult) -> SoundEvent | None:
+    """Choose the single highest-priority cue for a completed game response."""
+    if result.outcome is not None and result.outcome.end is GameEnd.CHECKMATE:
+        return SoundEvent.SUCCESS if result.outcome.winner is result.player_color else SoundEvent.CHECKMATE
+    # The answer only ever names the engine's move; an owed reply says the words
+    # of a turn that has not happened yet and must stay silent.
+    if result.engine_move is None:
+        return None
+    return SoundEvent.CHECK if chess.Board(result.fen).is_check() else SoundEvent.MOVE
+
+
 def _rematch_color(previous: PlayerColor, requested: RematchColor) -> PlayerColor:
     if requested is RematchColor.WHITE:
         return PlayerColor.WHITE
@@ -1295,6 +1339,11 @@ _ORIENTATION_CONFIRMATIONS: dict[BoardOrientation, str] = {
     BoardOrientation.PLAYER: "Доска на экране будет с вашей стороны.",
 }
 
+_SOUND_CONFIRMATIONS = {
+    True: "Звуки включены.",
+    False: "Звуки выключены.",
+}
+
 
 def _preference_confirmation(change: PreferenceChange) -> str:
     """Confirm only the settings this command named."""
@@ -1303,6 +1352,7 @@ def _preference_confirmation(change: PreferenceChange) -> str:
         _PAUSE_CONFIRMATIONS[change.pause_style] if change.pause_style is not None else "",
         _NOTATION_CONFIRMATIONS[change.notation_style] if change.notation_style is not None else "",
         _ORIENTATION_CONFIRMATIONS[change.board_orientation] if change.board_orientation is not None else "",
+        _SOUND_CONFIRMATIONS[change.sounds_enabled] if change.sounds_enabled is not None else "",
     ]
     return " ".join(part for part in parts if part) or "Настройка не изменилась."
 

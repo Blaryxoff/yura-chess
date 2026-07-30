@@ -34,6 +34,7 @@ def _to_preferences(row: PlayerPreferencesRow) -> PlayerPreferences:
         notation_style=NotationStyle(row.notation_style),
         board_orientation=BoardOrientation(row.board_orientation),
         default_mode=GameMode(row.default_mode),
+        sounds_enabled=row.sounds_enabled,
     )
 
 
@@ -95,3 +96,4 @@ class PreferencesRepository:
         row.notation_style = preferences.notation_style.value
         row.board_orientation = preferences.board_orientation.value
         row.default_mode = preferences.default_mode.value
+        row.sounds_enabled = preferences.sounds_enabled

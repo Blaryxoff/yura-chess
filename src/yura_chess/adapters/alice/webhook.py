@@ -292,13 +292,17 @@ def _state_update(result: TurnResult | None) -> GameStateUpdate | None:
     return update
 
 
-_PENDING_KINDS: dict[CommandKind, Literal["new_game", "resign", "continue", "rematch", "review", "puzzle"]] = {
+_PENDING_KINDS: dict[
+    CommandKind,
+    Literal["new_game", "resign", "continue", "rematch", "review", "puzzle", "exit_confirm"],
+] = {
     CommandKind.NEW_GAME: "new_game",
     CommandKind.RESIGN: "resign",
     CommandKind.CONTINUE: "continue",
     CommandKind.REMATCH: "rematch",
     CommandKind.REVIEW: "review",
     CommandKind.PUZZLE: "puzzle",
+    CommandKind.EXIT_CONFIRM: "exit_confirm",
 }
 
 

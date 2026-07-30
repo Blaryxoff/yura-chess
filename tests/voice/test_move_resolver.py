@@ -351,6 +351,34 @@ def test_production_command_phrases_are_routed(utterance: str, expected: Command
 @pytest.mark.parametrize(
     ("utterance", "expected"),
     [
+        # Alice requires the bare stop words to close the skill on the spot.
+        ("выход", CommandKind.EXIT),
+        ("выйти", CommandKind.EXIT),
+        ("стоп", CommandKind.EXIT),
+        ("выход из игры", CommandKind.EXIT),
+        ("выйти из шахмат", CommandKind.EXIT),
+        # Named in passing: understood, but asked about before the skill closes.
+        ("выход пожалуйста", CommandKind.EXIT_CONFIRM),
+        ("юра выход", CommandKind.EXIT_CONFIRM),
+        ("давай выход", CommandKind.EXIT_CONFIRM),
+        ("выход отсюда", CommandKind.EXIT_CONFIRM),
+        ("я хочу выйти", CommandKind.EXIT_CONFIRM),
+        ("я выхожу", CommandKind.EXIT_CONFIRM),
+        # A developing move, never a request to leave.
+        ("выход коня на е пять", CommandKind.CLARIFY),
+        ("выход белого коня", CommandKind.CLARIFY),
+        ("выход ферзя", CommandKind.CLARIFY),
+        # Puzzles keep owning their own exit.
+        ("выход из задачи", CommandKind.PUZZLE),
+    ],
+)
+def test_leaving_is_commanded_outright_or_asked_about(utterance: str, expected: CommandKind) -> None:
+    assert route(utterance, chess.Board()).kind is expected
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
         ("убери навык", CommandKind.EXIT),
         ("выйти из партии", CommandKind.EXIT),
         ("не хочу играть", CommandKind.EXIT),
@@ -666,6 +694,8 @@ def test_help_navigation_is_matched_before_the_new_game_command() -> None:
         ("доску всегда белыми", PreferenceChange(board_orientation=BoardOrientation.WHITE)),
         ("ориентация за черных", PreferenceChange(board_orientation=BoardOrientation.BLACK)),
         ("доска по моему цвету", PreferenceChange(board_orientation=BoardOrientation.PLAYER)),
+        ("выключи игровые звуки", PreferenceChange(sounds_enabled=False)),
+        ("играем со звуками", PreferenceChange(sounds_enabled=True)),
     ],
 )
 def test_settings_commands_never_reach_move_resolution(utterance: str, expected: PreferenceChange) -> None:
@@ -682,6 +712,61 @@ def test_settings_commands_never_reach_move_resolution(utterance: str, expected:
     ["что на доске у черных", "где белые слоны", "повтори медленно", "какая сложность"],
 )
 def test_questions_are_not_mistaken_for_settings(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is not CommandKind.PREFERENCE
+
+
+@pytest.mark.parametrize(
+    ("utterance", "enabled"),
+    [
+        ("отключи музыкальное сопровождение", False),
+        ("можно ли выключить звуки", False),
+        ("убери звуковые сигналы", False),
+        ("выключи мне пожалуйста звуки", False),
+        ("не надо звуков", False),
+        ("звуки мне не нужны", False),
+        ("убери озвучку", False),
+        ("играем в тишине", False),
+        ("играй без звука", False),
+        ("не включай звуки", False),
+        ("не хочу включать звуки", False),
+        ("не играй со звуком", False),
+        ("не будем играть со звуком", False),
+        ("можно включить звуки", True),
+        ("верни музыкальное сопровождение", True),
+        ("хочу звуки", True),
+        ("играй со звуком", True),
+        ("верни озвучку", True),
+        ("не выключай звуки", True),
+        ("не хочу выключать звуки", True),
+        ("мне включи звуки", True),
+    ],
+)
+def test_the_sound_switch_is_recognised_however_it_is_phrased(utterance: str, enabled: bool) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.PREFERENCE
+    assert routed.preference == PreferenceChange(sounds_enabled=enabled)
+
+
+@pytest.mark.parametrize("utterance", ["включи музыку", "выключи музыку", "поставь музыку"])
+def test_a_request_for_real_music_stays_with_the_platform(utterance: str) -> None:
+    """The skill has no music library; only its own сопровождение is a setting."""
+    assert route(utterance, chess.Board()).kind is CommandKind.PLATFORM
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "что со звуком",
+        "у меня проблема со звуком",
+        "что с сигналом",
+        "включи сигнализацию",
+        "почему ты выключила звуки",
+        "когда включаю звуки ничего не происходит",
+    ],
+)
+def test_a_remark_about_sound_never_rewrites_the_setting(utterance: str) -> None:
+    """A durable preference needs a request, not a mention of the word."""
     assert route(utterance, chess.Board()).kind is not CommandKind.PREFERENCE
 
 

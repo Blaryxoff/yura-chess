@@ -14,6 +14,7 @@ from yura_chess.domain.preferences import (
     DEFAULT_GAME_MODE,
     DEFAULT_NOTATION_STYLE,
     DEFAULT_PAUSE_STYLE,
+    DEFAULT_SOUNDS_ENABLED,
     BoardOrientation,
     DetailLevel,
     GameMode,
@@ -76,6 +77,7 @@ def test_schema_holds_only_owner_scoped_preferences() -> None:
         "notation_style",
         "board_orientation",
         "default_mode",
+        "sounds_enabled",
         "created_at",
         "updated_at",
     }
@@ -96,6 +98,8 @@ def test_documented_defaults_are_the_dataclass_defaults() -> None:
     assert DEFAULT_NOTATION_STYLE is NotationStyle.FULL
     assert DEFAULT_BOARD_ORIENTATION is BoardOrientation.PLAYER
     assert DEFAULT_GAME_MODE is GameMode.GAME
+    assert DEFAULT_SOUNDS_ENABLED is True
+    assert inspect(PlayerPreferencesRow).columns["sounds_enabled"].server_default.arg == "1"
 
 
 def test_a_mariadb_deadlock_retries_once_in_a_fresh_transaction() -> None:
@@ -177,6 +181,7 @@ def test_saving_twice_updates_the_single_row(session: Session, preferences: Pref
         notation_style=NotationStyle.SHORT,
         board_orientation=BoardOrientation.BLACK,
         default_mode=GameMode.TRAINING,
+        sounds_enabled=False,
     )
 
     first = preferences.save(wanted)

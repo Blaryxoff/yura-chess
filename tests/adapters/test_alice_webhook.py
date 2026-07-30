@@ -128,6 +128,7 @@ async def test_a_new_session_opens_a_game_and_returns_minimal_state(
     assert set(body["user_state_update"]) == {"game_id", "revision"}
     assert "Шахматы с Юрой" in body["response"]["text"]
     assert "пешка е два е четыре" in body["response"]["text"]
+    assert '<speaker audio="alice-sounds-game-boot-1.opus">' in body["response"]["tts"]
     assert "скажите «помощь»" in body["response"]["text"]
     assert len(body["response"]["text"]) <= TEXT_LIMIT
     assert len(str(body["user_state_update"]).encode("utf-8")) <= STATE_LIMIT_BYTES
@@ -298,6 +299,42 @@ async def test_destructive_confirmation_survives_alice_session_state(
     assert asked["session_state"]["pending_action"]["kind"] == "resign"
     assert "действительно" in asked["response"]["text"]
     assert "Партия окончена" in confirmed["response"]["text"]
+
+
+async def test_a_confirmed_exit_closes_the_skill_across_alice_requests(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """The question is asked in one request and answered in the next."""
+    async with build_client(session_factory) as client:
+        first = (await client.post("/alice/webhook", json=alice_request(1, new=True))).json()
+        asked = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    2,
+                    command="я хочу выйти",
+                    state=first["user_state_update"],
+                    session_state=first.get("session_state"),
+                ),
+            )
+        ).json()
+        left = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(
+                    3,
+                    command="да",
+                    state=first["user_state_update"],
+                    session_state=asked["session_state"],
+                ),
+            )
+        ).json()
+
+    assert asked["session_state"]["pending_action"]["kind"] == "exit_confirm"
+    assert asked["response"]["end_session"] is False
+    assert "Выйти из навыка" in asked["response"]["text"]
+    assert left["response"]["end_session"] is True
+    assert "До свидания" in left["response"]["text"]
 
 
 async def test_slow_repeat_survives_alice_session_state(
@@ -800,6 +837,7 @@ def test_the_review_page_flag_survives_the_alice_session_state() -> None:
         PendingAction(CommandKind.REMATCH, "реванш", rematch=RematchRequest(RematchColor.SWAP, harder=True)),
         PendingAction(CommandKind.REVIEW, "сыграть заново", review=ReviewRequest(ReviewQuestion.REPLAY_POSITION)),
         PendingAction(CommandKind.PUZZLE, ""),
+        PendingAction(CommandKind.EXIT_CONFIRM, "я хочу выйти"),
     ],
 )
 def test_a_confirmation_comes_back_as_the_very_action_it_was_asked_about(pending: PendingAction) -> None:

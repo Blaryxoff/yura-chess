@@ -49,6 +49,8 @@ class CommandKind(StrEnum):
     HELP = "help"
     HELP_EXIT = "help_exit"
     EXIT = "exit"
+    # Leaving asked in passing rather than commanded; answered with a question.
+    EXIT_CONFIRM = "exit_confirm"
     PLATFORM = "platform"
     ATTENTION = "attention"
     SOCIAL = "social"
@@ -104,6 +106,7 @@ class PreferenceChange:
     pause_style: PauseStyle | None = None
     notation_style: NotationStyle | None = None
     board_orientation: BoardOrientation | None = None
+    sounds_enabled: bool | None = None
 
     def apply(self, preferences: PlayerPreferences) -> PlayerPreferences:
         return replace(
@@ -112,6 +115,7 @@ class PreferenceChange:
             pause_style=self.pause_style or preferences.pause_style,
             notation_style=self.notation_style or preferences.notation_style,
             board_orientation=self.board_orientation or preferences.board_orientation,
+            sounds_enabled=(self.sounds_enabled if self.sounds_enabled is not None else preferences.sounds_enabled),
         )
 
 
@@ -341,7 +345,7 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"(?:выключи|отключи|убери)( этот| мне)? (навык|шахматы|юру)|"
             r"(?:убрать шахмат|шахмат\w* убрать)|"
             r"как (тебя|это) выключить|"
-            r"(?:выйди|выйти) из (шахмат|навыка|игры|партии)|до свидания|закрой навык|"
+            r"(?:выйди|выйти|выход) из (шахмат|навыка|игры|партии)|до свидания|закрой навык|"
             r"(?:закончить|закрой|останови) (навык|шахматы)|не хочу (больше )?играть|хватит играть|"
             r"закончим на сегодня"
         ),
@@ -378,6 +382,13 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"твой последний ход|^(дальше|далее)$"
         ),
     ),
+    # Last of the control table: leaving named loosely — «выход пожалуйста»,
+    # «юра выход», «я хочу выйти». «выход коня на е пять» is a developing move,
+    # never a request to leave, so a piece behind the word rules it out.
+    (
+        CommandKind.EXIT_CONFIRM,
+        re.compile(r"\b(?:выход|выйти|выйду|выхожу)\b(?!\s+(?:[а-я]+\s+){0,2}(?:кон[ья]|слон|ферз|ладь|корол|пешк))"),
+    ),
 )
 
 _INCOMPLETE_MOVE = re.compile(r"^(мой ход|я хожу|я буду ходить)$")
@@ -400,6 +411,60 @@ _COUNT_VALUES = {
     "девять": 9,
     "десять": 10,
 }
+
+# Bare «музыка» is left out on purpose: «включи музыку» stays a platform request
+# for Alice, while «музыкальное сопровождение» is this skill's own cues.
+# «сигнализация» is an alarm, not a game cue, so the stem stops short of it.
+_SOUND_NOUN = r"(?:звук\w*|озвучк\w*|сигнал(?!из)\w*|сопровожден\w*)"
+# Up to two words between the verb and the noun: «выключи мне игровые звуки».
+_SOUND_GAP = r"(?:\s+[а-я]+){0,2}?"
+_SOUND_WISH = r"(?:хочу|хочется|хотел\w*|надо|нужн\w*|буд(?:у|ем)|стоит|давай\w*)"
+# A wish may sit between the negation and the verb: «не хочу выключать звуки»
+# asks for the opposite of «выключать звуки», not for the same thing.
+_SOUND_NEGATION = rf"(?P<negated>\bне\s+(?:{_SOUND_WISH}\s+)?)?"
+_SOUND_COMMAND = re.compile(
+    rf"{_SOUND_NEGATION}"
+    rf"(?:(?P<on>включ|верн|добав)|выключ|отключ|убер|убир|отмен)\w*{_SOUND_GAP}\s+{_SOUND_NOUN}"
+)
+# «не играй со звуком» asks for silence, so the game-mode forms carry the same
+# negation as the plain commands do.
+_SOUND_MODE = re.compile(
+    rf"{_SOUND_NEGATION}"
+    rf"(?:игра(?:й|ем|ть|ю)|сыгра\w+|парти\w+|можно|давай\w*){_SOUND_GAP}"
+    rf"\s+(?:(?P<on>со?)|без)\s+(?:[а-я]+\s+)?{_SOUND_NOUN}"
+)
+_SOUND_UNWANTED = re.compile(
+    rf"\bне\s+{_SOUND_WISH}\s+(?:[а-я]+\s+)?{_SOUND_NOUN}"
+    rf"|\b{_SOUND_NOUN}\s+(?:мне\s+)?не\s+{_SOUND_WISH}"
+    rf"|^без\s+(?:[а-я]+\s+)?{_SOUND_NOUN}"
+    r"|\bв тишине\b"
+)
+# «что со звуком» is a question about the device, not a request for the cues,
+# so the bare form is only a setting when it is the whole utterance.
+_SOUND_WANTED = re.compile(
+    rf"\b{_SOUND_WISH}\s+(?:[а-я]+\s+)?{_SOUND_NOUN}"
+    rf"|^со?\s+(?:[а-я]+\s+)?{_SOUND_NOUN}$"
+)
+# «почему ты выключила звуки» wonders about the cues; only a request may store a
+# new setting, so an utterance opening with a question word never does.
+_SOUND_QUESTION = re.compile(r"^(?:почему|зачем|отчего|когда|разве|неужели)\b")
+
+
+def _sound_preference(text: str) -> PreferenceChange | None:
+    """Read the cue switch however it is phrased; a negation flips the verb."""
+    if _SOUND_QUESTION.match(text):
+        return None
+    for pattern in (_SOUND_COMMAND, _SOUND_MODE):
+        match = pattern.search(text)
+        if match is not None:
+            enabling = match.group("on") is not None
+            return PreferenceChange(sounds_enabled=enabling if match.group("negated") is None else not enabling)
+    if _SOUND_UNWANTED.search(text):
+        return PreferenceChange(sounds_enabled=False)
+    if _SOUND_WANTED.search(text):
+        return PreferenceChange(sounds_enabled=True)
+    return None
+
 
 # Settings are matched before the control table, so «говори медленнее» is a
 # preference while «повтори медленно» stays a repeat of the previous answer.
@@ -707,6 +772,9 @@ def route(
 
 def parse_preference(text: str) -> PreferenceChange | None:
     """Read a settings command, or return `None` when the phrase is not one."""
+    sound = _sound_preference(text)
+    if sound is not None:
+        return sound
     for change, pattern in _PREFERENCE_PATTERNS:
         if pattern.search(text):
             return change

@@ -20,15 +20,17 @@ from yura_chess.application.conversation import (
     ConversationReply,
     ConversationService,
     ConversationState,
+    _turn_sound,
 )
 from yura_chess.application.game_service import RequestContext
 from yura_chess.application.puzzle_service import PuzzleService
 from yura_chess.domain.analysis import MoveCandidate, PositionAnalysis, Score
 from yura_chess.domain.game import GameStatus, PlayerColor
 from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle, PauseStyle
+from yura_chess.domain.results import GameEnd, GameOutcome, TurnResult, TurnStatus
 from yura_chess.presentation.board_image import position_hash
 from yura_chess.presentation.help_speech import SECTIONS, HelpState, HelpTopic
-from yura_chess.presentation.move_speech import PAUSE_MARKUP, Speech
+from yura_chess.presentation.move_speech import PAUSE_MARKUP, SoundEvent, Speech
 from yura_chess.presentation.response_composer import BoardCard
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
@@ -101,6 +103,60 @@ async def test_voice_move_runs_through_router_game_and_speech(
     assert reply.turn.engine_move is not None
     assert "Ваш ход: e2 e4" in reply.speech.text
     assert "Мой ход" in reply.speech.text
+    assert reply.speech.tts is not None and "alice-sounds-game-ping-1.opus" in reply.speech.tts
+
+
+async def test_start_sound_and_durable_voice_switch(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    disabled = await conversation.handle(OWNER, "выключи звуки", context(2), started.state)
+    moved = await conversation.handle(OWNER, "пешка е два е четыре", context(3), disabled.state)
+
+    assert started.speech.tts is not None and "alice-sounds-game-boot-1.opus" in started.speech.tts
+    assert disabled.speech.text == "Звуки выключены."
+    assert moved.speech.tts is not None
+    assert "<speaker" not in moved.speech.tts
+    with session_scope(session_factory) as session:
+        assert PreferencesRepository(session).load(OWNER).sounds_enabled is False
+
+
+def test_turn_sound_uses_the_highest_priority_event() -> None:
+    base = {
+        "game_id": "sound-game",
+        "revision": 2,
+        "moves": ("f2f3",),
+        "player_color": PlayerColor.WHITE,
+        "game_status": GameStatus.ACTIVE,
+        "status": TurnStatus.OK,
+    }
+    checked = TurnResult(fen="4k3/8/8/8/8/8/4r3/4K3 w - - 0 1", player_move="f2f3", engine_move="e7e2", **base)
+    owed = TurnResult(
+        fen="4k3/8/8/8/8/8/4r3/4K3 w - - 0 1",
+        player_move="f2f3",
+        **{key: value for key, value in base.items() if key != "status"},
+        status=TurnStatus.ENGINE_UNAVAILABLE,
+    )
+    won = TurnResult(
+        fen="7k/6Q1/6K1/8/8/8/8/8 b - - 0 1",
+        outcome=GameOutcome(GameEnd.CHECKMATE, PlayerColor.WHITE),
+        game_status=GameStatus.FINISHED,
+        **{key: value for key, value in base.items() if key != "game_status"},
+    )
+    lost = TurnResult(
+        fen="7K/6q1/6k1/8/8/8/8/8 w - - 0 1",
+        outcome=GameOutcome(GameEnd.CHECKMATE, PlayerColor.BLACK),
+        game_status=GameStatus.FINISHED,
+        **{key: value for key, value in base.items() if key != "game_status"},
+    )
+
+    assert _turn_sound(checked) is SoundEvent.CHECK
+    assert _turn_sound(won) is SoundEvent.SUCCESS
+    assert _turn_sound(lost) is SoundEvent.CHECKMATE
+    # The answer keeps the move and asks for «продолжаем»; no turn has happened.
+    assert _turn_sound(owed) is None
 
 
 async def test_incomplete_and_compound_moves_get_specific_non_mutating_clarifications(
@@ -133,6 +189,49 @@ async def test_physical_board_setup_and_exit_phrases_are_voice_complete(
     assert "назовите только свой ход" in setup.speech.text
     assert exited.end_session is True
     assert "Партия сохранена" in exited.speech.text
+
+
+async def test_a_loosely_named_exit_is_confirmed_before_the_skill_closes(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    asked = await conversation.handle(OWNER, "выход пожалуйста", context(2), started.state)
+    left = await conversation.handle(OWNER, "да", context(3), asked.state)
+
+    assert asked.speech.text == "Выйти из навыка? Скажите «да» или «нет»."
+    assert asked.end_session is False
+    assert left.end_session is True
+    assert "Партия сохранена" in left.speech.text
+
+
+async def test_a_declined_exit_keeps_the_skill_and_the_game_open(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    asked = await conversation.handle(OWNER, "я хочу выйти", context(2), started.state)
+    stayed = await conversation.handle(OWNER, "нет", context(3), asked.state)
+    moved = await conversation.handle(OWNER, "е 2 е 4", context(4), stayed.state)
+
+    assert stayed.end_session is False
+    assert stayed.state.game_id == started.state.game_id
+    assert moved.turn is not None and moved.turn.player_move == "e2e4"
+
+
+async def test_a_bare_stop_word_still_leaves_without_a_question(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    """Alice requires «выход» and «стоп» to close the skill on the spot."""
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    exited = await conversation.handle(OWNER, "выход", context(2), started.state)
+
+    assert exited.end_session is True
+    assert exited.speech.text.startswith("До свидания.")
 
 
 async def test_your_turn_and_repeat_your_move_answer_from_canonical_state(

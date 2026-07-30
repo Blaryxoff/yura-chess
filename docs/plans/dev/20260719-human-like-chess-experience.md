@@ -313,6 +313,20 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 - [x] Сделать главную канонической индексируемой страницей с метаданными, structured data, robots.txt и sitemap.xml без дублей от фильтров статистики
 - [x] Пропустить route через host nginx, включить analytics-таблицы в backup/restore проверки и документировать семантику метрик
 - [x] Добавить focused migration/storage/HTTP tests, выполнить browser QA и production release только через immutable image и green verification. Browser QA пройдена через chrome-devtools MCP: клавиатурная работа тултипа, Escape без потери фокуса, отсутствие горизонтального скролла, доступность данных графика таблицей. Релизы идут через immutable image и `deploy/deploy.sh`.
+- [x] Mark completed
+
+### Task 22: Добавить звуковые сигналы и голосовую настройку
+
+**Files:** Create migration and preview audio assets; Modify preferences, command routing, conversation presentation, settings and focused tests
+
+- [x] Добавить короткие сигналы начала партии/задачи, хода, шаха, мата и победы/решённой задачи через Alice TTS `<speaker>` без потери голосового смысла
+- [x] Выбирать ровно один самый значимый сигнал на ответ: победа, мат, шах, ход, начало
+- [x] Сохранить owner-scoped настройку, включённую по умолчанию, и распознавать «включи звуки» / «выключи звуки» раньше шахматного хода
+- [x] Разрешить подменить встроенные Alice sounds на загруженные custom sound IDs через environment settings
+- [x] Сгенерировать отдельные MP3-превью и общий демо-файл, проверить длительность/уровни и focused tests
+- [x] Добавить end-to-end shell и Alice JSON-сценарии для всех пяти сигналов, replay и выключения/повторного включения звуков
+- [ ] Подготовить production masters из исходных WAV/OGG, загрузить их в Yandex Dialogs и проверить пять custom IDs в staging
+- [ ] Mark completed
 
 ## Verification notes
 

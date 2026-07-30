@@ -540,6 +540,8 @@ async def test_the_training_branch_is_started_only_after_a_confirmation(
     confirmed = await conversation.handle(OWNER, "да", context(2), asked.state)
 
     assert confirmed.state.game_id != game.id
+    assert confirmed.speech.tts is not None
+    assert offline_settings.alice_sound_start in confirmed.speech.tts
     assert load(session_factory, confirmed.state.game_id or "").mode is GameMode.TRAINING
     after = load(session_factory, game.id)
     assert (after.moves, after.revision, after.status) == (game.moves, game.revision, game.status)

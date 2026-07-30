@@ -138,7 +138,7 @@ class RematchState(_AliceModel):
 
 
 class PendingActionState(_AliceModel):
-    kind: Literal["new_game", "resign", "continue", "rematch", "review", "puzzle"]
+    kind: Literal["new_game", "resign", "continue", "rematch", "review", "puzzle", "exit_confirm"]
     utterance: str = Field(max_length=255)
     # A rematch and a review question keep what was asked for; re-reading the
     # utterance after the confirmation would lose it.

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import StrEnum
 
 import chess
 
@@ -24,6 +25,7 @@ SQUARE_PATTERN = re.compile(r"\b([a-h])([1-8])\b")
 PAUSE_MARKUP = " sil <[400]>"
 
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+_AUDIO_ID = re.compile(r"^(?:alice-sounds-[a-z0-9-]+\.opus|dialogs-upload/[A-Za-z0-9-]+/[A-Za-z0-9-]+\.opus)$")
 
 _FILE_SOUNDS: dict[str, str] = {
     "a": "а",
@@ -98,6 +100,32 @@ class Speech:
         return self.tts if self.tts is not None else self.text
 
 
+class SoundEvent(StrEnum):
+    START = "start"
+    MOVE = "move"
+    CHECK = "check"
+    CHECKMATE = "checkmate"
+    SUCCESS = "success"
+
+
+@dataclass(frozen=True, slots=True)
+class SoundLibrary:
+    start: str
+    move: str
+    check: str
+    checkmate: str
+    success: str
+
+    def audio_id(self, event: SoundEvent) -> str:
+        return {
+            SoundEvent.START: self.start,
+            SoundEvent.MOVE: self.move,
+            SoundEvent.CHECK: self.check,
+            SoundEvent.CHECKMATE: self.checkmate,
+            SoundEvent.SUCCESS: self.success,
+        }[event]
+
+
 def spell_square(name: str) -> str:
     """`e2` → «е два»."""
     return f"{_FILE_SOUNDS[name[0]]} {_RANK_SOUNDS[name[1]]}"
@@ -123,6 +151,21 @@ def add_pauses(speech: Speech, style: PauseStyle) -> Speech:
         return speech
     spoken = _SENTENCE_END.sub(PAUSE_MARKUP + " ", speech.spoken())
     return Speech(text=speech.text, tts=spoken)
+
+
+def add_sound(
+    speech: Speech,
+    event: SoundEvent | None,
+    enabled: bool,
+    library: SoundLibrary,
+) -> Speech:
+    """Prepend one trusted Alice sound without changing visible or spoken words."""
+    if not enabled or event is None:
+        return speech
+    audio_id = library.audio_id(event)
+    if not _AUDIO_ID.fullmatch(audio_id):
+        return speech
+    return Speech(text=speech.text, tts=f'<speaker audio="{audio_id}"> {speech.spoken()}')
 
 
 def describe_move(

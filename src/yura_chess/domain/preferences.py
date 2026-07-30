@@ -19,6 +19,7 @@ __all__ = [
     "DEFAULT_GAME_MODE",
     "DEFAULT_NOTATION_STYLE",
     "DEFAULT_PAUSE_STYLE",
+    "DEFAULT_SOUNDS_ENABLED",
     "BoardOrientation",
     "DetailLevel",
     "GameMode",
@@ -66,6 +67,7 @@ DEFAULT_PAUSE_STYLE = PauseStyle.NORMAL
 DEFAULT_NOTATION_STYLE = NotationStyle.FULL
 DEFAULT_BOARD_ORIENTATION = BoardOrientation.PLAYER
 DEFAULT_GAME_MODE = GameMode.GAME
+DEFAULT_SOUNDS_ENABLED = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +78,7 @@ class PlayerPreferences:
     notation_style: NotationStyle = DEFAULT_NOTATION_STYLE
     board_orientation: BoardOrientation = DEFAULT_BOARD_ORIENTATION
     default_mode: GameMode = DEFAULT_GAME_MODE
+    sounds_enabled: bool = DEFAULT_SOUNDS_ENABLED
 
     def orientation_for(self, player_color: PlayerColor | None) -> PlayerColor:
         """Which side the board is drawn from; white until a colour is chosen."""

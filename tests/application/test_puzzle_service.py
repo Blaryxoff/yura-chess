@@ -17,6 +17,7 @@ from yura_chess.domain.analysis import PositionAnalysis
 from yura_chess.domain.game import PlayerColor
 from yura_chess.domain.puzzle import Puzzle, PuzzleAttemptStatus, PuzzleBucket, PuzzleProfile, catalogue
 from yura_chess.presentation.help_speech import HelpState, HelpTopic
+from yura_chess.presentation.move_speech import SoundEvent
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
@@ -107,7 +108,8 @@ def store_profile(session_factory: sessionmaker[Session], stored: PuzzleProfile)
 
 
 def start(service: PuzzleService, message_id: int, theme: str | None = None) -> None:
-    service.answer(OWNER, PuzzleRequest(PuzzleQuestion.START, theme=theme), context(message_id), None)
+    reply = service.answer(OWNER, PuzzleRequest(PuzzleQuestion.START, theme=theme), context(message_id), None)
+    assert reply.sound is SoundEvent.START
 
 
 def test_a_mate_in_one_is_solved_by_the_single_recorded_move(
@@ -120,6 +122,7 @@ def test_a_mate_in_one_is_solved_by_the_single_recorded_move(
 
     assert "решена" in reply.speech.text
     assert reply.active is False
+    assert reply.sound is SoundEvent.SUCCESS
     assert attempt(session_factory, MATE_IN_ONE).status is PuzzleAttemptStatus.SOLVED
     assert profile(session_factory).clean_streak == 1
 
@@ -134,6 +137,9 @@ def test_a_mate_in_two_is_solved_through_its_forced_reply(
 
     assert "Я отвечаю" in first.speech.text
     assert first.active is True
+    # `e2e6` checks and the forced `f7f8` parries it, but the answer named both.
+    assert "Шах" in first.speech.text
+    assert first.sound is SoundEvent.CHECK
     # The forced reply is applied with the move it answers: the player is asked
     # for the next move of the line, not for the same one again.
     assert attempt(session_factory, MATE_IN_TWO).node == 3
@@ -141,6 +147,7 @@ def test_a_mate_in_two_is_solved_through_its_forced_reply(
     second = puzzles.play(OWNER, open_puzzle(puzzles), "e6f7", context(3))
 
     assert "решена" in second.speech.text
+    assert second.sound is SoundEvent.SUCCESS
     assert attempt(session_factory, MATE_IN_TWO).status is PuzzleAttemptStatus.SOLVED
 
 

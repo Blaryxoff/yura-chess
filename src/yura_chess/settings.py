@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     board_image_enabled: bool = True
     yandex_skill_id: str | None = None
     yandex_oauth_token: SecretStr | None = None
+    # Built-in sounds work immediately; production may replace them with
+    # `dialogs-upload/<skill-id>/<audio-id>.opus` after preview approval.
+    alice_sound_start: str = "alice-sounds-game-boot-1.opus"
+    alice_sound_move: str = "alice-sounds-game-ping-1.opus"
+    alice_sound_check: str = "alice-sounds-game-powerup-1.opus"
+    alice_sound_checkmate: str = "alice-sounds-game-loss-1.opus"
+    alice_sound_success: str = "alice-sounds-game-win-1.opus"
     # Whatever is left of the 4.5 s budget after speech; an upload never gets more.
     image_upload_timeout_seconds: float = Field(default=1.0, gt=0.0, le=2.0)
     board_image_ttl_days: int = Field(default=7, ge=1)

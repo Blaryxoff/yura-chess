@@ -39,7 +39,7 @@ from yura_chess.domain.puzzle import (
     PuzzleProfile,
     catalogue,
 )
-from yura_chess.presentation.move_speech import PIECE_NAMES, Speech, describe_move
+from yura_chess.presentation.move_speech import PIECE_NAMES, SoundEvent, Speech, describe_move
 from yura_chess.presentation.position_speech import read_board
 from yura_chess.storage.database import run_transaction_with_deadlock_retry, session_scope
 from yura_chess.storage.game_repository import GameRepository
@@ -83,6 +83,7 @@ class PuzzleReply:
     speech: Speech
     # False once the attempt is over, so the conversation stops intercepting.
     active: bool
+    sound: SoundEvent | None = None
 
 
 class PuzzleService:
@@ -282,7 +283,7 @@ class PuzzleService:
             pool = [entry for entry in pool if entry.bucket is profile.bucket] or pool
         chosen = self._random.choice(pool)
         attempt = repository.start_attempt(owner_key, chosen.id)
-        return self.present(OpenPuzzle(chosen, attempt))
+        return replace(self.present(OpenPuzzle(chosen, attempt)), sound=SoundEvent.START)
 
     def _accept(
         self,
@@ -313,13 +314,18 @@ class PuzzleService:
             mistakes=attempt.mistakes,
             hints=attempt.hints,
         )
-        return PuzzleReply(Speech.of(f"Верно: {found}. Я отвечаю {answer}. Ваш ход."), active=True)
+        # The answer names both moves, so a check the forced reply parries is
+        # still a check the player has just been told about.
+        checked = after.is_check()
+        after.push(chess.Move.from_uci(puzzle.moves[index + 1]))
+        sound = SoundEvent.CHECK if checked or after.is_check() else SoundEvent.MOVE
+        return PuzzleReply(Speech.of(f"Верно: {found}. Я отвечаю {answer}. Ваш ход."), active=True, sound=sound)
 
     def _solved(self, repository: PuzzleRepository, open_puzzle: OpenPuzzle, lead: str) -> PuzzleReply:
         clean = open_puzzle.attempt.mistakes == 0 and open_puzzle.attempt.hints == 0
         profile = self._finish(repository, open_puzzle.attempt, PuzzleAttemptStatus.SOLVED, solved=True, clean=clean)
         series = f" Ваша серия: {profile.clean_streak}." if clean else ""
-        return PuzzleReply(Speech.of(f"{lead}{series}{_MORE}"), active=False)
+        return PuzzleReply(Speech.of(f"{lead}{series}{_MORE}"), active=False, sound=SoundEvent.SUCCESS)
 
     def _reveal(self, repository: PuzzleRepository, open_puzzle: OpenPuzzle) -> PuzzleReply:
         """Say the whole remaining line and close the attempt as a failure."""
@@ -430,6 +436,7 @@ def _reply_payload(reply: PuzzleReply) -> str:
             "text": reply.speech.text,
             "tts": reply.speech.tts,
             "active": reply.active,
+            "sound": reply.sound.value if reply.sound is not None else None,
         },
         ensure_ascii=False,
         separators=(",", ":"),
@@ -448,9 +455,14 @@ def _stored_reply(replay: RequestReplayRow) -> PuzzleReply | None:
     text = payload.get("text")
     tts = payload.get("tts")
     active = payload.get("active")
+    sound_raw = payload.get("sound")
     if not isinstance(text, str) or (tts is not None and not isinstance(tts, str)) or not isinstance(active, bool):
         return None
-    return PuzzleReply(Speech(text, tts), active)
+    try:
+        sound = SoundEvent(sound_raw) if isinstance(sound_raw, str) else None
+    except ValueError:
+        sound = None
+    return PuzzleReply(Speech(text, tts), active, sound)
 
 
 def _open_attempt(attempt: PuzzleAttempt) -> OpenPuzzle | None:
