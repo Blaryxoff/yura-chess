@@ -595,6 +595,46 @@ def test_help_commands_never_reach_move_resolution(utterance: str, expected: Com
 
 
 @pytest.mark.parametrize(
+    "utterance",
+    [
+        "правила шахмат",
+        "правила игры в шахматы",
+        "основы шахмат",
+        "расскажи правила шахмат",
+        "объясни правила игры в шахматы",
+        "расскажи о правилах шахмат",
+        "расскажи про правила игры в шахматы",
+        "как правильно играть в шахматы",
+        "объясни как играть в шахматы",
+        "научи меня играть в шахматы",
+        "я хочу научиться играть в шахматы",
+        "я не умею играть в шахматы",
+        "какие правила в шахматах",
+    ],
+)
+def test_general_chess_rule_questions_open_help(utterance: str) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.HELP
+    assert routed.move is None
+    assert routed.resolution is None
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("давай играть в шахматы", CommandKind.START),
+        ("я умею играть в шахматы", CommandKind.UNKNOWN),
+        ("почему я плохо играю в шахматы", CommandKind.UNKNOWN),
+        ("включи правила дорожного движения", CommandKind.UNKNOWN),
+        ("поставь музыку про шахматы", CommandKind.PLATFORM),
+    ],
+)
+def test_rules_help_does_not_capture_other_intents(utterance: str, expected: CommandKind) -> None:
+    assert route(utterance, chess.Board()).kind is expected
+
+
+@pytest.mark.parametrize(
     ("utterance", "expected"),
     [
         ("почему ты так сходил", TrainingQuestion.WHY_MOVE),

@@ -493,7 +493,8 @@ async def test_a_help_answer_stays_inside_the_platform_limits_without_a_screen(
     assert len(json.dumps(catalogue["session_state"], ensure_ascii=False).encode("utf-8")) <= STATE_LIMIT_BYTES
     # Nothing the player needs may live only on a screen.
     assert body.get("card") is None
-    assert "Раздел «ходы»" in body["text"]
+    assert "Раздел «правила»" in body["text"]
+    assert "Цель игры — поставить мат королю соперника" in body["text"]
 
 
 async def test_a_foreign_game_id_reveals_nothing_and_never_touches_that_game(

@@ -22,6 +22,7 @@ from yura_chess.domain.preferences import (
     PlayerPreferences,
 )
 from yura_chess.presentation import game_facts
+from yura_chess.presentation.help_speech import is_rules_request
 from yura_chess.voice.illegal_move import Explanation, IllegalReason, explain
 from yura_chess.voice.move_resolver import resolve
 from yura_chess.voice.normalizer import normalize
@@ -645,6 +646,9 @@ def route(
 ) -> RoutedCommand:
     """Classify `utterance`; `board` is `None` when there is no game to move in."""
     normalized = normalize(utterance)
+
+    if is_rules_request(normalized.text):
+        return RoutedCommand(CommandKind.HELP, normalized, clarification=None)
 
     for kind, pattern in _HELP_PATTERNS:
         if pattern.search(normalized.text):

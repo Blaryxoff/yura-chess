@@ -757,8 +757,8 @@ async def test_help_before_a_game_offers_topics_without_starting_anything(
 
     assert "играете в шахматы голосом против компьютера" in reply.speech.text
     assert "Разделы справки" in reply.speech.text
-    assert "Разделы справки. Ходы, позиция, факты, партия." in reply.speech.spoken()
-    assert "Настройки, тренер, разбор, задачи, речь." in reply.speech.spoken()
+    assert "Разделы справки. Правила, ходы, позиция, факты." in reply.speech.spoken()
+    assert "Партия, настройки, тренер, разбор, задачи, речь." in reply.speech.spoken()
     assert "Назовите раздел. Или скажите: «все команды»." in reply.speech.spoken()
     assert reply.state.help == HelpState(topic=None, page=0)
     assert reply.state.game_id is None
@@ -781,6 +781,7 @@ async def test_help_uses_short_sentences_for_tts_intonation(
 @pytest.mark.parametrize(
     ("utterance", "expected", "phrase"),
     [
+        ("справка про правила", HelpTopic.RULES, "поставить мат королю соперника"),
         ("справка по ходам", HelpTopic.MOVES, "«пешка е два е четыре»"),
         ("справка по позиции", HelpTopic.POSITION, "две горизонтали"),
         ("справка про факты", HelpTopic.FACTS, "за кого я играю"),
@@ -843,6 +844,32 @@ async def test_natural_puzzle_catalogue_questions_open_help_without_starting_a_p
     assert "мат в два хода, вилка, связка и сквозной удар" in reply.speech.text
     assert reply.state.game_id is None
     assert reply.turn is None
+
+
+async def test_rules_help_is_read_only_paged_and_replay_safe_during_a_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    with session_scope(session_factory) as session:
+        before = GameRepository(session).load(started.state.game_id or "", OWNER)
+    request = context(2)
+
+    first = await conversation.handle(OWNER, "расскажи правила шахмат", request, started.state)
+    replayed = await conversation.handle(OWNER, "расскажи правила шахмат", request, started.state)
+    second = await conversation.handle(OWNER, "дальше", context(3), first.state)
+
+    with session_scope(session_factory) as session:
+        after = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert first.speech == replayed.speech
+    assert first.state.help == HelpState(topic=HelpTopic.RULES, page=0)
+    assert second.state.help == HelpState(topic=HelpTopic.RULES, page=1)
+    assert (after.moves, after.revision, after.pending_engine_turn) == (
+        before.moves,
+        before.revision,
+        before.pending_engine_turn,
+    )
 
 
 async def test_puzzle_catalogue_help_is_read_only_and_replay_safe_during_a_game(

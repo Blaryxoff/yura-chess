@@ -12,7 +12,7 @@ import pytest
 
 from yura_chess.adapters.alice.models import TEXT_LIMIT, TTS_LIMIT
 from yura_chess.domain.preferences import PauseStyle
-from yura_chess.presentation.help_speech import SKILL_INTRO, HelpMode, answer_help
+from yura_chess.presentation.help_speech import SKILL_INTRO, HelpMode, answer_help, navigate
 from yura_chess.presentation.move_speech import add_pauses
 
 
@@ -65,3 +65,38 @@ def test_help_menu_fits_the_alice_limits(mode: HelpMode) -> None:
 
     assert len(speech.text) <= TEXT_LIMIT
     assert len(speech.spoken()) <= TTS_LIMIT
+
+
+def test_general_rules_request_opens_a_short_paged_rules_section() -> None:
+    first = answer_help("расскажи правила шахмат", HelpMode.NO_GAME)
+
+    assert first.state is not None
+    assert first.state.topic is not None
+    assert first.state.topic.value == "rules"
+    assert "Цель игры — поставить мат королю соперника" in first.speech.text
+    assert "скажите: «дальше»" in first.speech.text.lower()
+
+    second = navigate("дальше", first.state, HelpMode.NO_GAME)
+    assert second is not None
+    assert "Конь ходит буквой «Г»" in second.speech.text
+    assert "Рокировка возможна" in second.speech.text
+    assert "превращается в ферзя" in second.speech.text
+
+    third = navigate("дальше", second.state, HelpMode.NO_GAME)
+    assert third is not None
+    assert "Взятие на проходе" in third.speech.text
+    assert "Пат" in third.speech.text
+    assert "Это конец раздела" in third.speech.text
+
+
+@pytest.mark.parametrize("mode", list(HelpMode))
+def test_every_rules_page_fits_the_alice_limits(mode: HelpMode) -> None:
+    answer = answer_help("правила шахмат", mode)
+    while answer.state is not None:
+        speech = add_pauses(answer.speech, PauseStyle.EXTENDED)
+        assert len(speech.text) <= TEXT_LIMIT
+        assert len(speech.spoken()) <= TTS_LIMIT
+        next_answer = navigate("дальше", answer.state, mode)
+        if next_answer is None or next_answer.state == answer.state:
+            break
+        answer = next_answer

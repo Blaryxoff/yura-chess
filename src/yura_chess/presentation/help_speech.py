@@ -23,6 +23,7 @@ LINES_PER_PAGE = 3
 
 
 class HelpTopic(StrEnum):
+    RULES = "rules"
     MOVES = "moves"
     POSITION = "position"
     FACTS = "facts"
@@ -69,6 +70,26 @@ class HelpAnswer:
 
 
 SECTIONS: tuple[HelpSection, ...] = (
+    HelpSection(
+        HelpTopic.RULES,
+        "правила",
+        (
+            "Цель игры — поставить мат королю соперника. Мат — это шах, от которого нельзя защититься.",
+            "Белые ходят первыми, затем игроки ходят по очереди. Нельзя оставлять своего короля под шахом.",
+            ("Король ходит на одну клетку. Ферзь — по прямой и диагонали, ладья — по прямой, слон — по диагонали."),
+            (
+                "Конь ходит буквой «Г» и может перепрыгивать фигуры. Пешка идет вперед, "
+                "а берет по диагонали. Из начальной позиции она может пройти две клетки, если путь свободен."
+            ),
+            (
+                "Рокировка возможна, если король и выбранная ладья не ходили, между ними нет фигур, "
+                "а король не находится под шахом и не проходит через поле, которое атакует соперник."
+            ),
+            "Пешка на последней горизонтали превращается в ферзя, ладью, слона или коня.",
+            "Взятие на проходе возможно только сразу после двойного хода соседней пешки.",
+            "Пат — отсутствие легального хода без шаха — означает ничью.",
+        ),
+    ),
     HelpSection(
         HelpTopic.MOVES,
         "ходы",
@@ -207,6 +228,7 @@ _MODE_TAILS: dict[HelpMode, tuple[str, str]] = {
 
 _TOPIC_ALIASES: tuple[tuple[HelpTopic, re.Pattern[str]], ...] = (
     (HelpTopic.ALL, re.compile(r"^(все|весь|всё|полн|список|команд)")),
+    (HelpTopic.RULES, re.compile(r"^(правил|основ)")),
     (HelpTopic.MOVES, re.compile(r"^(ход|фигур)")),
     (HelpTopic.POSITION, re.compile(r"^(позиц|доск)")),
     (HelpTopic.FACTS, re.compile(r"^(факт|дебют|стади|рокиров|цвет)")),
@@ -302,11 +324,30 @@ _RESTART = re.compile(r"^(сначала|с начала|заново|в нач�
 
 _CONTINUATION = " Чтобы продолжить, скажите: «дальше»."
 _ENDING = " Это конец раздела. Назовите другой раздел. Или скажите: «выйти из справки»."
+_CHESS_WORD = re.compile(r"\bшахмат\w*\b")
+_RULES_WORD = re.compile(r"\b(?:правил|основ)\w*\b")
+_HOW_TO_PLAY = re.compile(r"\bкак\b(?: \w+){0,3} \bигра\w*\b")
+_LEARN_TO_PLAY = re.compile(r"(?:\bнауч\w*\b|\bне умею\b).*\bигра\w*\b")
+
+
+def is_rules_request(text: str) -> bool:
+    """Return whether a normalized utterance explicitly asks how chess is played."""
+    if _CHESS_WORD.search(text) is None:
+        return False
+    return bool(
+        _RULES_WORD.search(text)
+        or _HOW_TO_PLAY.search(text)
+        or _LEARN_TO_PLAY.search(text)
+        or re.search(r"\bобъясни\b.*\bкак\b.*\bигра\w*\b", text)
+    )
 
 
 def answer_help(utterance: str, mode: HelpMode, state: HelpState | None = None) -> HelpAnswer:
     """Answer a help request; `state` is where the previous help reply stopped."""
-    words = [word for word in normalize(utterance).words if word not in _TRIGGER_WORDS]
+    normalized = normalize(utterance)
+    if is_rules_request(normalized.text):
+        return _render(HelpTopic.RULES, 0, mode)
+    words = [word for word in normalized.words if word not in _TRIGGER_WORDS]
     topic = _match_topic(words)
     if topic is not None:
         return _render(topic, 0, mode)
