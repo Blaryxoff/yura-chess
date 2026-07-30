@@ -325,8 +325,8 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 - [x] Разрешить подменить встроенные Alice sounds на загруженные custom sound IDs через environment settings
 - [x] Сгенерировать отдельные MP3-превью и общий демо-файл, проверить длительность/уровни и focused tests
 - [x] Добавить end-to-end shell и Alice JSON-сценарии для всех пяти сигналов, replay и выключения/повторного включения звуков
-- [ ] Подготовить production masters из исходных WAV/OGG, загрузить их в Yandex Dialogs и проверить пять custom IDs в staging
-- [ ] Mark completed
+- [x] Подготовить production masters из исходных WAV/OGG, загрузить их в Yandex Dialogs и проверить пять custom IDs в staging
+- [x] Mark completed
 
 ## Verification notes
 
