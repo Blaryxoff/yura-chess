@@ -24,6 +24,11 @@ SQUARE_PATTERN = re.compile(r"\b([a-h])([1-8])\b")
 # pauses added here and nothing else.
 PAUSE_MARKUP = " sil <[400]>"
 
+# The words each half of a two-ply answer opens with. A cue is placed by them
+# and withheld when they are absent, so every writer must spell them from here.
+PLAYER_MOVE_PREFIX = "Ваш ход: "
+ENGINE_MOVE_PREFIX = "Мой ход. "
+
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 _AUDIO_ID = re.compile(r"^(?:alice-sounds-[a-z0-9-]+\.opus|dialogs-upload/[A-Za-z0-9-]+/[A-Za-z0-9-]+\.opus)$")
 
@@ -166,6 +171,42 @@ def add_sound(
     if not _AUDIO_ID.fullmatch(audio_id):
         return speech
     return Speech(text=speech.text, tts=f'<speaker audio="{audio_id}"> {speech.spoken()}')
+
+
+def add_move_sounds(
+    speech: Speech,
+    opening: SoundEvent | None,
+    player: SoundEvent | None,
+    engine: SoundEvent | None,
+    enabled: bool,
+    library: SoundLibrary,
+) -> Speech:
+    """Sound each half of the answer on the words that name it.
+
+    An answer settling an owed engine reply carries the player's move without
+    saying it again; sounding it there would repeat a ply already heard.
+    """
+    front = opening if opening is not None else (player if PLAYER_MOVE_PREFIX in speech.spoken() else None)
+    return add_sound(insert_sound(speech, engine, enabled, library), front, enabled, library)
+
+
+def insert_sound(
+    speech: Speech,
+    event: SoundEvent | None,
+    enabled: bool,
+    library: SoundLibrary,
+) -> Speech:
+    """Sound the engine's half of an answer where its words begin, not at the front."""
+    if not enabled or event is None:
+        return speech
+    audio_id = library.audio_id(event)
+    if not _AUDIO_ID.fullmatch(audio_id):
+        return speech
+    spoken = speech.spoken()
+    start = spoken.find(ENGINE_MOVE_PREFIX)
+    if start < 0:
+        return speech
+    return Speech(text=speech.text, tts=f'{spoken[:start]}<speaker audio="{audio_id}"> {spoken[start:]}')
 
 
 def describe_move(

@@ -45,7 +45,14 @@ from yura_chess.presentation import help_speech
 from yura_chess.presentation.commentary import comment_on
 from yura_chess.presentation.game_facts import answer_game_fact
 from yura_chess.presentation.help_speech import HelpAnswer, HelpMode, HelpState
-from yura_chess.presentation.move_speech import SoundEvent, SoundLibrary, Speech, add_pauses, add_sound
+from yura_chess.presentation.move_speech import (
+    PLAYER_MOVE_PREFIX,
+    SoundEvent,
+    SoundLibrary,
+    Speech,
+    add_move_sounds,
+    add_pauses,
+)
 from yura_chess.presentation.position_speech import answer_position_query, describe_recent_moves
 from yura_chess.presentation.response_composer import (
     BoardCard,
@@ -156,8 +163,15 @@ class ConversationReply:
     # Only explicit skill-exit commands end the Alice session. The game remains
     # server-side and can be resumed on the next launch.
     end_session: bool = False
-    # One optional non-verbal cue; `handle` applies it after pauses and settings.
+    # The cue for the answer as a whole — an opened game, a solved puzzle;
+    # `handle` applies it after pauses and settings.
     sound: SoundEvent | None = None
+    # The cue for the player's own move, sounded at the front and only when the
+    # answer names that move.
+    player_sound: SoundEvent | None = None
+    # The cue for the engine's move, sounded where «Мой ход» begins, so that an
+    # answer carrying both plies is heard as both.
+    engine_sound: SoundEvent | None = None
 
 
 class ChessEngine(MoveSearch, PositionSearch, Protocol):
@@ -227,7 +241,14 @@ class ConversationService:
         # A settings command answers with the preferences it just stored.
         effective = reply.preferences or preferences
         speech = add_pauses(reply.speech, effective.pause_style)
-        speech = add_sound(speech, reply.sound, effective.sounds_enabled, self._sounds)
+        speech = add_move_sounds(
+            speech,
+            reply.sound,
+            reply.player_sound,
+            reply.engine_sound,
+            effective.sounds_enabled,
+            self._sounds,
+        )
         return replace(reply, speech=speech, preferences=effective)
 
     def _preferences(self, owner_key: str) -> PlayerPreferences:
@@ -404,9 +425,10 @@ class ConversationService:
             if candidate is not None and routed.move is not None:
                 result = await self._games.play_move(owner_key, candidate.id, routed.move, request)
                 reply = self._turn_reply(owner_key, result, replace(next_state, pending_action=None), preferences)
-                if result.player_move is not None:
-                    move_text = _display_uci(result.player_move)
-                    reply = replace(reply, speech=Speech.of(f"Ваш ход: {move_text}. {reply.speech.text}"))
+                named = _named_player_move(result)
+                if named is not None:
+                    move_text = _display_uci(named)
+                    reply = replace(reply, speech=Speech.of(f"{PLAYER_MOVE_PREFIX}{move_text}. {reply.speech.text}"))
                 return self._with_training_warning(owner_key, reply)
 
         if (
@@ -755,9 +777,10 @@ class ConversationService:
         if routed.kind is CommandKind.MOVE and routed.move is not None:
             result = await self._games.play_move(owner_key, game.id, routed.move, request)
             reply = self._turn_reply(owner_key, result, next_state, preferences)
-            if result.player_move is not None:
-                move_text = _display_uci(result.player_move)
-                reply = replace(reply, speech=Speech.of(f"Ваш ход: {move_text}. {reply.speech.text}"))
+            named = _named_player_move(result)
+            if named is not None:
+                move_text = _display_uci(named)
+                reply = replace(reply, speech=Speech.of(f"{PLAYER_MOVE_PREFIX}{move_text}. {reply.speech.text}"))
             return self._with_training_warning(owner_key, reply)
 
         return ConversationReply(
@@ -941,12 +964,12 @@ class ConversationService:
                         f"Назовите ход, например «пешка е два е четыре». {reply.speech.text}"
                     )
                 ),
-                sound=reply.sound or SoundEvent.START,
+                sound=_opening_sound(reply),
             )
         return replace(
             reply,
             speech=Speech.of(f"Новая партия. Вы играете {side}, уровень {level}. {reply.speech.text}"),
-            sound=reply.sound or SoundEvent.START,
+            sound=_opening_sound(reply),
         )
 
     async def _rematch(
@@ -980,7 +1003,7 @@ class ConversationService:
         return replace(
             reply,
             speech=Speech.of(f"Реванш. Вы играете {side}, уровень {level}. {reply.speech.text}"),
-            sound=reply.sound or SoundEvent.START,
+            sound=_opening_sound(reply),
         )
 
     def _turn_reply(
@@ -990,17 +1013,22 @@ class ConversationService:
         state: ConversationState,
         preferences: PlayerPreferences,
     ) -> ConversationReply:
-        final_state = self._load(owner_key, result.game_id)
+        loaded = self._load(owner_key, result.game_id)
+        # The game as this turn left it. The stored one may have moved on since —
+        # a delivery retried late describes its own turn, not the current position.
+        turn_state = replace(loaded, moves=result.moves) if loaded is not None else None
+        settled = turn_state.board() if turn_state is not None else None
         board_before_engine: chess.Board | None = None
-        if result.engine_move is not None and final_state is not None:
-            board_before_engine = final_state.board()
-            if final_state.moves and final_state.moves[-1] == result.engine_move:
+        if result.engine_move is not None and settled is not None:
+            board_before_engine = settled.copy()
+            if board_before_engine.move_stack and board_before_engine.peek().uci() == result.engine_move:
                 board_before_engine.pop()
+        board_after_player = _board_after_player(result, settled)
         speech = compose_turn(
             result,
             board_before_engine,
             preferences.notation_style,
-            self._commentary(owner_key, result, final_state, preferences),
+            self._commentary(owner_key, result, turn_state, preferences),
         )
         if (
             preferences.detail_level is DetailLevel.DETAILED
@@ -1012,7 +1040,8 @@ class ConversationService:
             speech,
             self._state_from_turn(state, result),
             result,
-            sound=_turn_sound(result),
+            player_sound=_player_sound(result, board_after_player),
+            engine_sound=_engine_sound(result),
         )
 
     def _commentary(
@@ -1049,8 +1078,9 @@ class ConversationService:
     ) -> ConversationReply:
         replay_state = replace(state, last_heard=utterance.strip() or state.last_heard)
         reply = self._turn_reply(owner_key, result, replay_state, preferences)
-        if result.player_move is not None:
-            return replace(reply, speech=Speech.of(f"Ваш ход: {_display_uci(result.player_move)}. {reply.speech.text}"))
+        named = _named_player_move(result)
+        if named is not None:
+            return replace(reply, speech=Speech.of(f"{PLAYER_MOVE_PREFIX}{_display_uci(named)}. {reply.speech.text}"))
         if state.game_id != result.game_id:
             side = "черными" if result.player_color is PlayerColor.BLACK else "белыми"
             game = self._load(owner_key, result.game_id)
@@ -1058,7 +1088,7 @@ class ConversationService:
             return replace(
                 reply,
                 speech=Speech.of(f"Новая партия. Вы играете {side}, уровень {level}. {reply.speech.text}"),
-                sound=reply.sound or SoundEvent.START,
+                sound=_opening_sound(reply),
             )
         return reply
 
@@ -1295,14 +1325,57 @@ def _player_to_move(result: TurnResult) -> bool:
     return result.status is TurnStatus.OK and chess.Board(result.fen).turn == result.player_color.to_chess()
 
 
-def _turn_sound(result: TurnResult) -> SoundEvent | None:
-    """Choose the single highest-priority cue for a completed game response."""
-    if result.outcome is not None and result.outcome.end is GameEnd.CHECKMATE:
-        return SoundEvent.SUCCESS if result.outcome.winner is result.player_color else SoundEvent.CHECKMATE
-    # The answer only ever names the engine's move; an owed reply says the words
-    # of a turn that has not happened yet and must stay silent.
+def _opening_sound(reply: ConversationReply) -> SoundEvent | None:
+    """A fresh game announces itself only when no move in the answer already sounds."""
+    if reply.player_sound is not None or reply.engine_sound is not None:
+        return reply.sound
+    return SoundEvent.START
+
+
+def _named_player_move(result: TurnResult) -> str | None:
+    """The player's move when this answer is the one that should say it.
+
+    A turn owed since an earlier request carries a move that request already
+    named; saying and sounding it again would replay a ply the player has heard.
+    """
+    return None if result.settles_owed_reply else result.player_move
+
+
+def _board_after_player(result: TurnResult, settled: chess.Board | None) -> chess.Board | None:
+    """The position the player's move left, rewound from that turn's own history.
+
+    A turn settled by a concurrent request reports the position after the engine
+    has already answered; the player's own move must not be read off that.
+    """
+    if result.player_move is None or settled is None:
+        return None
+    board = settled.copy()
+    while board.move_stack and board.peek().uci() != result.player_move:
+        board.pop()
+    return board if board.move_stack else None
+
+
+def _player_sound(result: TurnResult, board_after_player: chess.Board | None) -> SoundEvent | None:
+    """Sound the player's own move, and their win when the mate is theirs."""
+    if result.player_move is None:
+        return None
+    if (
+        result.outcome is not None
+        and result.outcome.end is GameEnd.CHECKMATE
+        and result.outcome.winner is result.player_color
+    ):
+        return SoundEvent.SUCCESS
+    if board_after_player is None:
+        return SoundEvent.MOVE
+    return SoundEvent.CHECK if board_after_player.is_check() else SoundEvent.MOVE
+
+
+def _engine_sound(result: TurnResult) -> SoundEvent | None:
+    """Sound the engine's move; an owed reply names no move and stays silent."""
     if result.engine_move is None:
         return None
+    if result.outcome is not None and result.outcome.end is GameEnd.CHECKMATE:
+        return SoundEvent.CHECKMATE
     return SoundEvent.CHECK if chess.Board(result.fen).is_check() else SoundEvent.MOVE
 
 

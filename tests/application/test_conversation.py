@@ -20,7 +20,9 @@ from yura_chess.application.conversation import (
     ConversationReply,
     ConversationService,
     ConversationState,
-    _turn_sound,
+    _board_after_player,
+    _engine_sound,
+    _player_sound,
 )
 from yura_chess.application.game_service import RequestContext
 from yura_chess.application.puzzle_service import PuzzleService
@@ -123,19 +125,21 @@ async def test_start_sound_and_durable_voice_switch(
         assert PreferencesRepository(session).load(OWNER).sounds_enabled is False
 
 
-def test_turn_sound_uses_the_highest_priority_event() -> None:
+def test_each_half_of_a_turn_gets_the_cue_of_its_own_move() -> None:
     base = {
         "game_id": "sound-game",
         "revision": 2,
         "moves": ("f2f3",),
         "player_color": PlayerColor.WHITE,
+        "player_move": "f2f3",
         "game_status": GameStatus.ACTIVE,
         "status": TurnStatus.OK,
     }
-    checked = TurnResult(fen="4k3/8/8/8/8/8/4r3/4K3 w - - 0 1", player_move="f2f3", engine_move="e7e2", **base)
+    quiet = chess.Board()
+    checking = chess.Board("4k3/8/8/8/8/8/4R3/4K3 b - - 0 1")
+    checked = TurnResult(fen="4k3/8/8/8/8/8/4r3/4K3 w - - 0 1", engine_move="e7e2", **base)
     owed = TurnResult(
         fen="4k3/8/8/8/8/8/4r3/4K3 w - - 0 1",
-        player_move="f2f3",
         **{key: value for key, value in base.items() if key != "status"},
         status=TurnStatus.ENGINE_UNAVAILABLE,
     )
@@ -147,16 +151,52 @@ def test_turn_sound_uses_the_highest_priority_event() -> None:
     )
     lost = TurnResult(
         fen="7K/6q1/6k1/8/8/8/8/8 w - - 0 1",
+        engine_move="g7g8",
         outcome=GameOutcome(GameEnd.CHECKMATE, PlayerColor.BLACK),
         game_status=GameStatus.FINISHED,
         **{key: value for key, value in base.items() if key != "game_status"},
     )
 
-    assert _turn_sound(checked) is SoundEvent.CHECK
-    assert _turn_sound(won) is SoundEvent.SUCCESS
-    assert _turn_sound(lost) is SoundEvent.CHECKMATE
-    # The answer keeps the move and asks for «продолжаем»; no turn has happened.
-    assert _turn_sound(owed) is None
+    assert _player_sound(checked, quiet) is SoundEvent.MOVE
+    assert _engine_sound(checked) is SoundEvent.CHECK
+    # A check the player gives and the engine parries is still heard on its half.
+    assert _player_sound(checked, checking) is SoundEvent.CHECK
+    assert _player_sound(won, chess.Board(won.fen)) is SoundEvent.SUCCESS
+    assert _engine_sound(won) is None
+    assert _player_sound(lost, quiet) is SoundEvent.MOVE
+    assert _engine_sound(lost) is SoundEvent.CHECKMATE
+    # A check answered by mate keeps both halves: the player's check, then the mate.
+    assert _player_sound(lost, checking) is SoundEvent.CHECK
+    # The answer keeps the move and asks for «продолжаем»; the engine never replied.
+    assert _player_sound(owed, chess.Board(owed.fen)) is SoundEvent.CHECK
+    assert _engine_sound(owed) is None
+
+
+def test_a_turn_settled_elsewhere_reads_the_players_own_position() -> None:
+    """1. f3 e5 2. a3 Qh4+ settled elsewhere: «a3» is quiet, the check is Black's."""
+    played = ("f2f3", "e7e5", "a2a3", "d8h4")
+    settled = chess.Board()
+    for uci in played:
+        settled.push(chess.Move.from_uci(uci))
+    # The engine's reply is already in the history, and it gives check.
+    raced = TurnResult(
+        game_id="raced-game",
+        revision=5,
+        fen=settled.fen(),
+        moves=played,
+        player_color=PlayerColor.WHITE,
+        player_move="a2a3",
+        game_status=GameStatus.ACTIVE,
+        status=TurnStatus.OK,
+    )
+
+    quiet = _board_after_player(raced, settled)
+
+    assert settled.is_check()
+    assert quiet is not None and not quiet.is_check()
+    assert _player_sound(raced, quiet) is SoundEvent.MOVE
+    # A history that never contained the move leaves the cue to the safe default.
+    assert _board_after_player(raced, chess.Board()) is None
 
 
 async def test_incomplete_and_compound_moves_get_specific_non_mutating_clarifications(

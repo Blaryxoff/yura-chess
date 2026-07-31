@@ -119,6 +119,7 @@ class GameService:
             token=pending.token if pending else None,
             player_move=pending.player_move_uci if pending else None,
             request=request,
+            settles_owed_reply=pending is not None,
         )
 
     async def continue_game(self, owner_key: str, game_id: str, request: RequestContext) -> TurnResult:
@@ -138,6 +139,7 @@ class GameService:
             token=pending.token if pending else None,
             player_move=pending.player_move_uci if pending else None,
             request=request,
+            settles_owed_reply=pending is not None,
         )
 
     def load_game(self, owner_key: str, game_id: str) -> GameState:
@@ -215,6 +217,8 @@ class GameService:
             if not self._engine_to_move(state):
                 return self._finalize(repository, replay, TurnResult.from_state(state, TurnStatus.OK))
             pending = state.pending_engine_turn
+        # This request never answered, so nothing has named the move yet: the retry
+        # of a timed-out move still owes the player the confirmation of it.
         return await self._play_engine_move(
             owner_key,
             state,
@@ -233,6 +237,7 @@ class GameService:
         terminal_result: TurnResult | None = None
         token: str | None = None
         player_move: str | None = None
+        owed = False
         with session_scope(self._session_factory) as session:
             repository = GameRepository(session)
             state = repository.load(game_id, owner_key)
@@ -251,6 +256,7 @@ class GameService:
                 token = pending.token if pending else None
                 player_move = pending.player_move_uci if pending else None
                 observed = len(state.moves) - 1 if player_move is not None else None
+                owed = player_move is not None
             else:
                 if state.status is not GameStatus.ACTIVE:
                     return self._finalize(
@@ -287,7 +293,7 @@ class GameService:
             return terminal_result
         if player_move is not None and observed is not None:
             self._schedule_observe(owner_key, state, observed, player_move)
-        result = await self._play_engine_move(owner_key, state, token, player_move, request)
+        result = await self._play_engine_move(owner_key, state, token, player_move, request, owed)
         # Give a fast observer one event-loop turn to persist its checkpoint,
         # without waiting for slow analysis before answering Alice.
         await asyncio.sleep(0)
@@ -401,6 +407,7 @@ class GameService:
         token: str | None,
         player_move: str | None,
         request: RequestContext,
+        settles_owed_reply: bool = False,
     ) -> TurnResult:
         """Search with no transaction open, then settle the turn in transaction B."""
         try:
@@ -417,6 +424,7 @@ class GameService:
                 TurnStatus.ENGINE_UNAVAILABLE,
                 player_move=player_move,
                 detail=type(error).__name__,
+                settles_owed_reply=settles_owed_reply,
             )
 
         with session_scope(self._session_factory) as session:
@@ -437,12 +445,14 @@ class GameService:
                         TurnStatus.ENGINE_UNAVAILABLE,
                         player_move=player_move,
                         detail="position changed while the engine was searching",
+                        settles_owed_reply=settles_owed_reply,
                     )
                 else:
                     result = TurnResult.from_state(
                         current,
                         TurnStatus.OK if current.status is GameStatus.ACTIVE else TurnStatus.GAME_ALREADY_FINISHED,
                         player_move=player_move,
+                        settles_owed_reply=settles_owed_reply,
                     )
                 return self._finalize(repository, replay, result)
 
@@ -464,6 +474,7 @@ class GameService:
                 player_move=player_move,
                 engine_move=engine_move,
                 outcome=outcome,
+                settles_owed_reply=settles_owed_reply,
             )
             return self._finalize(repository, replay, result)
 

@@ -14,10 +14,13 @@ from yura_chess.domain.game import GameStatus, PlayerColor
 from yura_chess.domain.preferences import NotationStyle, PauseStyle
 from yura_chess.domain.results import GameEnd, GameOutcome, TurnResult, TurnStatus
 from yura_chess.presentation.move_speech import (
+    ENGINE_MOVE_PREFIX,
     PAUSE_MARKUP,
+    PLAYER_MOVE_PREFIX,
     SoundEvent,
     SoundLibrary,
     Speech,
+    add_move_sounds,
     add_pauses,
     add_sound,
     describe_move,
@@ -83,6 +86,43 @@ def test_one_sound_is_added_to_tts_without_changing_visible_or_spoken_words() ->
 
     assert speech.text == "Задача решена."
     assert speech.tts == '<speaker audio="dialogs-upload/skill/audio.opus"> Задача решена.'
+
+
+def test_each_half_of_a_turn_is_sounded_on_the_words_that_name_its_move() -> None:
+    library = SoundLibrary(
+        "alice-sounds-start.opus",
+        "alice-sounds-move.opus",
+        "alice-sounds-check.opus",
+        "alice-sounds-mate.opus",
+        "alice-sounds-win.opus",
+    )
+    both = Speech.of(f"{PLAYER_MOVE_PREFIX}e2 e4. {ENGINE_MOVE_PREFIX}пешка e7 e5.")
+
+    sounded = add_move_sounds(both, None, SoundEvent.MOVE, SoundEvent.CHECK, True, library)
+
+    assert sounded.text == both.text
+    assert sounded.tts == (
+        '<speaker audio="alice-sounds-move.opus"> Ваш ход: е два е четыре. '
+        '<speaker audio="alice-sounds-check.opus"> Мой ход. пешка е семь е пять.'
+    )
+
+
+def test_a_move_the_answer_does_not_name_is_never_sounded() -> None:
+    """A settled or raced engine reply carries a move whose words it never says."""
+    library = SoundLibrary(
+        "alice-sounds-start.opus",
+        "alice-sounds-move.opus",
+        "alice-sounds-check.opus",
+        "alice-sounds-mate.opus",
+        "alice-sounds-win.opus",
+    )
+    silent = Speech.of("Ваш ход.")
+
+    assert add_move_sounds(silent, None, SoundEvent.CHECK, None, True, library) == silent
+    # An answer-level cue belongs to no ply and is not withheld with them.
+    assert add_move_sounds(silent, SoundEvent.START, SoundEvent.CHECK, None, True, library).tts == (
+        '<speaker audio="alice-sounds-start.opus"> Ваш ход.'
+    )
 
 
 def test_disabled_or_untrusted_sound_markup_is_not_added() -> None:

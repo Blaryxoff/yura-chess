@@ -13,6 +13,7 @@ import asyncio
 import hmac
 import json
 import logging
+import re
 from hashlib import sha256
 from time import monotonic
 from typing import Literal
@@ -75,6 +76,9 @@ logger = logging.getLogger(__name__)
 
 # What the card path leaves the webhook for serialising the answer it already has.
 CARD_DEADLINE_MARGIN_SECONDS = 0.2
+
+# The two speech directives the presentation layer emits; each is atomic to Alice.
+_MARKUP = re.compile(r'<speaker audio="[^"]*">|sil <\[\d+\]>')
 
 
 ALICE_WEBHOOK_PATH = "/webhooks/alice"
@@ -266,7 +270,7 @@ def _compose(payload: AliceRequest, reply: ConversationReply, salt: SecretStr) -
         response=ResponseBody(
             text=_clip(text, TEXT_LIMIT),
             # A separate `tts` is sent only when it differs from the display text.
-            tts=_clip(pronunciation, TTS_LIMIT) if pronunciation is not None and pronunciation != text else None,
+            tts=_clip_tts(pronunciation) if pronunciation is not None and pronunciation != text else None,
             end_session=reply.end_session,
         ),
         user_state_update=_state_update(reply.turn),
@@ -483,6 +487,22 @@ def _within_state_limit(state: ConversationSessionState) -> ConversationSessionS
 
 def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _clip_tts(pronunciation: str) -> str:
+    """Clip the pronunciation without leaving half a markup directive behind.
+
+    Alice reads a broken `<speaker audio="dialogs-uplo` or `sil <[40` aloud, so a
+    cut landing inside one is moved back to where that directive starts.
+    """
+    if len(pronunciation) <= TTS_LIMIT:
+        return pronunciation
+    cut = TTS_LIMIT - 1
+    for directive in _MARKUP.finditer(pronunciation):
+        if directive.start() < cut < directive.end():
+            cut = directive.start()
+            break
+    return pronunciation[:cut] + "…"
 
 
 def _pending_signature(

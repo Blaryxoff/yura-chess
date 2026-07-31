@@ -19,7 +19,12 @@ from yura_chess.domain.preferences import NotationStyle
 from yura_chess.domain.results import GameEnd, GameOutcome, TurnResult, TurnStatus
 from yura_chess.presentation import help_speech
 from yura_chess.presentation.board_image import position_hash, render_png
-from yura_chess.presentation.move_speech import Speech, describe_move, describe_played_move
+from yura_chess.presentation.move_speech import (
+    ENGINE_MOVE_PREFIX,
+    Speech,
+    describe_move,
+    describe_played_move,
+)
 
 # How much a single Alice `ItemsList` card can carry.
 CARD_DESCRIPTION_LIMIT = 256
@@ -164,10 +169,10 @@ def _move_text(result: TurnResult, board_before: chess.Board | None, notation: N
         return ""
     move = chess.Move.from_uci(result.engine_move)
     if board_before is not None:
-        return "Мой ход. " + describe_move(board_before, move, notation).text
+        return ENGINE_MOVE_PREFIX + describe_move(board_before, move, notation).text
     # Without the previous position the moving piece is still readable off the
     # destination square; only what it captured is lost.
-    return "Мой ход. " + describe_played_move(chess.Board(result.fen), move, notation).text
+    return ENGINE_MOVE_PREFIX + describe_played_move(chess.Board(result.fen), move, notation).text
 
 
 def _outcome_text(result: TurnResult) -> str:

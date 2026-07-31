@@ -21,7 +21,7 @@ from yura_chess.adapters.alice.models import (
     TTS_LIMIT,
     AliceRequest,
 )
-from yura_chess.adapters.alice.webhook import _conversation_state, _session_state_update
+from yura_chess.adapters.alice.webhook import _clip_tts, _conversation_state, _session_state_update
 from yura_chess.application.command_router import (
     CommandKind,
     PendingClarification,
@@ -35,6 +35,7 @@ from yura_chess.application.player_identity import UnidentifiedRequestError, own
 from yura_chess.domain.game import PlayerColor
 from yura_chess.main import create_app
 from yura_chess.presentation.help_speech import HelpState, HelpTopic
+from yura_chess.presentation.move_speech import PAUSE_MARKUP
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository, RevisionConflictError
@@ -532,6 +533,21 @@ async def test_a_help_answer_stays_inside_the_platform_limits_without_a_screen(
     assert body.get("card") is None
     assert "Раздел «правила»" in body["text"]
     assert "Цель игры — поставить мат королю соперника" in body["text"]
+
+
+@pytest.mark.parametrize(
+    "directive",
+    ['<speaker audio="dialogs-upload/1234-abcd/5678-efgh.opus">', PAUSE_MARKUP.strip()],
+)
+def test_clipping_the_pronunciation_never_leaves_half_a_directive_behind(directive: str) -> None:
+    """Alice reads a broken tag or pause aloud, so an over-long answer drops it whole."""
+    overflowing = "а" * (TTS_LIMIT - len(directive) // 2) + directive + " Мой ход."
+
+    clipped = _clip_tts(overflowing)
+
+    assert len(clipped) <= TTS_LIMIT
+    assert clipped == "а" * (TTS_LIMIT - len(directive) // 2) + "…"
+    assert _clip_tts(directive + " Мой ход.") == directive + " Мой ход."
 
 
 async def test_a_foreign_game_id_reveals_nothing_and_never_touches_that_game(

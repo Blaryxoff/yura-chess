@@ -87,6 +87,9 @@ class TurnResult:
     outcome: GameOutcome | None = None
     detail: str | None = None
     replayed: bool = False
+    # True when `player_move` was owed by an earlier request rather than named by
+    # this one: the answer settles the engine's reply and never says the move again.
+    settles_owed_reply: bool = False
 
     @classmethod
     def from_state(
@@ -98,6 +101,7 @@ class TurnResult:
         engine_move: str | None = None,
         outcome: GameOutcome | None = None,
         detail: str | None = None,
+        settles_owed_reply: bool = False,
     ) -> TurnResult:
         return cls(
             status=status,
@@ -111,6 +115,7 @@ class TurnResult:
             engine_move=engine_move,
             outcome=outcome,
             detail=detail,
+            settles_owed_reply=settles_owed_reply,
         )
 
     def to_payload(self) -> str:
@@ -125,6 +130,7 @@ class TurnResult:
             "player_move": self.player_move,
             "engine_move": self.engine_move,
             "detail": self.detail,
+            "settles_owed_reply": self.settles_owed_reply,
             "outcome": (
                 {"end": self.outcome.end.value, "winner": self.outcome.winner.value if self.outcome.winner else None}
                 if self.outcome
@@ -157,5 +163,6 @@ class TurnResult:
                 else None
             ),
             detail=body["detail"],
+            settles_owed_reply=bool(body.get("settles_owed_reply", False)),
             replayed=True,
         )

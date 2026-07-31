@@ -1,9 +1,9 @@
 """Every non-verbal cue over both halves of the suite: the shell script and real Alice JSON.
 
 `add_sound` is unit-tested on its own. Only a whole dialogue can prove that the
-five events are actually reachable, that an answer never carries a second cue,
-that a re-delivery repeats the first one, and that the durable switch outlives
-the Alice session that flipped it.
+five events are actually reachable, that an answer narrating both halves of a
+turn sounds both of them and on the right words, that a re-delivery repeats them,
+and that the durable switch outlives the Alice session that flipped it.
 """
 
 from __future__ import annotations
@@ -14,17 +14,19 @@ from collections.abc import Sequence
 import chess
 import pytest
 from harness import AliceSession, FakeEngine, build_client, context
+from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from test_modes import conversation, run_script
 
 from yura_chess.adapters.alice.models import TTS_LIMIT
 from yura_chess.application.conversation import ConversationReply, ConversationState
-from yura_chess.presentation.move_speech import PAUSE_MARKUP
+from yura_chess.presentation.move_speech import ENGINE_MOVE_PREFIX, PAUSE_MARKUP
 from yura_chess.settings import Settings
 
 pytestmark = pytest.mark.anyio
 
 SPEAKER = re.compile(r'<speaker audio="([^"]+)">')
+BEFORE_ENGINE = re.compile(r'<speaker audio="([^"]+)">\s*$')
 
 
 class ScriptedEngine(FakeEngine):
@@ -46,11 +48,19 @@ class ScriptedEngine(FakeEngine):
         return next(iter(board.legal_moves)).uci()
 
 
-def cue(tts: str | None) -> str | None:
-    """The one audio id an answer carries, and proof that it carries no second one."""
-    found = SPEAKER.findall(tts or "")
-    assert len(found) <= 1, tts
-    return found[0] if found else None
+def cues(tts: str | None) -> tuple[str, ...]:
+    """Every audio id an answer carries, in the order it is heard."""
+    return tuple(SPEAKER.findall(tts or ""))
+
+
+def engine_cue(tts: str | None) -> str | None:
+    """The id sounded where the engine's half of the answer begins, if any."""
+    spoken = tts or ""
+    start = spoken.find(ENGINE_MOVE_PREFIX)
+    if start < 0:
+        return None
+    tagged = BEFORE_ENGINE.search(spoken[:start])
+    return tagged.group(1) if tagged is not None else None
 
 
 async def play(
@@ -59,15 +69,15 @@ async def play(
     replies: Sequence[str],
     commands: Sequence[str],
     owner: str,
-) -> list[str | None]:
-    """Open a game and speak the line; keep the cue of every answer in order."""
+) -> list[tuple[str, ...]]:
+    """Open a game and speak the line; keep the cues of every answer in order."""
     service = conversation(session_factory, settings, ScriptedEngine(replies))
     opening = await service.handle(owner, "", context(owner, 0, new=True))
-    heard = [cue(opening.speech.tts)]
+    heard = [cues(opening.speech.tts)]
     state = opening.state
     for step, command in enumerate(commands, start=1):
         reply = await service.handle(owner, command, context(owner, step), state)
-        heard.append(cue(reply.speech.tts))
+        heard.append(cues(reply.speech.tts))
         state = reply.state
     return heard
 
@@ -77,38 +87,57 @@ async def alice_cues(
     replies: Sequence[str],
     commands: Sequence[str],
     session_id: str,
-) -> list[str | None]:
+) -> list[tuple[str, ...]]:
     """The same line over real Alice JSON, so the adapter is proven to carry it."""
     async with build_client(session_factory, ScriptedEngine(replies)) as client:
         dialogue = AliceSession(client, session_id)
         answers = [await dialogue.say(new=True)]
         for command in commands:
             answers.append(await dialogue.say(command))
-    return [cue(body["response"].get("tts")) for body in answers]
+    return [cues(body["response"].get("tts")) for body in answers]
 
 
-def heard_after(transcript: list[tuple[str, ConversationReply]], command: str) -> str | None:
+def heard_after(transcript: list[tuple[str, ConversationReply]], command: str) -> tuple[str, ...]:
     for utterance, reply in transcript:
         if utterance == command:
-            return cue(reply.speech.tts)
+            return cues(reply.speech.tts)
     raise AssertionError(f"{command!r} is not in the script")
 
 
-# The engine replies, the player's commands and the cue every answer must carry.
+# The engine replies, the player's commands and the cues every answer must carry:
+# an answer that narrates both halves of a turn sounds both of them.
 LINES = (
     # 1. f3 e5 2. a3 Qh4+ — the engine, not the player, delivers the check.
-    ("check", ("e7e5", "d8h4"), ("пешка эф два эф три", "пешка а два а три"), ("start", "move", "check")),
+    (
+        "check",
+        ("e7e5", "d8h4"),
+        ("пешка эф два эф три", "пешка а два а три"),
+        (("start",), ("move", "move"), ("move", "check")),
+    ),
+    # 1. e4 f6 2. Qh5+ g6 — this time the check is the player's, and the engine
+    # parries it, so only the first half of the answer may sound alarmed.
+    (
+        "player-check",
+        ("f7f6", "g7g6"),
+        ("пешка е два е четыре", "ферзь д один аш пять"),
+        (("start",), ("move", "move"), ("check", "move")),
+    ),
     # 1. f3 e5 2. g4 Qh4# — mate outranks the check it also is.
-    ("mate", ("e7e5", "d8h4"), ("пешка эф два эф три", "пешка ж два ж четыре"), ("start", "move", "checkmate")),
-    # 1. e4 f6 2. d4 g5 3. Qh5#
+    (
+        "mate",
+        ("e7e5", "d8h4"),
+        ("пешка эф два эф три", "пешка ж два ж четыре"),
+        (("start",), ("move", "move"), ("move", "checkmate")),
+    ),
+    # 1. e4 f6 2. d4 g5 3. Qh5# — the last answer has no engine half to sound.
     (
         "win",
         ("f7f6", "g7g5"),
         ("пешка е два е четыре", "пешка д два д четыре", "ферзь д один аш пять"),
-        ("start", "move", "move", "success"),
+        (("start",), ("move", "move"), ("move", "move"), ("success",)),
     ),
     # The engine has already moved for Black, and «ход» outranks «начало».
-    ("black", ("e2e4",), ("новая игра черными уровень три", "да"), ("start", None, "move")),
+    ("black", ("e2e4",), ("новая игра черными уровень три", "да"), (("start",), (), ("move",))),
 )
 
 
@@ -119,7 +148,7 @@ async def test_a_scripted_line_is_heard_cue_by_cue_over_both_transports(
     label: str,
     replies: tuple[str, ...],
     commands: tuple[str, ...],
-    expected: tuple[str, ...],
+    expected: tuple[tuple[str, ...], ...],
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
 ) -> None:
@@ -130,7 +159,9 @@ async def test_a_scripted_line_is_heard_cue_by_cue_over_both_transports(
         else alice_cues(session_factory, replies, commands, name)
     )
 
-    assert heard == [getattr(offline_settings, f"alice_sound_{event}") if event else None for event in expected]
+    assert heard == [
+        tuple(getattr(offline_settings, f"alice_sound_{event}") for event in answer) for answer in expected
+    ]
 
 
 async def test_the_shell_script_switches_the_cues_off_and_back_on(
@@ -140,12 +171,12 @@ async def test_the_shell_script_switches_the_cues_off_and_back_on(
     """The two orientation Validation Commands feed this script to the runner."""
     transcript = await run_script(session_factory, offline_settings, FakeEngine(), owner="e2e-sound-script")
 
-    assert cue(transcript[0][1].speech.tts) == offline_settings.alice_sound_start
-    assert heard_after(transcript, "выключи звуки") is None
-    assert heard_after(transcript, "пешка е два е четыре") is None
-    assert heard_after(transcript, "конь ж один эф три") is None
-    assert heard_after(transcript, "включи звуки") is None
-    assert heard_after(transcript, "дай задачу") == offline_settings.alice_sound_start
+    assert cues(transcript[0][1].speech.tts) == (offline_settings.alice_sound_start,)
+    assert heard_after(transcript, "выключи звуки") == ()
+    assert heard_after(transcript, "пешка е два е четыре") == ()
+    assert heard_after(transcript, "конь ж один эф три") == ()
+    assert heard_after(transcript, "включи звуки") == ()
+    assert heard_after(transcript, "дай задачу") == (offline_settings.alice_sound_start,)
 
 
 async def test_alice_repeats_the_cue_of_a_redelivered_move(
@@ -158,11 +189,77 @@ async def test_alice_repeats_the_cue_of_a_redelivered_move(
         moved = await dialogue.say("пешка е два е четыре")
         retry = await dialogue.resend(dialogue.message_id, "пешка е два е четыре")
 
-    assert opened["response"]["tts"].count("<speaker") == 1
-    assert offline_settings.alice_sound_start in opened["response"]["tts"]
-    assert moved["response"]["tts"].count("<speaker") == 1
-    assert offline_settings.alice_sound_move in moved["response"]["tts"]
+    assert cues(opened["response"]["tts"]) == (offline_settings.alice_sound_start,)
+    assert cues(moved["response"]["tts"]) == (offline_settings.alice_sound_move,) * 2
+    # The second of the two belongs to the engine's half and must sit on its words.
+    assert engine_cue(moved["response"]["tts"]) == offline_settings.alice_sound_move
     assert retry["response"]["tts"] == moved["response"]["tts"]
+
+
+async def test_an_owed_reply_sounds_the_move_it_owes_and_never_the_one_already_heard(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    """«продолжаем» says only «Мой ход», so only the engine's half may sound."""
+    async with build_client(session_factory, FakeEngine(move_failures=1)) as client:
+        dialogue = AliceSession(client, "e2e-sound-owed")
+        await dialogue.say(new=True)
+        stalled = await dialogue.say("пешка е два е четыре")
+        recovered = await dialogue.say("продолжаем")
+
+    assert cues(stalled["response"].get("tts")) == (offline_settings.alice_sound_move,)
+    assert recovered["response"]["text"].startswith(ENGINE_MOVE_PREFIX)
+    assert cues(recovered["response"]["tts"]) == (offline_settings.alice_sound_move,)
+    assert engine_cue(recovered["response"]["tts"]) == offline_settings.alice_sound_move
+
+
+async def test_a_resumed_game_settles_its_owed_reply_without_re_sounding_the_old_move(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    """Naming a move for the side the engine owes settles that reply instead.
+
+    The player's own move of a session ago must not be said, nor sounded, twice.
+    """
+    async with build_client(session_factory, FakeEngine(move_failures=1)) as client:
+        opening = AliceSession(client, "e2e-sound-owed-resume-1")
+        await opening.say(new=True)
+        stalled = await opening.say("пешка е два е четыре")
+
+        resumed = AliceSession(client, "e2e-sound-owed-resume-2")
+        await resumed.say(new=True)
+        settled = await resumed.say("конь ж восемь аш шесть")
+
+    assert "Ваш ход: e2 e4" in stalled["response"]["text"]
+    assert settled["response"]["text"] == "Мой ход. конь g8 h6."
+    assert cues(settled["response"]["tts"]) == (offline_settings.alice_sound_move,)
+    assert engine_cue(settled["response"]["tts"]) == offline_settings.alice_sound_move
+
+
+async def test_a_re_delivered_owed_reply_repeats_the_answer_it_first_gave(
+    session_factory: sessionmaker[Session],
+    database_engine: Engine,
+    offline_settings: Settings,
+) -> None:
+    """Without its cached Alice answer the reply is rebuilt, and must come out identical."""
+    async with build_client(session_factory, FakeEngine(move_failures=1)) as client:
+        dialogue = AliceSession(client, "e2e-sound-owed-replay")
+        await dialogue.say(new=True)
+        await dialogue.say("пешка е два е четыре")
+        recovered = await dialogue.say("продолжаем")
+        settled_id = dialogue.message_id
+        # The game moves on, so a late re-delivery has a newer history to be
+        # misled by: its answer still belongs to the turn it settled.
+        await dialogue.say("пешка д два д четыре")
+        with database_engine.begin() as connection:
+            connection.execute(text("UPDATE request_replays SET alice_response_payload = NULL"))
+
+        rebuilt = await dialogue.resend(settled_id, "продолжаем")
+
+    assert recovered["response"]["text"].startswith(ENGINE_MOVE_PREFIX)
+    assert rebuilt["response"]["text"] == recovered["response"]["text"]
+    assert cues(rebuilt["response"]["tts"]) == cues(recovered["response"]["tts"])
+    assert cues(rebuilt["response"]["tts"]) == (offline_settings.alice_sound_move,)
 
 
 async def test_the_sound_switch_outlives_the_alice_session_that_flipped_it(
@@ -184,10 +281,10 @@ async def test_the_sound_switch_outlives_the_alice_session_that_flipped_it(
     assert "<speaker" not in (silent["response"].get("tts") or "")
     assert "<speaker" not in (resumed["response"].get("tts") or "")
     assert "Звуки включены." in on["response"]["text"]
-    assert offline_settings.alice_sound_move in loud["response"]["tts"]
+    assert cues(loud["response"]["tts"]) == (offline_settings.alice_sound_move,) * 2
 
 
-async def test_a_cue_on_top_of_extended_pauses_still_fits_the_platform_limit(
+async def test_both_cues_on_top_of_extended_pauses_still_fit_the_platform_limit(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
 ) -> None:
@@ -196,13 +293,19 @@ async def test_a_cue_on_top_of_extended_pauses_still_fits_the_platform_limit(
     state = ConversationState()
     owner = "e2e-sound-limit"
     spoken = []
-    commands = ("говори медленнее", "говори подробнее", "новая игра белыми уровень три", "да")
+    commands = (
+        "говори медленнее",
+        "говори подробнее",
+        "новая игра белыми уровень три",
+        "да",
+        "пешка е два е четыре",
+    )
     for step, command in enumerate(("", *commands), start=1):
         reply = await service.handle(owner, command, context(owner, step, new=step == 1), state)
         state = reply.state
         spoken.append(reply.speech.spoken())
 
-    assert [answer for answer in spoken if "<speaker" in answer and PAUSE_MARKUP in answer]
+    assert [answer for answer in spoken if answer.count("<speaker") == 2 and PAUSE_MARKUP in answer]
     for answer in spoken:
         assert len(answer) <= TTS_LIMIT
 
@@ -221,9 +324,9 @@ async def test_a_repeat_says_the_words_again_without_the_cue_that_came_with_them
         answers.append(reply)
 
     moved, first, second = answers[1], answers[2], answers[3]
-    assert cue(moved.speech.tts) == offline_settings.alice_sound_move
+    assert cues(moved.speech.tts) == (offline_settings.alice_sound_move,) * 2
     assert "Ваш ход" in first.speech.text
     assert "<speaker" not in first.speech.text
     assert first.speech.text == second.speech.text
-    assert cue(first.speech.tts) is None
-    assert cue(second.speech.tts) is None
+    assert cues(first.speech.tts) == ()
+    assert cues(second.speech.tts) == ()
