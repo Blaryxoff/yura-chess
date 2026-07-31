@@ -27,12 +27,32 @@ production environment. The step-by-step runbook is in [README.md](README.md).
 Host nginx owns TLS for canonical `yurachess.ru` and redirect-only `chess.waxim.ru`, and is the only public listener.
 Neither MariaDB is published beyond its container network.
 
+## Reaching production
+
+Deploys, rollbacks, backups and container diagnostics all run **inside** the
+container, not on the Firebat host and not from a workstation checkout:
+
+```bash
+ssh firebat
+sudo -n incus exec yura-chess -- bash -lc '<command>'
+```
+
+Only nginx and Incus itself belong to the host; the exceptions are marked where
+they appear.
+
+`/srv/yura-chess/repo` is an extracted snapshot of the repository, not a git
+checkout: `git fetch` and `git checkout` fail there. A release changes the image
+tag only, so the snapshot does not have to track `main` — but `deploy.sh`,
+`rollback.sh` and the Compose file are read from it, and a change to any of those
+reaches production only when the snapshot is replaced.
+
 ## Environment
 
 | Item | Production |
 | --- | --- |
-| Incus container | `yura-chess` (dedicated) |
-| Compose file | `deploy/compose.production.yml` |
+| Incus container | `yura-chess` (dedicated), on host `firebat` |
+| Scripts and Compose file | `/srv/yura-chess/repo/deploy/` inside the container |
+| Compose file | `deploy/compose.production.yml` (repository) |
 | Compose project | `yura-chess-production` |
 | Database | MariaDB 11.4, volume `mariadb-data` |
 | App port | container `8000` → loopback `127.0.0.1:8082` |
@@ -45,7 +65,8 @@ The application never listens on a public host interface. Its dedicated
 container forwards the app port to the host loopback:
 
 ```bash
-incus config device add yura-chess app-proxy proxy \
+# On the Firebat host, not inside the container
+sudo -n incus config device add yura-chess app-proxy proxy \
   listen=tcp:127.0.0.1:8082 connect=tcp:127.0.0.1:8082
 ```
 
@@ -105,9 +126,10 @@ Secrets that exist only on Firebat and never in git:
 
 ## Deploy and rollback
 
-`deploy/deploy.sh production <tag>` — validate, pull, migrate as a separate release
-step, start, health smoke, auto-revert on failure.
-`deploy/rollback.sh production [tag]` — restore the previous application image.
+`/srv/yura-chess/repo/deploy/deploy.sh production <40-character-git-sha>` — validate,
+pull, migrate as a separate release step, start, health smoke, auto-revert on failure.
+`/srv/yura-chess/repo/deploy/rollback.sh production [tag]` — restore the previous
+application image.
 Details and the cutover checklist: [README.md](README.md).
 
 ## Backup and restore
@@ -138,6 +160,9 @@ docker compose --project-name yura-chess-production start app
 
 ## Diagnostics
 
+All of these run inside the container except the nginx and Incus commands, which
+belong to the Firebat host:
+
 ```bash
 # Is the public endpoint alive end to end?
 curl -i -X POST https://yurachess.ru/webhooks/alice -H 'Content-Type: application/json' -d '{}'
@@ -159,13 +184,11 @@ cat /srv/yura-chess/production.current-image
 docker compose --project-name yura-chess-production exec mariadb \
   healthcheck.sh --connect --innodb_initialized
 
-# nginx
-nginx -t && systemctl reload nginx
-tail -f /var/log/nginx/yurachess.ru.error.log
-
-# Incus
-incus list yura-chess
-incus config device show yura-chess
+# On the Firebat host, not inside the container: nginx and Incus
+sudo nginx -t && sudo systemctl reload nginx
+sudo tail -f /var/log/nginx/yurachess.ru.error.log
+sudo -n incus list yura-chess
+sudo -n incus config device show yura-chess
 ```
 
 `/health/ready` returns 503 while the database or schema check fails and reports

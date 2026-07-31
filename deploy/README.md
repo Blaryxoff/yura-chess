@@ -3,6 +3,11 @@
 Operational runbook. The topology, ports and secrets themselves are described in
 [INFRASTRUCTURE.md](INFRASTRUCTURE.md).
 
+Unless a step says otherwise, every command here runs inside the production
+container — `ssh firebat`, then `sudo -n incus exec yura-chess -- bash -lc '…'` —
+where this repository is unpacked at `/srv/yura-chess/repo`. See
+[*Reaching production*](INFRASTRUCTURE.md#reaching-production).
+
 ## Layout
 
 | File | Purpose |
@@ -19,7 +24,7 @@ Operational runbook. The topology, ports and secrets themselves are described in
 ## Build and publish
 
 ```bash
-TAG="$(git rev-parse --short HEAD)"
+TAG="$(git rev-parse HEAD)"
 docker build --tag "ghcr.io/blaryxoff/yura-chess:$TAG" .
 docker push "ghcr.io/blaryxoff/yura-chess:$TAG"
 ```
@@ -32,8 +37,14 @@ Only immutable tags are deployable. `deploy.sh` refuses `latest`.
 ## Deploy
 
 ```bash
-deploy/deploy.sh production "$TAG"
+ssh firebat
+sudo -n incus exec yura-chess -- bash -lc \
+  '/srv/yura-chess/repo/deploy/deploy.sh production <40-character-git-sha>'
 ```
+
+Use the full sha from `git rev-parse HEAD`. `deploy.sh` accepts any sha of seven
+characters or more, but `publish.yml` tags the image `${{ github.sha }}` only, so
+a short tag pulls nothing and the deploy fails at step 1.
 
 The script always runs the same steps, in this order:
 
@@ -65,21 +76,23 @@ YURA_CHESS_DEPLOYED_URL=https://yurachess.ru \
   uv run pytest tests/e2e/test_deployed_webhook.py
 ```
 
-This creates disposable production games, so it is a release check rather than
-part of every local test run.
+Run this from a workstation checkout, not inside the container: it talks to the
+public name and needs the test suite. It creates disposable production games, so
+it is a release check rather than part of every local test run.
 
 ## Rollback
 
 ```bash
-deploy/rollback.sh production            # the tag deploy.sh recorded as previous
-deploy/rollback.sh production 1a2b3c4    # or an explicit one
+/srv/yura-chess/repo/deploy/rollback.sh production          # the tag deploy.sh recorded as previous
+/srv/yura-chess/repo/deploy/rollback.sh production 1a2b3c4  # or an explicit one
 ```
 
 Only the application is rolled back. Migrations are never run downwards; if a
 release must lose a schema change, restore the pre-release backup instead:
 
 ```bash
-deploy/mariadb/restore-smoke.sh /srv/yura-chess/backups/yura_chess-<stamp>.sql.gz  # verify first
+/srv/yura-chess/repo/deploy/mariadb/restore-smoke.sh \
+  /srv/yura-chess/backups/yura_chess-<stamp>.sql.gz  # verify first
 # then restore into the live database during an announced outage
 ```
 
@@ -95,7 +108,7 @@ The S3-compatible bucket must also have a lifecycle expiration matching
 Verify restorability regularly as an independent operations check:
 
 ```bash
-deploy/mariadb/restore-smoke.sh
+/srv/yura-chess/repo/deploy/mariadb/restore-smoke.sh
 ```
 
 It restores into `yura_chess_restore_smoke`, checks every canonical table and the
@@ -117,15 +130,17 @@ systemctl enable --now yura-chess-backup.timer yura-chess-restore-smoke.timer
 
 ## Host nginx vhost
 
-`deploy.sh` never touches nginx: the vhost is a host file, installed by hand. The
+`deploy.sh` never touches nginx: the vhost is a host file, installed by hand on
+the Firebat host itself — these commands are the exception that does not run
+inside the container. The
 allowlist there names every public path one by one, so adding a page or a crawler
 file to the application is not enough — the vhost must be reinstalled in the same
 release, or nginx keeps answering 404 while every unit test passes.
 
 ```bash
-install -m 0644 deploy/nginx/yurachess.ru.conf /etc/nginx/sites-available/yurachess.ru.conf
-install -m 0644 deploy/nginx/chess.waxim.ru.conf /etc/nginx/sites-available/chess.waxim.ru.conf
-nginx -t && systemctl reload nginx
+sudo install -m 0644 deploy/nginx/yurachess.ru.conf /etc/nginx/sites-available/yurachess.ru.conf
+sudo install -m 0644 deploy/nginx/chess.waxim.ru.conf /etc/nginx/sites-available/chess.waxim.ru.conf
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
 Verify the whole crawlable surface afterwards:
@@ -141,18 +156,18 @@ curl -sI https://chess.waxim.ru/how-to-play | grep -i '^location: https://yurach
 ```
 
 Anything other than `200` means the deployed vhost is older than this repository.
-`nginx -T | grep -n -B3 -A8 'robots\|sitemap'` shows the effective configuration,
+`sudo nginx -T | grep -n -B3 -A8 'robots\|sitemap'` shows the effective configuration,
 including snippets, when a path 404s despite being listed here.
 
 ## Cutover checklist
 
 1. Confirm green CI and the published immutable image for `$TAG`.
-2. `deploy/deploy.sh production "$TAG"`.
-3. `YURA_CHESS_DEPLOYED_URL=https://yurachess.ru uv run pytest tests/e2e/test_deployed_webhook.py`.
+2. `/srv/yura-chess/repo/deploy/deploy.sh production "$(git rev-parse HEAD)"` inside the container.
+3. From a workstation checkout: `YURA_CHESS_DEPLOYED_URL=https://yurachess.ru uv run pytest tests/e2e/test_deployed_webhook.py`.
 4. External check through nginx: `curl -sS https://yurachess.ru/webhooks/alice -X POST -d '{}'`
    returns 422 (the endpoint is reachable and validating), not 502.
    Reinstall the vhost too whenever a public path was added; see *Host nginx vhost*.
-5. `uv run python scripts/submit_indexnow.py` — tells Yandex and Bing the pages changed.
+5. From a workstation checkout: `uv run python scripts/submit_indexnow.py` — tells Yandex and Bing the pages changed.
    It exits non-zero when an endpoint rejects the submission; skipping it only delays the crawl.
 6. Voice-only and screen-device QA in the Alice console before submitting for moderation.
 7. Open `https://yurachess.ru/#statistics` and confirm real/test and period filters render aggregate counts without identifiers.
