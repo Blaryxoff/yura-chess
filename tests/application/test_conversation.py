@@ -22,6 +22,7 @@ from yura_chess.application.conversation import (
     ConversationState,
     _board_after_player,
     _engine_sound,
+    _player_move_echo,
     _player_sound,
 )
 from yura_chess.application.game_service import RequestContext
@@ -45,6 +46,8 @@ from yura_chess.storage.usage_repository import request_key
 pytestmark = pytest.mark.anyio
 
 OWNER = "c" * 64
+CASTLING_FEN = "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1"
+MATE_IN_ONE_FEN = "6k1/5ppp/8/8/8/8/8/R5RK w - - 0 1"
 
 
 class FakeEngine:
@@ -103,7 +106,7 @@ async def test_voice_move_runs_through_router_game_and_speech(
     assert reply.turn is not None
     assert reply.turn.player_move == "e2e4"
     assert reply.turn.engine_move is not None
-    assert "Ваш ход: e2 e4" in reply.speech.text
+    assert "Ваш ход: пешка e2 e4" in reply.speech.text
     assert "Мой ход" in reply.speech.text
     assert reply.speech.tts is not None and "alice-sounds-game-ping-1.opus" in reply.speech.tts
 
@@ -123,6 +126,42 @@ async def test_start_sound_and_durable_voice_switch(
     assert "<speaker" not in moved.speech.tts
     with session_scope(session_factory) as session:
         assert PreferencesRepository(session).load(OWNER).sounds_enabled is False
+
+
+def test_the_player_move_is_echoed_by_name_the_way_the_engine_move_is() -> None:
+    base = {
+        "game_id": "echo-game",
+        "revision": 2,
+        "player_color": PlayerColor.WHITE,
+        "game_status": GameStatus.ACTIVE,
+        "status": TurnStatus.OK,
+    }
+    quiet = TurnResult(fen=chess.STARTING_FEN, moves=("e2e4",), player_move="e2e4", **base)
+    after_pawn = chess.Board()
+    after_pawn.push_uci("e2e4")
+    castled = TurnResult(fen=CASTLING_FEN, moves=("e1g1",), player_move="e1g1", **base)
+    after_castling = chess.Board(CASTLING_FEN)
+    after_castling.push_uci("e1g1")
+    mating = TurnResult(
+        fen="6k1/5ppp/8/8/8/8/8/6RK b - - 0 1",
+        moves=("a1a8",),
+        player_move="a1a8",
+        outcome=GameOutcome(GameEnd.CHECKMATE, PlayerColor.WHITE),
+        **{key: value for key, value in base.items() if key != "game_status"},
+        game_status=GameStatus.FINISHED,
+    )
+    after_mate = chess.Board(MATE_IN_ONE_FEN)
+    after_mate.push_uci("a1a8")
+    owed = TurnResult(fen=chess.STARTING_FEN, moves=("e2e4",), player_move="e2e4", settles_owed_reply=True, **base)
+
+    assert _player_move_echo(quiet, after_pawn, NotationStyle.FULL) == "пешка e2 e4."
+    assert _player_move_echo(quiet, after_pawn, NotationStyle.SHORT) == "пешка e4."
+    assert _player_move_echo(castled, after_castling, NotationStyle.FULL) == "Короткая рокировка."
+    # The outcome sentence already says «Мат»; the echo must not say it twice.
+    assert _player_move_echo(mating, after_mate, NotationStyle.FULL) == "ладья a1 a8."
+    # Without the position the move was made in, only the coordinates are left.
+    assert _player_move_echo(quiet, None, NotationStyle.FULL) == "e2 e4."
+    assert _player_move_echo(owed, after_pawn, NotationStyle.FULL) is None
 
 
 def test_each_half_of_a_turn_gets_the_cue_of_its_own_move() -> None:
@@ -869,7 +908,9 @@ async def test_new_game_confirmation_preserves_requested_settings(
 
     asked = await conversation.handle(
         OWNER,
-        "новая игра черными уровень двенадцать",
+        # Spelled with the ё the speaker actually uses: the colour is read off the
+        # normalised text, so folding it is what makes this game a black one.
+        "новая игра чёрными уровень двенадцать",
         context(2),
         started.state,
     )
@@ -1889,6 +1930,71 @@ async def test_rematch_during_an_active_game_is_confirmed_first(
     assert state.engine.skill_level == 8
 
 
+async def test_naming_a_colour_before_the_first_move_deals_again_at_once(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра белыми уровень шесть", context(1))
+
+    switched = await conversation.handle(OWNER, "я играю чёрными", context(2), started.state)
+
+    assert switched.turn is not None
+    assert switched.state.pending_action is None
+    assert switched.speech.text.startswith("Хорошо, вы играете черными.")
+    assert switched.turn.game_id != started.state.game_id
+    assert switched.turn.player_color is PlayerColor.BLACK
+    with session_scope(session_factory) as session:
+        state = GameRepository(session).load(switched.turn.game_id, OWNER)
+    # The level the player set survives the re-deal; only the side changes.
+    assert state.engine.skill_level == 6
+
+
+async def test_naming_a_colour_after_a_move_says_the_game_has_to_end_first(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра белыми", context(1))
+    played = await conversation.handle(OWNER, "пешка е два е четыре", context(2), started.state)
+
+    asked = await conversation.handle(OWNER, "давай чёрными", context(3), played.state)
+    declined = await conversation.handle(OWNER, "нет", context(4), asked.state)
+
+    assert asked.turn is None
+    assert "цвет меняется только в новой партии" in asked.speech.text
+    assert declined.turn is None
+    assert declined.state.game_id == started.state.game_id
+
+
+async def test_naming_the_colour_already_played_changes_nothing(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра белыми", context(1))
+
+    reply = await conversation.handle(OWNER, "я играю белыми", context(2), started.state)
+
+    assert reply.turn is None
+    assert reply.speech.text == "Вы и так играете белыми. Назовите ход."
+    assert reply.state.game_id == started.state.game_id
+    assert reply.state.pending_action is None
+
+
+async def test_a_colour_named_with_no_game_at_all_starts_one(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, "давай чёрными", context(1))
+
+    assert reply.turn is not None
+    assert reply.turn.player_color is PlayerColor.BLACK
+    assert "Вы играете черными" in reply.speech.text
+
+
 async def test_rematch_without_any_previous_game_starts_nothing(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
@@ -1928,7 +2034,7 @@ async def test_an_ordinary_move_is_played_without_any_comment(
 
     reply = await play_all(conversation, TO_MIDDLEGAME[:3], started.state)
 
-    assert reply.speech.text == "Ваш ход: g1 f3. Мой ход. ладья g8 h8."
+    assert reply.speech.text == "Ваш ход: конь g1 f3. Мой ход. ладья g8 h8."
 
 
 async def test_a_comment_survives_a_replayed_request_and_a_new_service(
@@ -2002,3 +2108,100 @@ async def test_a_puzzle_card_is_drawn_from_the_solver_side_and_the_stored_orient
     assert isinstance(shown.card, BoardCard)
     assert shown.card.position_hash == position_hash(board, opposite, open_puzzle.last_move)
     assert shown.card.position_hash != offered.card.position_hash
+
+
+# A long enough game for the opening and stage remarks to be spent and the
+# commentary cooldown to be over, leaving the player one plain non-mating check.
+BEFORE_A_PLAYER_CHECK = (
+    "b2b3", "h7h6", "c2c3", "g8f6", "d1c2", "g7g5", "c2e4", "e7e6", "a2a4", "h8h7",
+    "e2e3", "e8e7", "e4g6", "b8c6", "a4a5", "c6b8", "g6h6", "h7h6", "g1e2", "f6d5",
+    "e3e4", "d8e8", "g2g3", "b8a6",
+)
+
+
+async def test_a_check_the_player_gave_is_never_announced_twice(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        game = repository.create_game(OWNER, PlayerColor.WHITE)
+        game = repository.append_moves(game.id, OWNER, game.revision, BEFORE_A_PLAYER_CHECK)
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(
+        OWNER,
+        "слон цэ один а три",
+        context(1),
+        ConversationState(game.id, game.revision),
+    )
+
+    assert reply.speech.text.startswith("Ваш ход: слон c1 a3. Шах.")
+    assert reply.speech.text.lower().count("шах") == 1
+
+
+async def test_cancel_alone_takes_back_the_last_full_move(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    played = await conversation.handle(OWNER, "пешка е два е четыре", context(2), started.state)
+
+    cancelled = await conversation.handle(OWNER, "отмена", context(3), played.state)
+
+    assert cancelled.speech.text == "Один полный ход отменен. Ваш ход."
+    with session_scope(session_factory) as session:
+        stored = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert stored.moves == ()
+
+
+async def test_cancel_answers_an_open_question_instead_of_the_board(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    played = await conversation.handle(OWNER, "пешка е два е четыре", context(2), started.state)
+    asked = await conversation.handle(OWNER, "ход конем", context(3), played.state)
+
+    cancelled = await conversation.handle(OWNER, "отмена", context(4), asked.state)
+
+    assert asked.state.clarification is not None
+    assert cancelled.speech.text == "Хорошо, ход не делаю. Назовите другой ход."
+    with session_scope(session_factory) as session:
+        stored = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert len(stored.moves) == 2
+
+
+async def test_cancel_before_any_move_changes_nothing(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    cancelled = await conversation.handle(OWNER, "отмена", context(2), started.state)
+
+    assert cancelled.speech.text == "Хорошо, ничего не меняю. Назовите команду или попросите помощь."
+    with session_scope(session_factory) as session:
+        stored = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert stored.moves == ()
+
+
+async def test_a_colour_named_after_the_session_forgot_the_game_asks_first(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра белыми", context(1))
+    await conversation.handle(OWNER, "пешка е два е четыре", context(2), started.state)
+
+    # A new session knows no game; the one on the server is still the player's.
+    asked = await conversation.handle(OWNER, "давай чёрными", context(3))
+
+    assert asked.turn is None
+    assert "цвет меняется только в новой партии" in asked.speech.text
+    with session_scope(session_factory) as session:
+        stored = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert stored.status is GameStatus.ACTIVE

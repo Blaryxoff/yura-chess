@@ -264,7 +264,7 @@ async def test_a_spoken_move_uses_the_real_router_and_response_composer(
         ).json()
 
     assert moved["user_state_update"]["revision"] > first["user_state_update"]["revision"]
-    assert "Ваш ход: e2 e4" in moved["response"]["text"]
+    assert "Ваш ход: пешка e2 e4" in moved["response"]["text"]
     assert "Мой ход" in moved["response"]["text"]
     assert moved["session_state"]["last_heard"] == "пешка е два е четыре"
 
@@ -682,7 +682,7 @@ async def test_a_timed_out_move_retries_before_the_router_can_reinterpret_it(
         resumed = (await client.post("/alice/webhook", json=move)).json()
 
     assert timed_out.get("user_state_update") is None
-    assert "Ваш ход: e2 e4" in resumed["response"]["text"]
+    assert "Ваш ход: пешка e2 e4" in resumed["response"]["text"]
     assert resumed["user_state_update"]["revision"] == 3
     assert fast_engine.searches == 1
 

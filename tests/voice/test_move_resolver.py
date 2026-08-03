@@ -317,6 +317,17 @@ def test_utterance_without_move_tokens_is_unmatched() -> None:
         ("какой был последний ход черных", CommandKind.POSITION_QUERY),
         ("что сделали черные четыре хода назад", CommandKind.POSITION_QUERY),
         ("что было четыре хода назад", CommandKind.POSITION_QUERY),
+        ("какой был второй ход черных", CommandKind.POSITION_QUERY),
+        ("кто стоит на седьмой горизонтали", CommandKind.POSITION_QUERY),
+        # A rank named as a term or a rule, with no number to read.
+        ("что такое мат по последней горизонтали", CommandKind.UNKNOWN),
+        # A rank and a move number named inside a question about the rules.
+        ("может ли пешка превратиться на восьмой горизонтали", CommandKind.HELP),
+        ("как сделать первый ход", CommandKind.HELP),
+        # Asking the coach what to play, not asking what stands where.
+        ("что стоит сыграть", CommandKind.UNKNOWN),
+        ("назови второй полный ход", CommandKind.POSITION_QUERY),
+        ("какой был ход номер два", CommandKind.POSITION_QUERY),
         ("ход назад", CommandKind.UNDO),
         ("чей ход", CommandKind.POSITION_QUERY),
         ("есть ли шах сейчас", CommandKind.POSITION_QUERY),
@@ -792,3 +803,150 @@ def test_rematch_carries_the_colour_and_level_it_asks_for(utterance: str, expect
     assert routed.kind is CommandKind.REMATCH
     assert routed.rematch == expected
     assert routed.move is None
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("я играю черными", RematchColor.BLACK),
+        ("эту партию играю чёрными", RematchColor.BLACK),
+        ("давай белыми", RematchColor.WHITE),
+        ("я хочу играть белыми", RematchColor.WHITE),
+        ("можно мне чёрными", RematchColor.BLACK),
+        ("буду играть белыми", RematchColor.WHITE),
+        ("чёрными играю", RematchColor.BLACK),
+        ("я играю за белых", RematchColor.WHITE),
+        ("сыграем за чёрных", RematchColor.BLACK),
+        # A refusal followed by a request still asks for the colour requested.
+        ("не хочу белыми, давай черными", RematchColor.BLACK),
+        # The skill is addressed by name, not handed the colour.
+        ("юра давай белыми", RematchColor.WHITE),
+    ],
+)
+def test_naming_a_colour_asks_to_play_it(utterance: str, expected: RematchColor) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.COLOR_CHOICE
+    assert routed.rematch == RematchRequest(color=expected)
+    assert routed.move is None
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("какие фигуры у чёрных", CommandKind.POSITION_QUERY),
+        ("что сделали белые", CommandKind.POSITION_QUERY),
+        ("покажи доску за белых", CommandKind.PREFERENCE),
+        ("хочу играть за белых", CommandKind.NEW_GAME),
+        ("каким цветом я играю", CommandKind.GAME_FACT),
+        ("я белые или черные", CommandKind.GAME_FACT),
+        ("ты играешь черными", CommandKind.BOARD_SETUP),
+        ("реванш черными", CommandKind.REMATCH),
+        # A question about the rules, not a request to be dealt that colour.
+        ("можно ходить только белыми фигурами", CommandKind.UNKNOWN),
+        # A refusal and a question about the choice both name a colour without asking for it.
+        ("я не буду играть черными", CommandKind.UNKNOWN),
+        ("мне играть белыми или черными", CommandKind.UNKNOWN),
+        # The colour is handed to the engine, so it says nothing about the player's own.
+        ("ты будешь играть черными", CommandKind.UNKNOWN),
+        ("хочу чтобы ты играл черными", CommandKind.UNKNOWN),
+        ("хочу чтобы юра играл черными", CommandKind.UNKNOWN),
+        # Asking what a side may do, or how it is best played, starts nothing.
+        ("можно черными брать на проходе", CommandKind.UNKNOWN),
+        ("как лучше играть белыми", CommandKind.UNKNOWN),
+    ],
+)
+def test_a_colour_named_in_another_case_keeps_its_own_command(utterance: str, expected: CommandKind) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is expected
+
+
+def test_an_explicit_retraction_plays_the_move_that_followed_it() -> None:
+    board = chess.Board()
+
+    routed = route("слон эф один цэ четыре, ой нет пешка е два е четыре", board)
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == "e2e4"
+    assert routed.clarification is None
+
+
+@pytest.mark.parametrize("retracted", ["покажи доску", "сдаюсь", "отмени ход"])
+def test_a_retraction_takes_back_a_command_as_well_as_a_move(retracted: str) -> None:
+    routed = route(f"{retracted}, ой нет, пешка е два е четыре", chess.Board())
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == "e2e4"
+
+
+@pytest.mark.parametrize("utterance", ["отмени ход, ой нет", "сдаюсь, ой нет, не надо"])
+def test_a_command_taken_back_with_nothing_in_its_place_is_not_carried_out(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.UNKNOWN
+
+
+def test_an_ordinary_negation_is_not_read_as_a_retraction() -> None:
+    # Bare «нет» retracts only after a pause; here it merely negates.
+    routed = route("в справке нет команды отмени ход", chess.Board())
+
+    assert routed.kind is not CommandKind.UNDO
+
+
+def test_a_move_that_merely_says_the_word_move_is_still_a_move() -> None:
+    # «ходом» is filler here, not the move-by-number question the router also matches.
+    routed = route("пешка е два ходом на е четыре", chess.Board())
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == "e2e4"
+
+
+def test_a_retraction_with_nothing_after_it_never_plays_the_move_it_took_back() -> None:
+    board = chess.Board()
+
+    routed = route("пешка е два е четыре, ой нет", board)
+
+    assert routed.kind is CommandKind.CLARIFY
+    assert routed.move is None
+    assert routed.clarification is not None
+    assert routed.clarification.candidates == ()
+
+
+def test_a_bare_refusal_is_still_not_a_move_at_all() -> None:
+    assert route("ой нет", chess.Board()).kind is CommandKind.UNKNOWN
+
+
+def test_a_correction_without_a_retraction_is_only_offered_for_confirmation() -> None:
+    board = chess.Board()
+
+    routed = route("пешка дэ два дэ четыре, е два е четыре", board)
+
+    assert routed.kind is CommandKind.CLARIFY
+    assert routed.move is None
+    assert routed.clarification is not None
+    assert routed.clarification.candidates == ("e2e4",)
+
+
+def test_a_confirmed_correction_becomes_the_move() -> None:
+    board = chess.Board()
+    pending = route("пешка дэ два дэ четыре, е два е четыре", board).clarification
+
+    routed = route("да", board, pending=pending)
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == "e2e4"
+
+
+def test_a_single_move_split_by_a_pause_is_still_played_outright() -> None:
+    routed = route("пешка е два, е четыре", chess.Board())
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == "e2e4"
+
+
+def test_a_sequence_of_moves_is_still_refused_rather_than_corrected() -> None:
+    routed = route("пешка е два е четыре потом конь жэ один эф три", chess.Board())
+
+    assert routed.kind is CommandKind.CLARIFY
+    assert routed.move is None
+    assert routed.clarification is not None
+    assert routed.clarification.candidates == ()

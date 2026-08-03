@@ -251,6 +251,58 @@ def test_previous_moves_can_be_selected_by_distance_and_colour() -> None:
     assert "конь g8 f6" in last_black.speech.text
 
 
+def test_moves_can_be_selected_by_their_number_from_the_start() -> None:
+    board = chess.Board()
+    for move in ("e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6"):
+        board.push_uci(move)
+
+    second_black = answer_position_query("какой был второй ход черных", board)
+    first_overall = answer_position_query("какой был первый ход", board)
+    third_white = answer_position_query("назови третий ход белых", board)
+    digits = answer_position_query("какой был 2 ход черных", board)
+
+    assert second_black.query is PositionQuery.NUMBERED_MOVE
+    assert second_black.speech.text == "Второй ход черных: конь b8 c6."
+    assert first_overall.speech.text == "Первый ход: пешка e2 e4."
+    assert third_white.speech.text == "Третий ход белых: слон f1 b5."
+    assert digits.speech.text == second_black.speech.text
+
+
+def test_a_move_number_the_game_never_reached_is_answered_honestly() -> None:
+    board = chess.Board()
+    board.push_uci("e2e4")
+
+    answer = answer_position_query("какой был десятый ход", board)
+
+    assert answer.query is PositionQuery.NUMBERED_MOVE
+    assert answer.speech.text == "Не могу найти такой ход: в партии был только один ход."
+
+
+def test_counting_back_still_wins_over_the_move_number() -> None:
+    board = chess.Board()
+    for move in ("e2e4", "e7e5", "g1f3"):
+        board.push_uci(move)
+
+    answer = answer_position_query("что было два хода назад", board)
+
+    assert answer.query is PositionQuery.HISTORY
+    assert "пешка e7 e5" in answer.speech.text
+
+
+def test_a_single_rank_can_be_read_on_its_own() -> None:
+    board = chess.Board()
+    board.push_uci("e2e4")
+
+    who = answer_position_query("кто стоит на седьмой горизонтали", board)
+    what = answer_position_query("какая позиция на четвертой горизонтали", board)
+    empty = answer_position_query("что находится на пятой горизонтали", board)
+
+    assert who.query is PositionQuery.RANK
+    assert who.speech.text.startswith("Седьмая горизонталь: черные — пешка a7")
+    assert what.speech.text == "Четвертая горизонталь: белые — пешка e4."
+    assert empty.speech.text == "Пятая горизонталь пуста."
+
+
 def test_history_query_reports_when_the_game_is_too_short() -> None:
     board = chess.Board()
     board.push_uci("e2e4")
@@ -258,7 +310,7 @@ def test_history_query_reports_when_the_game_is_too_short() -> None:
     answer = answer_position_query("что сделали черные два хода назад", board)
 
     assert answer.query is PositionQuery.HISTORY
-    assert answer.speech.text == "Не могу найти такой ход: в партии у черных было только 0 ходов."
+    assert answer.speech.text == "Ходов у черных еще не было."
 
 
 def test_engine_move_answer_is_complete_without_any_screen_information() -> None:
@@ -404,3 +456,73 @@ def _after(uci: str) -> chess.Board:
     board = chess.Board()
     board.push_uci(uci)
     return board
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "кто стоит на седьмой горизонтали",
+        "прочитай седьмую горизонталь",
+        "что на горизонтали семь",
+        "покажи горизонталь 7",
+        "прочитай горизонталь номер семь",
+    ],
+)
+def test_one_rank_is_read_however_its_number_is_named(utterance: str) -> None:
+    answer = answer_position_query(utterance, chess.Board())
+
+    assert answer.query is PositionQuery.RANK
+    assert answer.speech.text.startswith("Седьмая горизонталь:")
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["какой был второй ход", "какой был ход номер два"],
+)
+def test_a_move_number_is_understood_however_it_is_worded(utterance: str) -> None:
+    board = chess.Board()
+    for uci in ("e2e4", "e7e5"):
+        board.push_uci(uci)
+
+    answer = answer_position_query(utterance, board)
+
+    assert answer.query is PositionQuery.NUMBERED_MOVE
+    assert answer.speech.text == "Второй ход: пешка e7 e5."
+
+
+@pytest.mark.parametrize("utterance", ["назови второй полный ход", "какой был полный ход номер два"])
+def test_a_full_move_number_counts_both_halves(utterance: str) -> None:
+    board = chess.Board()
+    for uci in ("e2e4", "e7e5", "g1f3", "b8c6"):
+        board.push_uci(uci)
+
+    answer = answer_position_query(utterance, board)
+
+    assert answer.query is PositionQuery.NUMBERED_MOVE
+    assert answer.speech.text == "Второй полный ход. Белые — конь g1 f3. Черные — конь b8 c6."
+
+
+def test_a_full_move_still_unanswered_names_only_the_half_played() -> None:
+    board = chess.Board()
+    for uci in ("e2e4", "e7e5", "g1f3"):
+        board.push_uci(uci)
+
+    assert answer_position_query("второй полный ход", board).speech.text == "Второй ход белых: конь g1 f3."
+
+
+def test_a_full_move_beyond_the_game_is_counted_in_full_moves() -> None:
+    board = chess.Board()
+    for uci in ("e2e4", "e7e5"):
+        board.push_uci(uci)
+
+    answer = answer_position_query("какой был второй полный ход", board)
+
+    assert answer.speech.text == "Не могу найти такой ход: в партии был только один полный ход."
+
+
+def test_a_full_move_of_one_side_is_read_as_that_sides_move() -> None:
+    board = chess.Board()
+    for uci in ("e2e4", "e7e5", "g1f3", "b8c6"):
+        board.push_uci(uci)
+
+    assert answer_position_query("второй полный ход черных", board).speech.text == "Второй ход черных: конь b8 c6."

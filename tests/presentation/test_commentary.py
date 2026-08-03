@@ -69,6 +69,13 @@ def test_the_first_known_opening_is_named() -> None:
     assert "код" in given.text
 
 
+def test_a_named_opening_is_spoken_in_russian_only() -> None:
+    given = comment(("e2e4",))
+    assert given is not None
+    # Only the ECO code stays Latin; the name itself never reaches TTS in English.
+    assert given.text == "Это дебют королевской пешки, код B00."
+
+
 def test_leaving_the_opening_is_commented() -> None:
     # 1.e4 e5 2.Nf3 Nc6 3.Bc4 Bc5 4.Nc3 Nf6 — the sixth minor piece is out.
     developed = ("e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "b1c3", "g8f6")

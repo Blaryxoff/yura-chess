@@ -26,7 +26,13 @@ from yura_chess.domain.analysis import BLUNDER_CENTIPAWNS
 from yura_chess.domain.game import PlayerColor
 from yura_chess.domain.preferences import DetailLevel
 from yura_chess.presentation.move_speech import PIECE_NAMES_ACCUSATIVE
-from yura_chess.presentation.opening import GameStage, OpeningName, game_stage, identify_opening
+from yura_chess.presentation.opening import (
+    GameStage,
+    OpeningName,
+    game_stage,
+    identify_opening,
+    spoken_opening_name,
+)
 
 # Two full moves of silence follow any remark, and the same subject is never
 # raised twice in a row however far apart the two occurrences are.
@@ -167,7 +173,10 @@ def _candidate(
     if next_stage is not stage:
         return Comment(CommentCategory.STAGE, _STAGE_ENTERED[next_stage])
     if next_opening is not None and next_opening != opening:
-        return Comment(CommentCategory.OPENING, f"Это {next_opening.full_name}, код {next_opening.eco}.")
+        # An untranslated line says nothing rather than pronouncing English aloud.
+        translated = spoken_opening_name(next_opening)
+        if translated is not None:
+            return Comment(CommentCategory.OPENING, f"Это {translated}, код {next_opening.eco}.")
     return None
 
 

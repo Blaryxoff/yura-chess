@@ -7,10 +7,13 @@ import pytest
 
 from yura_chess.presentation.opening import (
     GameStage,
+    OpeningName,
+    _opening_index,
     describe_opening,
     describe_stage,
     game_stage,
     identify_opening,
+    russian_name,
 )
 
 RUY_LOPEZ = ("e2e4", "e7e5", "g1f3", "b8c6", "f1b5")
@@ -50,9 +53,25 @@ def test_a_game_that_did_not_start_from_the_initial_position_has_no_opening() ->
 
 def test_the_spoken_opening_names_the_variation_and_the_eco_code() -> None:
     speech = describe_opening(board_of(*RUY_LOPEZ, "a7a6"))
-    assert "Испанская партия" in speech.text
+    assert "испанская партия" in speech.text
     assert "защита Морфи" in speech.text
     assert "код C7" in speech.text
+
+
+def test_no_spoken_opening_name_carries_latin_letters() -> None:
+    spoken = [name for entry in _opening_index().values() if (name := russian_name(entry)) is not None]
+
+    assert len(spoken) > 3700
+    assert [name for name in spoken if any("a" <= character.lower() <= "z" for character in name)] == []
+
+
+def test_an_untranslated_family_is_named_by_its_code_instead() -> None:
+    unknown = OpeningName("A00", "Lasker Simul Special", "")
+
+    assert russian_name(unknown) is None
+    assert russian_name(OpeningName("C70", "Ruy Lopez", "Zilbermints Gambit")) == (
+        "Испанская партия, гамбит Зильберминца"
+    )
 
 
 def test_naming_the_opening_does_not_touch_the_board() -> None:

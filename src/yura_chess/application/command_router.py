@@ -23,9 +23,10 @@ from yura_chess.domain.preferences import (
 )
 from yura_chess.presentation import game_facts
 from yura_chess.presentation.help_speech import is_rules_request
+from yura_chess.presentation.position_speech import RANK_LINE
 from yura_chess.voice.illegal_move import Explanation, IllegalReason, explain
 from yura_chess.voice.move_resolver import resolve
-from yura_chess.voice.normalizer import normalize
+from yura_chess.voice.normalizer import MAX_UTTERANCE_LENGTH, normalize
 from yura_chess.voice.types import MoveResolution, Normalized, ResolutionStatus, TokenKind
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.7
@@ -66,6 +67,8 @@ class CommandKind(StrEnum):
     PREFERENCE = "preference"
     # A new game that inherits colour and level from the previous one.
     REMATCH = "rematch"
+    # Naming the colour to play, as opposed to asking which colour is being played.
+    COLOR_CHOICE = "color_choice"
     # A coaching question, or switching the trainer on or off.
     TRAINING = "training"
     # A question about a finished game: review, PGN or dictation.
@@ -293,6 +296,35 @@ _CONVERSATION_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (CommandKind.DONT_KNOW, re.compile(r"^(?:не знаю|не помню)$")),
 )
 
+_COLOR_VERB = r"(?:игра(?:ю|ть|ем|л[аи]?)|сыгра(?:ю|ем|ть)|бу(?:ду|дем)|хочу|хотел\w*|давай(?:те)?|можно|дай|дайте)"
+# Only the words that can stand between «играю» and the colour without changing
+# what is being asked. Any word at all would swallow «можно ходить только
+# белыми фигурами», which asks about the rules and starts nothing.
+_COLOR_FILLER = (
+    r"(?:\s+(?:я|мне|мы|нам|бы|же|за|сейчас|теперь|тогда|снова|опять|лучше|пожалуйста|эту|эта|партию|партия|игру))*"
+)
+# The request has to end at the colour: «можно белыми сделать рокировку» and
+# «можно черными брать на проходе» ask what that side may do, not to play it.
+_COLOR_TAIL = r"(?:\s+(?:фигурами|фигуры|цветом|эту|эта|партию|партия|игру|сейчас|теперь|пожалуйста))*\s*$"
+_COLOR_CHOICE = re.compile(
+    rf"\b{_COLOR_VERB}\b{_COLOR_FILLER}\s+(?P<color>бел|черн)(?:ыми|ых)\b{_COLOR_TAIL}"
+    rf"|\b(?P<second>бел|черн)ыми\b{_COLOR_FILLER}\s+(?:игра|сыгра)\w*{_COLOR_TAIL}"
+)
+# «как лучше играть белыми» asks for advice on a side already being played.
+_COLOR_ADVICE = re.compile(r"^как\b|\bкак (?:лучше|правильно)\b")
+_COLOR_ALTERNATIVE = re.compile(r"\b(?:бел|черн)\w*\s+(?:или|либо)\s+(?:бел|черн)")
+# «ты будешь играть черными» hands the colour to the engine, so reading it as the
+# player's would deal the opposite of what was asked. The names are deliberately
+# not here: «юра, давай белыми» addresses the skill, it does not deal it a colour.
+_COLOR_FOR_ENGINE = re.compile(r"\b(?:ты|тебе|тобой|тво(?:й|я|им))\b|\bчтобы\s+(?:юр\w*|алис\w*)\b")
+_COLOR_REFUSAL = re.compile(r"\bне\s+(?:буду|будем|хочу|хотел\w*|игра\w*|сыгра\w*|давай\w*)")
+# After a refusal only a fresh request re-opens the choice: «не хочу белыми давай
+# черными» asks for black, while «не буду играть черными» asks for nothing.
+_COLOR_RETRY = re.compile(
+    rf"\b(?:давай(?:те)?|хочу|хотел\w*|дай|дайте|бу(?:ду|дем)|сыгра(?:ю|ем))\b{_COLOR_FILLER}"
+    rf"\s+(?P<color>бел|черн)(?:ыми|ых)\b"
+)
+
 _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (CommandKind.REPEAT_HEARD, re.compile(r"что (ты )?(услышал[аи]?|понял[аи]?|разобрал[аи]?)|что я сказал")),
     (
@@ -373,6 +405,14 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         re.compile(
             r"кака(я|ю) позици|позици(я|ю)|расстановк|\bгде\b|что на|покажи доску|"
             r"какие (?:у меня )?фигуры|сколько фигур|прочитай|"
+            # A rank only when one is named: «мат по последней горизонтали» is a
+            # term, and «ходить по горизонтали» a rule, neither reads the board.
+            rf"{RANK_LINE.pattern}|"
+            # «на» has to follow: «что стоит сыграть» asks for advice, and
+            # «что стоит перед королем» asks a relation the board reader cannot answer.
+            r"(?:кто|что) (?:стоит|находится) на\b|"
+            r"(?:перв|втор|трет|четверт|пят|шест|седьм|восьм|девят|десят)\w*\s+(?:полн\w+\s+)?ход\b|"
+            r"\b\d+\s+(?:полн\w+\s+)?ход\b|\bход\w*\s+номер\b|"
             r"чей ход|кто ходит|кому ходить|моя очередь|есть ли шах|кто под шахом|шах сейчас|"
             r"последн(ий|его) ход|как (ты|я) походил|ход(а|ов)? назад|раз(а)? назад|повтори координат|"
             r"что (сделали|делали) (белые|черные)|назови еще раз (свой|последний) ход|"
@@ -382,6 +422,10 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"твой последний ход|^(дальше|далее)$"
         ),
     ),
+    # After the board questions: «у черных», «за белых» and «что сделали белые»
+    # are the genitive, accusative and nominative those answer with. Only the
+    # instrumental — the case «играю …» takes — asks to play that colour.
+    (CommandKind.COLOR_CHOICE, _COLOR_CHOICE),
     # Last of the control table: leaving named loosely — «выход пожалуйста»,
     # «юра выход», «я хочу выйти». «выход коня на е пять» is a developing move,
     # never a request to leave, so a piece behind the word rules it out.
@@ -391,8 +435,20 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     ),
 )
 
+_RULES_FRAME = re.compile(r"\bкак (?:с?делать|играть|ходит|пойти)\b|\bможно ли\b|\bможет ли\b|\bчто такое\b")
 _INCOMPLETE_MOVE = re.compile(r"^(мой ход|я хожу|я буду ходить)$")
 _MOVE_SEQUENCE = re.compile(r"\b(?:потом|затем|после этого)\b")
+# Words that retract what was just said. They are read off the raw utterance
+# because the normaliser drops the punctuation a correction leans on.
+# Bare «нет» only after a pause, so that «в справке нет команды» keeps its
+# ordinary meaning; «ой нет» is already covered by «ой».
+_RETRACTION = re.compile(
+    # «я не это имел в виду» cancels what is pending; it corrects nothing said
+    # in the same breath, so the idiom is kept out of the markers.
+    r"\b(?:ой|не так|не туда|не это)(?!\s+(?:имел|хотел|сказал)\w*)\b"
+    r"|\b(?:точнее|то есть|отставить|извини\w*|прости\w*)\b|(?<=[,;])\s*нет\b"
+)
+_SEGMENT = re.compile(r"[,;]")
 _UNDO_COUNT = re.compile(
     r"\b(?P<count>\d+|один|одну|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять)\s+"
     r"(?:полных?\s+)?ход"
@@ -712,6 +768,24 @@ def route(
     """Classify `utterance`; `board` is `None` when there is no game to move in."""
     normalized = normalize(utterance)
 
+    # A retraction takes back a command as readily as a move: «покажи доску, ой
+    # нет, пешка е два е четыре» asks for the move only, and «отмени ход, ой нет»
+    # asks for nothing at all — what was taken back is never read again.
+    retraction = _after_retraction(utterance)
+    if retraction is not None:
+        head, tail = retraction
+        if tail:
+            replacement = route(tail, board, pending, last_heard, confidence_threshold)
+            if replacement.kind is not CommandKind.UNKNOWN:
+                return replacement
+        if normalize(head).has_move_tokens:
+            return RoutedCommand(
+                CommandKind.CLARIFY,
+                normalized,
+                clarification=PendingClarification(heard=normalized.text),
+            )
+        return RoutedCommand(CommandKind.UNKNOWN, normalized)
+
     if is_rules_request(normalized.text):
         return RoutedCommand(CommandKind.HELP, normalized, clarification=None)
 
@@ -741,6 +815,15 @@ def route(
 
     for kind, pattern in _CONTROL_PATTERNS:
         if pattern.search(normalized.text):
+            if kind is CommandKind.POSITION_QUERY and _RULES_FRAME.search(normalized.text):
+                # «может ли пешка превратиться на восьмой горизонтали» names a
+                # rank and «как сделать первый ход» a move number, but both ask
+                # a rule the board reader has no answer to.
+                return RoutedCommand(CommandKind.HELP, normalized, clarification=None)
+            colour_asked = parse_color_choice(normalized.text) if kind is CommandKind.COLOR_CHOICE else None
+            if kind is CommandKind.COLOR_CHOICE and colour_asked is None:
+                # A colour named without asking for it: let the later patterns read it.
+                continue
             heard = last_heard if kind is CommandKind.REPEAT_HEARD else None
             # A control command answers the clarification by replacing it.
             return RoutedCommand(
@@ -748,6 +831,7 @@ def route(
                 normalized,
                 heard=heard,
                 clarification=None,
+                rematch=colour_asked,
                 undo_count=_undo_count(normalized.text) if kind is CommandKind.UNDO else 1,
             )
 
@@ -758,6 +842,10 @@ def route(
 
     if board is None:
         return RoutedCommand(CommandKind.UNKNOWN, normalized)
+
+    corrected = _corrected_move(utterance, normalized, board, confidence_threshold)
+    if corrected is not None:
+        return corrected
 
     if _INCOMPLETE_MOVE.fullmatch(normalized.text) or contains_multiple_moves(normalized):
         return RoutedCommand(
@@ -817,6 +905,26 @@ def _puzzle_theme(text: str) -> str | None:
     return None
 
 
+def parse_color_choice(text: str) -> RematchRequest | None:
+    """Read the colour the player asks to play, or `None` when none is named."""
+    match = _COLOR_CHOICE.search(text)
+    if match is None:
+        return None
+    # «мне играть белыми или черными» asks which side to take, not for one.
+    if _COLOR_ALTERNATIVE.search(text) or _COLOR_ADVICE.search(text):
+        return None
+    if _COLOR_FOR_ENGINE.search(text[: match.end()]):
+        return None
+    refusal = _COLOR_REFUSAL.search(text)
+    if refusal is not None:
+        # «не буду играть черными» refuses a colour without naming another.
+        match = _COLOR_RETRY.search(text, refusal.end())
+        if match is None:
+            return None
+    stem = match.group("color") or match.groupdict().get("second")
+    return RematchRequest(color=RematchColor.WHITE if stem == "бел" else RematchColor.BLACK)
+
+
 def parse_rematch(text: str) -> RematchRequest | None:
     """Read a request for another game, including the colour and level it asks for."""
     if not _REMATCH.search(text):
@@ -842,6 +950,54 @@ def _answer_clarification(normalized: Normalized, pending: PendingClarification)
         # «да» cannot pick between several candidates; keep waiting.
         return RoutedCommand(CommandKind.CLARIFY, normalized, clarification=pending)
     return None
+
+
+def _after_retraction(utterance: str) -> tuple[str, str] | None:
+    """What was taken back and what replaced it, or `None` when nothing was."""
+    lowered = utterance[:MAX_UTTERANCE_LENGTH].lower().replace("ё", "е")
+    parts = _RETRACTION.split(lowered)
+    if len(parts) < 2:
+        return None
+    head, tail = parts[0].strip(" ,;"), parts[-1].strip(" ,;")
+    if not head:
+        return None
+    return head, tail
+
+
+def _corrected_move(
+    utterance: str,
+    normalized: Normalized,
+    board: chess.Board,
+    confidence_threshold: float,
+) -> RoutedCommand | None:
+    """Read a move the speaker narrowed mid-sentence, or `None` when there is none.
+
+    «ферзь b1 b2, b1 b3» does not retract anything outright: the last reading is
+    the likely one, but the doubt is real, so it is offered for confirmation
+    rather than applied. An outright retraction never reaches here — `route`
+    reads what followed it before any of the pattern tables run.
+    """
+    if not contains_multiple_moves(normalized):
+        return None
+    lowered = utterance[:MAX_UTTERANCE_LENGTH].lower().replace("ё", "е")
+    segments = _SEGMENT.split(lowered)
+    if len(segments) < 2:
+        return None
+
+    candidate = normalize(segments[-1])
+    if not candidate.has_move_tokens or contains_multiple_moves(candidate):
+        return None
+    resolution = resolve(candidate, board)
+    if resolution.status is not ResolutionStatus.RESOLVED or resolution.move is None:
+        return None
+    if resolution.confidence < confidence_threshold:
+        return None
+    return RoutedCommand(
+        CommandKind.CLARIFY,
+        normalized,
+        resolution=resolution,
+        clarification=PendingClarification(heard=normalized.text, candidates=(resolution.move,)),
+    )
 
 
 def _from_resolution(

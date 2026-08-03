@@ -52,6 +52,7 @@ from yura_chess.presentation.move_speech import (
     Speech,
     add_move_sounds,
     add_pauses,
+    describe_move,
 )
 from yura_chess.presentation.position_speech import answer_position_query, describe_recent_moves
 from yura_chess.presentation.response_composer import (
@@ -424,11 +425,13 @@ class ConversationService:
             candidate = game or self._games.find_latest_active_game(owner_key)
             if candidate is not None and routed.move is not None:
                 result = await self._games.play_move(owner_key, candidate.id, routed.move, request)
-                reply = self._turn_reply(owner_key, result, replace(next_state, pending_action=None), preferences)
-                named = _named_player_move(result)
-                if named is not None:
-                    move_text = _display_uci(named)
-                    reply = replace(reply, speech=Speech.of(f"{PLAYER_MOVE_PREFIX}{move_text}. {reply.speech.text}"))
+                reply = self._turn_reply(
+                    owner_key,
+                    result,
+                    replace(next_state, pending_action=None),
+                    preferences,
+                    echo_player_move=True,
+                )
                 return self._with_training_warning(owner_key, reply)
 
         if (
@@ -461,6 +464,7 @@ class ConversationService:
             CommandKind.PREFERENCE,
             CommandKind.PUZZLE,
             CommandKind.REMATCH,
+            CommandKind.COLOR_CHOICE,
             CommandKind.REVIEW,
             CommandKind.TRAINING,
             CommandKind.LEVEL_QUERY,
@@ -541,13 +545,24 @@ class ConversationService:
                     return self._turn_reply(owner_key, result, next_state, preferences)
 
         if routed.kind is CommandKind.CANCEL_CLARIFY:
-            cancellation_text = (
-                "Хорошо, ход не делаю. Назовите другой ход."
-                if state.clarification is not None
-                else "Хорошо, ничего не меняю. Назовите команду или попросите помощь."
+            if state.clarification is not None:
+                return ConversationReply(
+                    Speech.of("Хорошо, ход не делаю. Назовите другой ход."),
+                    self._with_game(next_state, game) if game is not None else next_state,
+                )
+            # Nothing is waiting on an answer, so «отмена» is about the board: it
+            # takes back the last full move, the way «отмени ход» does.
+            takes_back = (
+                game is not None
+                and game.status is GameStatus.ACTIVE
+                and game.last_player_move_at is not None
+                and open_puzzle is None
+                and state.help is None
             )
+            if takes_back and game is not None:
+                return await self._undo(owner_key, game, request, next_state, 1)
             return ConversationReply(
-                Speech.of(cancellation_text),
+                Speech.of("Хорошо, ничего не меняю. Назовите команду или попросите помощь."),
                 self._with_game(next_state, game) if game is not None else next_state,
             )
 
@@ -605,6 +620,34 @@ class ConversationService:
                     "Когда будете готовы, назовите только свой ход. Мои ходы я буду объявлять."
                 ),
                 self._with_game(next_state, game),
+            )
+        if routed.kind is CommandKind.COLOR_CHOICE and routed.rematch is not None:
+            # The session may have lost the game the player is in; a game found
+            # server-side is still theirs and may not be ended without an answer.
+            if game is None:
+                game = self._games.find_latest_active_game(owner_key)
+            if game is None or game.status is not GameStatus.ACTIVE:
+                base = game or self._games.find_latest_game(owner_key)
+                if base is None:
+                    return await self._start(owner_key, utterance, request, next_state, preferences)
+                return await self._rematch(owner_key, base, request, routed.rematch, next_state, preferences)
+            requested = _rematch_color(game.player_color, routed.rematch.color)
+            if game.player_color is requested:
+                side = "черными" if requested is PlayerColor.BLACK else "белыми"
+                # The engine still owes an answer, so the next word is not a move.
+                tail = "Назовите ход." if game.pending_engine_turn is None else "Скажите «продолжаем»."
+                return ConversationReply(
+                    Speech.of(f"Вы и так играете {side}. {tail}"),
+                    self._with_game(next_state, game),
+                )
+            if game.last_player_move_at is None:
+                return await self._switch_color(owner_key, game, request, requested, next_state, preferences)
+            return ConversationReply(
+                Speech.of(_color_switch_question(game, requested)),
+                replace(
+                    self._with_game(next_state, game),
+                    pending_action=PendingAction(CommandKind.REMATCH, utterance[:255], routed.rematch),
+                ),
             )
         if routed.kind is CommandKind.REMATCH and routed.rematch is not None:
             base = game or self._games.find_latest_game(owner_key)
@@ -763,24 +806,13 @@ class ConversationService:
             result = await self._games.claim_draw(owner_key, game.id, request)
             return self._turn_reply(owner_key, result, next_state, preferences)
         if routed.kind is CommandKind.UNDO:
-            result = await self._games.undo_turn(owner_key, game.id, request, routed.undo_count)
-            undone = int(result.detail or "1") if result.status is TurnStatus.OK else 0
-            speech = (
-                Speech.of(f"{_undo_confirmation(undone)} Ваш ход.")
-                if result.status is TurnStatus.OK
-                else compose_turn(result)
-            )
-            return ConversationReply(speech, self._state_from_turn(next_state, result), result)
+            return await self._undo(owner_key, game, request, next_state, routed.undo_count)
         if routed.kind is CommandKind.CONTINUE:
             result = await self._games.continue_game(owner_key, game.id, request)
             return self._turn_reply(owner_key, result, next_state, preferences)
         if routed.kind is CommandKind.MOVE and routed.move is not None:
             result = await self._games.play_move(owner_key, game.id, routed.move, request)
-            reply = self._turn_reply(owner_key, result, next_state, preferences)
-            named = _named_player_move(result)
-            if named is not None:
-                move_text = _display_uci(named)
-                reply = replace(reply, speech=Speech.of(f"{PLAYER_MOVE_PREFIX}{move_text}. {reply.speech.text}"))
+            reply = self._turn_reply(owner_key, result, next_state, preferences, echo_player_move=True)
             return self._with_training_warning(owner_key, reply)
 
         return ConversationReply(
@@ -934,8 +966,11 @@ class ConversationService:
         unsolved = self._puzzles.find_open(owner_key)
         if unsolved is not None:
             self._puzzles.abandon(owner_key, unsolved)
-        player_color = PlayerColor.BLACK if _BLACK.search(utterance.lower()) else PlayerColor.WHITE
-        level_match = _LEVEL.search(utterance.lower())
+        # The normaliser's text, not the raw one: «чёрными» only spells «черн» once
+        # the ё is folded, and a missed colour silently starts the wrong game.
+        spoken = normalize(utterance).text
+        player_color = PlayerColor.BLACK if _BLACK.search(spoken) else PlayerColor.WHITE
+        level_match = _LEVEL.search(spoken)
         level_value = level_match.group("value") if level_match else None
         level = (
             max(0, min(int(level_value), 20))
@@ -1006,12 +1041,55 @@ class ConversationService:
             sound=_opening_sound(reply),
         )
 
+    async def _undo(
+        self,
+        owner_key: str,
+        game: GameState,
+        request: RequestContext,
+        state: ConversationState,
+        count: int,
+    ) -> ConversationReply:
+        result = await self._games.undo_turn(owner_key, game.id, request, count)
+        undone = int(result.detail or "1") if result.status is TurnStatus.OK else 0
+        speech = (
+            Speech.of(f"{_undo_confirmation(undone)} Ваш ход.")
+            if result.status is TurnStatus.OK
+            else compose_turn(result)
+        )
+        return ConversationReply(speech, self._state_from_turn(state, result), result)
+
+    async def _switch_color(
+        self,
+        owner_key: str,
+        game: GameState,
+        request: RequestContext,
+        requested: PlayerColor,
+        state: ConversationState,
+        preferences: PlayerPreferences,
+    ) -> ConversationReply:
+        """Deal the untouched game again from the other side, keeping level and mode."""
+        result = await self._games.start_game(
+            owner_key,
+            request,
+            player_color=requested,
+            engine=game.engine,
+            mode=game.mode,
+        )
+        side = "черными" if requested is PlayerColor.BLACK else "белыми"
+        reply = self._turn_reply(owner_key, result, state, preferences)
+        return replace(
+            reply,
+            speech=Speech.of(f"Хорошо, вы играете {side}. {reply.speech.text}"),
+            sound=_opening_sound(reply),
+        )
+
     def _turn_reply(
         self,
         owner_key: str,
         result: TurnResult,
         state: ConversationState,
         preferences: PlayerPreferences,
+        echo_player_move: bool = False,
     ) -> ConversationReply:
         loaded = self._load(owner_key, result.game_id)
         # The game as this turn left it. The stored one may have moved on since —
@@ -1024,18 +1102,21 @@ class ConversationService:
             if board_before_engine.move_stack and board_before_engine.peek().uci() == result.engine_move:
                 board_before_engine.pop()
         board_after_player = _board_after_player(result, settled)
-        speech = compose_turn(
-            result,
-            board_before_engine,
-            preferences.notation_style,
-            self._commentary(owner_key, result, turn_state, preferences),
-        )
+        commentary = self._commentary(owner_key, result, turn_state, preferences)
+        echoed = _player_move_echo(result, board_after_player, preferences.notation_style) if echo_player_move else None
+        # The composer drops a remark the engine's move already made; a check the
+        # echo announces is the player's own and needs the same guard.
+        if echoed is not None and echoed.endswith(" Шах.") and commentary is not None and "шах" in commentary.lower():
+            commentary = None
+        speech = compose_turn(result, board_before_engine, preferences.notation_style, commentary)
         if (
             preferences.detail_level is DetailLevel.DETAILED
             and _player_to_move(result)
             and "ваш ход" not in speech.text.lower()
         ):
             speech = Speech.of(f"{speech.text} Сейчас ваш ход.")
+        if echoed is not None:
+            speech = Speech.of(f"{PLAYER_MOVE_PREFIX}{echoed} {speech.text}")
         return ConversationReply(
             speech,
             self._state_from_turn(state, result),
@@ -1077,10 +1158,9 @@ class ConversationService:
         preferences: PlayerPreferences,
     ) -> ConversationReply:
         replay_state = replace(state, last_heard=utterance.strip() or state.last_heard)
-        reply = self._turn_reply(owner_key, result, replay_state, preferences)
-        named = _named_player_move(result)
-        if named is not None:
-            return replace(reply, speech=Speech.of(f"{PLAYER_MOVE_PREFIX}{_display_uci(named)}. {reply.speech.text}"))
+        reply = self._turn_reply(owner_key, result, replay_state, preferences, echo_player_move=True)
+        if _named_player_move(result) is not None:
+            return reply
         if state.game_id != result.game_id:
             side = "черными" if result.player_color is PlayerColor.BLACK else "белыми"
             game = self._load(owner_key, result.game_id)
@@ -1341,6 +1421,26 @@ def _named_player_move(result: TurnResult) -> str | None:
     return None if result.settles_owed_reply else result.player_move
 
 
+def _player_move_echo(
+    result: TurnResult,
+    board_after_player: chess.Board | None,
+    notation: NotationStyle,
+) -> str | None:
+    """Name the player's own move the way the engine's move is named.
+
+    The outcome sentence already announces a mate or a stalemate, so the echo
+    drops them; a check the player gave is theirs alone and stays.
+    """
+    named = _named_player_move(result)
+    if named is None:
+        return None
+    if board_after_player is None:
+        return f"{_display_uci(named)}."
+    before = board_after_player.copy(stack=True)
+    move = before.pop()
+    return describe_move(before, move, notation).text.removesuffix(" Мат.").removesuffix(" Пат.")
+
+
 def _board_after_player(result: TurnResult, settled: chess.Board | None) -> chess.Board | None:
     """The position the player's move left, rewound from that turn's own history.
 
@@ -1377,6 +1477,16 @@ def _engine_sound(result: TurnResult) -> SoundEvent | None:
     if result.outcome is not None and result.outcome.end is GameEnd.CHECKMATE:
         return SoundEvent.CHECKMATE
     return SoundEvent.CHECK if chess.Board(result.fen).is_check() else SoundEvent.MOVE
+
+
+def _color_switch_question(game: GameState, requested: PlayerColor) -> str:
+    """Ask before a started game is thrown away; the colour itself is fixed at the deal."""
+    now = "черными" if game.player_color is PlayerColor.BLACK else "белыми"
+    wanted = "черных" if requested is PlayerColor.BLACK else "белых"
+    return (
+        f"Сейчас вы играете {now}, а цвет меняется только в новой партии. "
+        f"Закончить эту и начать новую за {wanted}? Скажите «да» или «нет»."
+    )
 
 
 def _rematch_color(previous: PlayerColor, requested: RematchColor) -> PlayerColor:

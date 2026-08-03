@@ -230,7 +230,7 @@ async def test_a_resumed_game_settles_its_owed_reply_without_re_sounding_the_old
         await resumed.say(new=True)
         settled = await resumed.say("конь ж восемь аш шесть")
 
-    assert "Ваш ход: e2 e4" in stalled["response"]["text"]
+    assert "Ваш ход: пешка e2 e4" in stalled["response"]["text"]
     assert settled["response"]["text"] == "Мой ход. конь g8 h6."
     assert cues(settled["response"]["tts"]) == (offline_settings.alice_sound_move,)
     assert engine_cue(settled["response"]["tts"]) == offline_settings.alice_sound_move

@@ -144,7 +144,7 @@ def test_opening_and_stage_questions_are_recognized(utterance: str, expected: Ga
 
 
 def test_the_opening_answer_names_the_line_or_admits_it_is_unknown() -> None:
-    assert "Итальянская партия" in answer("как называется дебют", board_of(*SCOTCH))[1]
+    assert "итальянская партия" in answer("как называется дебют", board_of(*SCOTCH))[1]
     unknown = chess.Board("4k3/8/8/8/8/8/8/4K1N1 w - - 0 40")
     assert answer("как называется дебют", unknown)[1] == "Дебют не определён."
 
