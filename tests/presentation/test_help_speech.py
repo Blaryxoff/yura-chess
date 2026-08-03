@@ -16,7 +16,20 @@ from yura_chess.presentation.help_speech import SKILL_INTRO, HelpMode, answer_he
 from yura_chess.presentation.move_speech import add_pauses
 
 
-@pytest.mark.parametrize("utterance", ["помощь", "что ты умеешь", "что ты умеешь делать", "справка"])
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "помощь",
+        "что ты умеешь",
+        "что ты умеешь делать",
+        "справка",
+        "пожалуйста помоги",
+        "помогите",
+        "помоги мне пожалуйста",
+        "алиса помоги",
+        "помощь пожалуйста",
+    ],
+)
 @pytest.mark.parametrize("mode", list(HelpMode))
 def test_help_opens_with_the_instruction_in_every_mode(utterance: str, mode: HelpMode) -> None:
     answer = answer_help(utterance, mode)
