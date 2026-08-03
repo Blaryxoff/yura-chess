@@ -328,6 +328,7 @@ def test_utterance_without_move_tokens_is_unmatched() -> None:
         ("что стоит сыграть", CommandKind.UNKNOWN),
         ("назови второй полный ход", CommandKind.POSITION_QUERY),
         ("какой был ход номер два", CommandKind.POSITION_QUERY),
+        ("какой был одиннадцатый ход", CommandKind.POSITION_QUERY),
         ("ход назад", CommandKind.UNDO),
         ("чей ход", CommandKind.POSITION_QUERY),
         ("есть ли шах сейчас", CommandKind.POSITION_QUERY),
@@ -890,6 +891,13 @@ def test_an_ordinary_negation_is_not_read_as_a_retraction() -> None:
     routed = route("в справке нет команды отмени ход", chess.Board())
 
     assert routed.kind is not CommandKind.UNDO
+
+
+def test_a_move_number_in_the_instrumental_announces_a_move_instead_of_asking_for_one() -> None:
+    routed = route("первым ходом пойду е два е четыре", chess.Board())
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == "e2e4"
 
 
 def test_a_move_that_merely_says_the_word_move_is_still_a_move() -> None:

@@ -23,7 +23,7 @@ from yura_chess.domain.preferences import (
 )
 from yura_chess.presentation import game_facts
 from yura_chess.presentation.help_speech import is_rules_request
-from yura_chess.presentation.position_speech import RANK_LINE
+from yura_chess.presentation.position_speech import NUMBERED_MOVE, RANK_LINE
 from yura_chess.voice.illegal_move import Explanation, IllegalReason, explain
 from yura_chess.voice.move_resolver import resolve
 from yura_chess.voice.normalizer import MAX_UTTERANCE_LENGTH, normalize
@@ -411,8 +411,7 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             # «на» has to follow: «что стоит сыграть» asks for advice, and
             # «что стоит перед королем» asks a relation the board reader cannot answer.
             r"(?:кто|что) (?:стоит|находится) на\b|"
-            r"(?:перв|втор|трет|четверт|пят|шест|седьм|восьм|девят|десят)\w*\s+(?:полн\w+\s+)?ход\b|"
-            r"\b\d+\s+(?:полн\w+\s+)?ход\b|\bход\w*\s+номер\b|"
+            rf"{NUMBERED_MOVE.pattern}|"
             r"чей ход|кто ходит|кому ходить|моя очередь|есть ли шах|кто под шахом|шах сейчас|"
             r"последн(ий|его) ход|как (ты|я) походил|ход(а|ов)? назад|раз(а)? назад|повтори координат|"
             r"что (сделали|делали) (белые|черные)|назови еще раз (свой|последний) ход|"

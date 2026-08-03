@@ -96,6 +96,16 @@ _ORDINALS = {
     8: "Восьмой",
     9: "Девятый",
     10: "Десятый",
+    11: "Одиннадцатый",
+    12: "Двенадцатый",
+    13: "Тринадцатый",
+    14: "Четырнадцатый",
+    15: "Пятнадцатый",
+    16: "Шестнадцатый",
+    17: "Семнадцатый",
+    18: "Восемнадцатый",
+    19: "Девятнадцатый",
+    20: "Двадцатый",
 }
 _HISTORY_AGO = re.compile(
     rf"\b(?P<count>\d+|{'|'.join(sorted(_NUMBER_WORDS, key=len, reverse=True))})\s+"
@@ -126,6 +136,26 @@ _MOVE_ORDINALS: dict[str, int] = {
     "девятого": 9,
     "десятый": 10,
     "десятого": 10,
+    "одиннадцатый": 11,
+    "одиннадцатого": 11,
+    "двенадцатый": 12,
+    "двенадцатого": 12,
+    "тринадцатый": 13,
+    "тринадцатого": 13,
+    "четырнадцатый": 14,
+    "четырнадцатого": 14,
+    "пятнадцатый": 15,
+    "пятнадцатого": 15,
+    "шестнадцатый": 16,
+    "шестнадцатого": 16,
+    "семнадцатый": 17,
+    "семнадцатого": 17,
+    "восемнадцатый": 18,
+    "восемнадцатого": 18,
+    "девятнадцатый": 19,
+    "девятнадцатого": 19,
+    "двадцатый": 20,
+    "двадцатого": 20,
 }
 _RANK_ORDINAL_WORDS: dict[str, int] = {
     "первая": 1,
@@ -164,7 +194,9 @@ _RANK_NUMERALS: dict[str, int] = {
     "семь": 7,
     "восемь": 8,
 }
-_NUMBERED_MOVE = re.compile(
+# Public for the same reason as `RANK_LINE`: the router keys the board question
+# on the grammar the reader understands, so the two cannot drift apart.
+NUMBERED_MOVE = re.compile(
     rf"\b(?P<index>\d+|{'|'.join(sorted(_MOVE_ORDINALS, key=len, reverse=True))})\s+(?P<full>полн\w+\s+)?ход\b"
     rf"|\b(?P<full_after>полн\w+\s+)?ход\w*\s+номер\s+"
     rf"(?P<numbered>\d+|{'|'.join(sorted(_NUMBER_WORDS, key=len, reverse=True))})\b"
@@ -448,7 +480,7 @@ def _history_count(text: str) -> int | None:
 
 def _numbered_move(text: str) -> tuple[int, bool] | None:
     """Read the move number asked about and whether it was named as a full move."""
-    match = _NUMBERED_MOVE.search(text)
+    match = NUMBERED_MOVE.search(text)
     if match is None:
         return None
     full = bool(match.group("full") or match.group("full_after"))

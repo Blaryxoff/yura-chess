@@ -490,6 +490,17 @@ def test_a_move_number_is_understood_however_it_is_worded(utterance: str) -> Non
     assert answer.speech.text == "Второй ход: пешка e7 e5."
 
 
+def test_a_move_number_past_ten_is_named_in_words() -> None:
+    board = chess.Board()
+    for uci in ("e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6", "b5a4", "g8f6", "e1g1", "f8e7", "f1e1"):
+        board.push_uci(uci)
+
+    answer = answer_position_query("какой был одиннадцатый ход", board)
+
+    assert answer.query is PositionQuery.NUMBERED_MOVE
+    assert answer.speech.text == "Одиннадцатый ход: ладья f1 e1."
+
+
 @pytest.mark.parametrize("utterance", ["назови второй полный ход", "какой был полный ход номер два"])
 def test_a_full_move_number_counts_both_halves(utterance: str) -> None:
     board = chess.Board()
