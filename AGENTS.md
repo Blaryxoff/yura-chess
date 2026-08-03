@@ -42,6 +42,8 @@ Before implementation, read the active product and dev plans under `docs/plans/`
   except for `test_database_is_mariadb_11_4`, which must continue to reject MySQL. CI and release verification still
   require MariaDB 11.4; never weaken or skip that assertion in committed tests.
 - Drop only `yura_chess_codex_test` after the run. Never point tests at the development or production database.
+- CI gates formatting as well as lint: run `ruff format --check .` next to `ruff check src tests`. A branch that passes
+  only the linter still fails the `quality` job.
 
 ## Firebat
 
