@@ -2113,9 +2113,30 @@ async def test_a_puzzle_card_is_drawn_from_the_solver_side_and_the_stored_orient
 # A long enough game for the opening and stage remarks to be spent and the
 # commentary cooldown to be over, leaving the player one plain non-mating check.
 BEFORE_A_PLAYER_CHECK = (
-    "b2b3", "h7h6", "c2c3", "g8f6", "d1c2", "g7g5", "c2e4", "e7e6", "a2a4", "h8h7",
-    "e2e3", "e8e7", "e4g6", "b8c6", "a4a5", "c6b8", "g6h6", "h7h6", "g1e2", "f6d5",
-    "e3e4", "d8e8", "g2g3", "b8a6",
+    "b2b3",
+    "h7h6",
+    "c2c3",
+    "g8f6",
+    "d1c2",
+    "g7g5",
+    "c2e4",
+    "e7e6",
+    "a2a4",
+    "h8h7",
+    "e2e3",
+    "e8e7",
+    "e4g6",
+    "b8c6",
+    "a4a5",
+    "c6b8",
+    "g6h6",
+    "h7h6",
+    "g1e2",
+    "f6d5",
+    "e3e4",
+    "d8e8",
+    "g2g3",
+    "b8a6",
 )
 
 
