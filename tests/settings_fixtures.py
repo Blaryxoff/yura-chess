@@ -20,6 +20,8 @@ UNREACHABLE_DATABASE_URL = "mysql+pymysql://user:pass@127.0.0.1:13306/yura_chess
 def offline_settings() -> Settings:
     return Settings(  # type: ignore[call-arg]
         environment="test",
+        # `Settings` reads `.env`, so an unpinned release id is the developer's own.
+        release_id="development",
         database_url=UNREACHABLE_DATABASE_URL,
         identity_salt=TEST_IDENTITY_SALT,
     )
