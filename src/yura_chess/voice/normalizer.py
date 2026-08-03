@@ -135,6 +135,11 @@ _FILES_WEAK: dict[str, str] = {
 # source-file hint without a following rank risks playing the wrong move.
 _FUNCTION_WORD_FILES = frozenset({"а", "с", "е", "и"})
 
+# A glued number right after one of these spells a count far more often than a
+# square: «мне б 24» is not a move. Wider than the set above, because «конь б е
+# пять» still names the b-file knight — only the glued form is doubtful.
+_GLUE_AMBIGUOUS_FILES = _FUNCTION_WORD_FILES | {"б", "ж", "же"}
+
 _CAPTURES = frozenset(
     {"бьет", "бей", "бьем", "берет", "бери", "взять", "взял", "бьют", "съесть", "съел", "руби", "рубит"}
 )
@@ -192,6 +197,11 @@ _CASTLE_LONG = re.compile(r"^(?:длинн|ферзев)|^больш(?:ая|ую
 # Letters and digits are separate runs, so ASR output glued as "е4" or "e4" still
 # tokenises into a file and a rank instead of one unrecognised word.
 _WORD = re.compile(r"[а-я]+|[a-z]+|[0-9]+")
+# ASR swallows the destination file of a spoken move often enough that the two
+# ranks arrive as one number: «ферзь дэ два цэ три» comes back as «ферзь д 23».
+# Split only a pair of board ranks named right after a file, so that «уровень 12»
+# and «мне 65 лет» stay the numbers they are.
+_GLUED_RANKS = re.compile(r"^[1-8]{2}$")
 
 
 def normalize(text: str) -> Normalized:
@@ -204,6 +214,7 @@ def normalize(text: str) -> Normalized:
 
 
 def _tokenize(words: tuple[str, ...], lowered: str) -> tuple[Signature, tuple[str, ...]]:
+    words, recovered = _split_glued_ranks(words)
     notation = _CASTLE_NOTATION.search(lowered)
     if notation is not None:
         marker_count = sum(character in "0оo" for character in notation.group())
@@ -231,7 +242,8 @@ def _tokenize(words: tuple[str, ...], lowered: str) -> tuple[Signature, tuple[st
         if word in _PIECES:
             tokens.append(Token(TokenKind.PIECE, _PIECES[word]))
         elif word in _RANKS:
-            tokens.append(Token(TokenKind.RANK, _RANKS[word]))
+            kind = TokenKind.DESTINATION_RANK if index in recovered else TokenKind.RANK
+            tokens.append(Token(kind, _RANKS[word]))
         elif word in _FILES_STRICT:
             tokens.append(Token(TokenKind.FILE, _FILES_STRICT[word]))
         elif word in _FILES_WEAK:
@@ -252,11 +264,41 @@ def _tokenize(words: tuple[str, ...], lowered: str) -> tuple[Signature, tuple[st
                 unknown.append(word)
 
     merged = _merge_squares(tokens)
-    destination = next((token.value for token in reversed(merged) if token.kind is TokenKind.SQUARE), None)
-    implicit_promotion = bool(
-        words and words[-1] in _IMPLICIT_PROMOTION_PIECES and destination is not None and destination[1] in {"1", "8"}
-    )
+    spoken = [word for word in words if word not in _FILLER]
+    implicit_promotion = bool(spoken and spoken[-1] in _IMPLICIT_PROMOTION_PIECES and _final_rank(merged) in {"1", "8"})
     return _mark_promotion(merged, promotion_announced or implicit_promotion), tuple(unknown)
+
+
+def _split_glued_ranks(words: tuple[str, ...]) -> tuple[tuple[str, ...], frozenset[int]]:
+    """The words with glued rank pairs split, and where the second half landed.
+
+    That second half is the rank the move ends on, and only it: a rank spoken
+    again on its own — «пешка е четыре, повторяю, четыре» — is an echo.
+    """
+    # A doubtful file needs a piece named somewhere for the number after it to
+    # become a square: «конь а 23» is a move and «и 24» is not.
+    named_piece = any(word in _PIECES for word in words)
+    split: list[str] = []
+    recovered: set[int] = set()
+    for index, word in enumerate(words):
+        previous = words[index - 1] if index else ""
+        after_file = previous in _FILES_STRICT | _FILES_WEAK and (named_piece or previous not in _GLUE_AMBIGUOUS_FILES)
+        if after_file and _GLUED_RANKS.match(word):
+            split.extend(word)
+            recovered.add(len(split) - 1)
+        else:
+            split.append(word)
+    return tuple(split), frozenset(recovered)
+
+
+def _final_rank(tokens: list[Token]) -> str | None:
+    """The rank the move ends on; a bare rank stands in for a file ASR swallowed."""
+    for token in reversed(tokens):
+        if token.kind is TokenKind.RANK or token.kind is TokenKind.DESTINATION_RANK:
+            return token.value
+        if token.kind is TokenKind.SQUARE:
+            return token.value[1]
+    return None
 
 
 def _merge_squares(tokens: list[Token]) -> list[Token]:

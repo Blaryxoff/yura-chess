@@ -1241,7 +1241,7 @@ class ConversationService:
                 return Speech.of("Я услышал несколько ходов. Назовите только ваш текущий ход.")
             recognized = recognize(normalized.signature)
             if recognized.piece is not None and recognized.destination is None:
-                return Speech.of(f"Куда должен пойти {_spoken_piece(recognized.piece)}? Назовите поле.")
+                return Speech.of(f"Куда пойти {_spoken_piece(recognized.piece)}? Назовите поле.")
             if recognized.destination is not None:
                 return Speech.of(f"Какой фигурой вы хотите пойти на {recognized.destination}?")
             return Speech.of("Назовите ваш ход: фигуру и поле назначения.")
@@ -1390,7 +1390,8 @@ def _display_uci(uci: str) -> str:
 
 
 def _spoken_piece(piece: str) -> str:
-    return {"P": "пешка", "N": "конь", "B": "слон", "R": "ладья", "Q": "ферзь", "K": "король"}[piece]
+    """Instrumental: «пойти пешкой» agrees for every piece, «пойти пешка» for none."""
+    return {"P": "пешкой", "N": "конем", "B": "слоном", "R": "ладьей", "Q": "ферзем", "K": "королем"}[piece]
 
 
 def _undo_confirmation(count: int) -> str:

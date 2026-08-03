@@ -248,8 +248,12 @@ async def test_incomplete_and_compound_moves_get_specific_non_mutating_clarifica
     incomplete = await conversation.handle(OWNER, "я конем хожу", context(2), started.state)
     compound = await conversation.handle(OWNER, "е 2 е 4 е 7 е 5", context(3), incomplete.state)
     sequenced = await conversation.handle(OWNER, "рокировка потом конь эф три", context(4), compound.state)
+    # ASR swallowed the destination file: the queen is not on d2, and the square
+    # the player did name must not be read back as where the move ends.
+    glued = await conversation.handle(OWNER, "ферзь д 23", context(5), sequenced.state)
 
-    assert incomplete.speech.text == "Куда должен пойти конь? Назовите поле."
+    assert incomplete.speech.text == "Куда пойти конем? Назовите поле."
+    assert glued.speech.text == "Куда пойти ферзем? Назовите поле."
     assert compound.speech.text == "Я услышал несколько ходов. Назовите только ваш текущий ход."
     assert sequenced.speech.text == "Я услышал несколько ходов. Назовите только ваш текущий ход."
     with session_scope(session_factory) as session:

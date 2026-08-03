@@ -246,7 +246,11 @@ _HELP_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (
         CommandKind.HELP,
         re.compile(
-            r"помощь$|помощь (по|с|про)\b|что ты (умеешь|можешь делать)|справка|справку|справке|как играть|"
+            # «помоги» alone asks for the help section; «помоги с ходом» asks the
+            # trainer for one move and is read as a hint further down.
+            r"помощь(?: пожалуйста)?$|помощь (по|с|про)\b|"
+            r"^(?:(?:алиса|юра|пожалуйста)\s+)*помоги(?:те)?(?:\s+(?:мне|пожалуйста))*$|"
+            r"что ты (умеешь|можешь делать)|справка|справку|справке|как играть|"
             r"что еще ты умеешь|что ты можешь$|расскажи (?:мне )?о возможност\w*|"
             r"какие команды|список команд|все команды|что можно сказать|какие еще (есть )?опции|^настройки$|"
             r"^что (?:мне )?делать$|как (?:с тобой )?играть|как (?:сделать|назвать) ход"
@@ -275,7 +279,7 @@ _CONVERSATION_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     ),
     (
         CommandKind.BACKCHANNEL,
-        re.compile(r"^(?:понятно|понял|поняла|хорошо|ладно|нормально|угу|поехали|погнали|начали|начинаем)$"),
+        re.compile(r"^(?:понятно|понял|поняла|хорошо|ладно|нормально|угу|поехали|погнали|вперед|начали|начинаем)$"),
     ),
     (CommandKind.REPEAT_REPLY, re.compile(r"^(?:повтори|еще раз)$")),
     (
@@ -325,6 +329,17 @@ _COLOR_RETRY = re.compile(
     rf"\s+(?P<color>бел|черн)(?:ыми|ых)\b"
 )
 
+# Surrender names the loser and ends the game outright; the forms below only end
+# it once the game is named too, so both are read against the same utterance.
+_SURRENDER = r"сдаюсь|сдаться|сдаемся|я сдался|я проиграл"
+# Asking for the end of the game, not describing one: «кто завершил игру» and
+# «почему ты закончила эту игру» ask about a game that is already over.
+_END_GAME_REQUEST = (
+    r"(?:зак[оа]нч(?:и|им|ите|ить|ивай(?:те)?|иваем)|заверш(?:и|им|ите|ить|ать|аем)|"
+    r"прекра(?:ти|тим|тите|тить|щать|щаем))"
+)
+_END_GAME_STEM = r"(?:зак[оа]нч|заверш|прекра[тщ])"
+
 _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (CommandKind.REPEAT_HEARD, re.compile(r"что (ты )?(услышал[аи]?|понял[аи]?|разобрал[аи]?)|что я сказал")),
     (
@@ -342,8 +357,15 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (
         CommandKind.RESIGN,
         re.compile(
-            r"сдаюсь|сдаться|сдаемся|я сдался|я проиграл|"
-            r"законч(и|им|ить) (игру|партию)|игра окончена"
+            rf"{_SURRENDER}|"
+            # Naming the game ends the game; naming the skill is the exit above.
+            # An adjective may sit between: «заканчиваем шахматную партию». A
+            # negation cancels it outright, and is checked by _END_GAME_NEGATED.
+            rf"\b{_END_GAME_REQUEST}\b(?: [а-я]+)? (?:игру|партию)\b|"
+            r"^стоп (?:игра|игру|партия|партию)$|"
+            # Only the whole utterance: «конец игры это мат или пат» names the term.
+            r"^(?:алиса |юра )?конец (?:игры|партии)$|"
+            r"игра окончена|^(?:игра|партия) (?:окончена|закончена|завершена)$"
         ),
     ),
     (CommandKind.CLAIM_DRAW, re.compile(r"ничь(я|ю|ей)")),
@@ -351,6 +373,9 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         CommandKind.UNDO,
         re.compile(
             r"\b(?:отмен(?:и|ить)|откат(?:и|ить)|верн(?:и|уть))\b(?: [а-я0-9]+){0,3} ход\w*\b|"
+            # What ASR makes of «вернуть ход». Kept to the whole utterance: the
+            # filler above would let «поверни доску чей ход» undo a move.
+            r"^(?:по|вы)верн(?:и|уть) ход\w*$|"
             r"^ход назад$|переходить"
         ),
     ),
@@ -365,7 +390,7 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         CommandKind.CONTINUE,
         re.compile(
             r"^(?:алиса )?(?:(?:да|ага) )?(?:давай )?"
-            r"продолж(?:ай|аем|им|ить)?(?: (?:игру|партию|последнюю партию))?$|"
+            r"продолж(?:ай|айте|аем|и|ите|им|ить)?(?: (?:игру|партию|последнюю партию))?(?: пожалуйста)?$|"
             r"^(?:алиса )?(?:теперь )?твой ход$|^вернемся к (?:игре|партии)$"
         ),
     ),
@@ -477,6 +502,22 @@ _SOUND_WISH = r"(?:хочу|хочется|хотел\w*|надо|нужн\w*|б
 # A wish may sit between the negation and the verb: «не хочу выключать звуки»
 # asks for the opposite of «выключать звуки», not for the same thing.
 _SOUND_NEGATION = rf"(?P<negated>\bне\s+(?:{_SOUND_WISH}\s+)?)?"
+# A refusal to end the game, in the three shapes it is spoken in. A wish and one
+# word may sit between the refusal and the verb, but only an infinitive belongs
+# to it: in «не хочу сейчас, закончи игру» the imperative opens a new clause and
+# is the request the utterance ends with.
+_END_GAME_NEGATED = re.compile(
+    rf"\bне\s+{_END_GAME_STEM}"
+    rf"|\bне\s+{_SOUND_WISH}\s+(?:[а-я]+\s+)?{_END_GAME_STEM}\w*ть\b"
+    rf"|{_END_GAME_STEM}\w*(?:\s+[а-я]+)? (?:игру|партию)(?:\s+[а-я]+)?\s+не\s+{_SOUND_WISH}\b"
+)
+# «что значит закончить партию» asks what ending a game means. Kept apart from
+# _RULES_FRAME: «можно ли закончить игру» is how a game is actually resigned.
+_END_GAME_DEFINITION = re.compile(r"\bчто (?:значит|такое)\b")
+_SURRENDER_SPOKEN = re.compile(_SURRENDER)
+# A refusal and a question hold only over the clause they were spoken in, so
+# both are read against the last one an utterance opens.
+_LAST_CLAUSE = re.compile(r"\bа (?:теперь|потом|сейчас)\b")
 _SOUND_COMMAND = re.compile(
     rf"{_SOUND_NEGATION}"
     rf"(?:(?P<on>включ|верн|добав)|выключ|отключ|убер|убир|отмен)\w*{_SOUND_GAP}\s+{_SOUND_NOUN}"
@@ -628,7 +669,10 @@ _TRAINING_PATTERNS: tuple[tuple[TrainingQuestion, re.Pattern[str]], ...] = (
         ),
     ),
     # «подскажи» — the imperative the help advertises — carries the ж stem.
-    (TrainingQuestion.HINT, re.compile(r"подсказ|подскаж|дай совет|посоветуй|помоги с ходом")),
+    (
+        TrainingQuestion.HINT,
+        re.compile(r"подсказ|подскаж|дай совет|посоветуй|помоги(?:те)?(?:\s+(?:мне|пожалуйста))*\s+с ходом"),
+    ),
 )
 
 # Review phrases are read before the control table: «продолжить разбор» would
@@ -819,6 +863,13 @@ def route(
                 # rank and «как сделать первый ход» a move number, but both ask
                 # a rule the board reader has no answer to.
                 return RoutedCommand(CommandKind.HELP, normalized, clarification=None)
+            if kind is CommandKind.RESIGN and not _SURRENDER_SPOKEN.search(normalized.text):
+                clause = _last_clause(normalized.text)
+                if _END_GAME_DEFINITION.search(clause):
+                    return RoutedCommand(CommandKind.HELP, normalized, clarification=None)
+                if _END_GAME_NEGATED.search(clause):
+                    # The refusal leaves whatever follows it to route.
+                    continue
             colour_asked = parse_color_choice(normalized.text) if kind is CommandKind.COLOR_CHOICE else None
             if kind is CommandKind.COLOR_CHOICE and colour_asked is None:
                 # A colour named without asking for it: let the later patterns read it.
@@ -1029,6 +1080,11 @@ def _from_resolution(
         resolution=resolution,
         clarification=PendingClarification(heard=normalized.text, candidates=resolution.candidates),
     )
+
+
+def _last_clause(text: str) -> str:
+    """What the utterance ends on, once it has moved past its own preamble."""
+    return _LAST_CLAUSE.split(text)[-1]
 
 
 def _undo_count(text: str) -> int:

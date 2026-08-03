@@ -9,6 +9,7 @@ them. Several moves sharing a form is a normal outcome — it is reported as
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 
 import chess
 
@@ -27,6 +28,7 @@ _FULL_COORDINATES = 1.0
 _PIECE_PARTIAL_SOURCE = 0.9
 _PIECE_DESTINATION = 0.85
 _DESTINATION_ONLY = 0.75
+_NAMED_SOURCE_DESTINATION_RANK = 0.7
 _UNKNOWN_WORD_PENALTY = 0.05
 _MAX_UNKNOWN_PENALTY = 0.15
 
@@ -96,7 +98,7 @@ def recognize(signature: Signature) -> RecognizedMove:
     promotions = [token.value for token in signature if token.kind is TokenKind.PROMOTION]
     if len(squares) > 2:
         squares = []
-    return RecognizedMove(
+    reading = RecognizedMove(
         piece=pieces[0] if len(set(pieces)) == 1 else None,
         source=squares[0] if len(squares) > 1 else None,
         source_file=files[0] if files else None,
@@ -107,6 +109,16 @@ def recognize(signature: Signature) -> RecognizedMove:
         castle_short=any(token.kind is TokenKind.CASTLE_SHORT for token in signature),
         castle_long=any(token.kind is TokenKind.CASTLE_LONG for token in signature),
     )
+    if _has_destination_rank(signature) and len(squares) == 1:
+        # The rank ASR left where the destination belongs took the place of the
+        # file it swallowed. The one square named is then the source, and where
+        # the move ends is known by its rank alone — not by a destination.
+        return replace(reading, source=reading.destination, destination=None)
+    return reading
+
+
+def _has_destination_rank(signature: Signature) -> bool:
+    return any(token.kind is TokenKind.DESTINATION_RANK for token in signature)
 
 
 def _focused_signatures(signature: Signature) -> tuple[Signature, ...]:
@@ -119,9 +131,15 @@ def _focused_signatures(signature: Signature) -> tuple[Signature, ...]:
     if len(square_values) == 3 and square_values[0] != square_values[-1]:
         return ()
 
+    # Once ASR has swallowed a destination file, a slice that stops anywhere
+    # before the end would replay the source square as the destination, or drop
+    # the capture the speaker claimed after the rank.
+    whole_only = _has_destination_rank(signature)
     focused: list[Signature] = []
     for start in range(len(signature)):
         for end in range(start + 2, min(len(signature), start + 5) + 1):
+            if whole_only and end != len(signature):
+                continue
             candidate = signature[start:end]
             squares = sum(token.kind is TokenKind.SQUARE for token in candidate)
             pieces = sum(token.kind is TokenKind.PIECE for token in candidate)
@@ -171,4 +189,20 @@ def _plain_forms(board: chess.Board, move: chess.Move) -> list[tuple[Signature, 
         for middle in middles:
             for tail in tails:
                 forms.append(((*head, *middle, Token(TokenKind.SQUARE, destination), *tail), tier))
+    # ASR drops the file of the destination and glues the two ranks, so the rank
+    # alone has to land. Only a source named in full may stand in for the missing
+    # file: after a bare piece the rank matches half the position at once.
+    named_sources: tuple[tuple[Token, ...], ...] = (
+        (Token(TokenKind.PIECE, letter), Token(TokenKind.SQUARE, source)),
+        (Token(TokenKind.SQUARE, source),),
+    )
+    for head in named_sources:
+        for middle in middles:
+            for tail in tails:
+                forms.append(
+                    (
+                        (*head, *middle, Token(TokenKind.DESTINATION_RANK, destination[1]), *tail),
+                        _NAMED_SOURCE_DESTINATION_RANK,
+                    )
+                )
     return forms

@@ -20,7 +20,7 @@ from yura_chess.application.command_router import (
     route,
 )
 from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle, PauseStyle
-from yura_chess.voice.move_resolver import resolve
+from yura_chess.voice.move_resolver import recognize, resolve
 from yura_chess.voice.normalizer import normalize
 from yura_chess.voice.types import ResolutionStatus, TokenKind
 
@@ -958,3 +958,229 @@ def test_a_sequence_of_moves_is_still_refused_rather_than_corrected() -> None:
     assert routed.move is None
     assert routed.clarification is not None
     assert routed.clarification.candidates == ()
+
+
+GLUED_RANKS_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPQNPPP/RNB1KB1R w KQkq - 0 1"
+
+
+def test_a_destination_file_swallowed_by_asr_still_plays_the_only_move_left() -> None:
+    routed = route("пешка ц 24", chess.Board(GLUED_RANKS_FEN))
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == "c2c4"
+
+
+def test_a_swallowed_destination_file_is_asked_about_rather_than_guessed() -> None:
+    routed = route("ферзь д 23", chess.Board(GLUED_RANKS_FEN))
+
+    assert routed.kind is CommandKind.CLARIFY
+    assert routed.move is None
+    assert routed.clarification is not None
+    assert set(routed.clarification.candidates) == {"d2c3", "d2d3", "d2e3"}
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["ферзь д 23", "пешка а 78 превращается в ферзя"],
+)
+def test_a_swallowed_destination_file_never_turns_the_source_into_the_destination(utterance: str) -> None:
+    recognized = recognize(normalize(utterance).signature)
+
+    assert recognized.source is not None
+    assert recognized.destination is None
+
+
+@pytest.mark.parametrize("utterance", ["ферзь д 23", "ферзь д 23 бьет", "ферзь д 23 пожалуйста"])
+def test_a_source_square_the_piece_does_not_stand_on_is_never_played_as_a_destination(utterance: str) -> None:
+    # The queen is on d1, so «ферзь д 23» names no move it can make: shortening
+    # the reading to «ферзь д 2» would play Qd1-d2, which nobody asked for.
+    # Whatever is said after the rank must not restore that shortened reading.
+    routed = route(utterance, chess.Board("7k/8/8/8/8/8/8/K2Q4 w - - 0 1"))
+
+    assert routed.kind is not CommandKind.MOVE
+    assert routed.move is None
+
+
+@pytest.mark.parametrize("piece", ["ферзь", "ладья", "слон", "конь"])
+def test_a_promotion_survives_the_glued_rank_of_its_destination(piece: str) -> None:
+    board = chess.Board("7k/P7/8/8/8/8/8/7K w - - 0 1")
+
+    resolution = resolve(normalize(f"пешка а 78 {piece}"), board)
+
+    assert resolution.status is ResolutionStatus.RESOLVED
+    assert resolution.move is not None
+    assert resolution.move.startswith("a7a8")
+
+
+def test_politeness_after_the_promotion_piece_keeps_the_piece_that_was_named() -> None:
+    board = chess.Board("7k/P7/8/8/8/8/8/7K w - - 0 1")
+
+    resolution = resolve(normalize("пешка а 78 ферзь пожалуйста"), board)
+
+    assert resolution.status is ResolutionStatus.RESOLVED
+    assert resolution.move == "a7a8q"
+
+
+@pytest.mark.parametrize("utterance", ["уровень 12", "мне 65 лет", "громкость 88", "и 24", "а 24", "мне б 24", "же 24"])
+def test_a_two_digit_number_outside_a_move_is_not_read_as_two_ranks(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.UNKNOWN
+
+
+def test_a_file_doubtful_before_a_glued_number_is_still_a_file_before_a_square() -> None:
+    # Both knights reach d2; «б» is what tells the two of them apart.
+    routed = route("конь б д два", chess.Board(TWO_KNIGHTS_FEN))
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == "b1d2"
+
+
+@pytest.mark.parametrize("utterance", ["пешка е 43 бьет", "пешка е 43 бьет коня"])
+def test_a_capture_claimed_after_the_recovered_rank_is_not_dropped_to_play_a_quiet_move(utterance: str) -> None:
+    routed = route(utterance, chess.Board("4k3/8/8/8/4p3/8/8/4K3 b - - 0 1"))
+
+    assert routed.kind is not CommandKind.MOVE
+    assert routed.move is None
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("пешка е два е четыре повторяю четыре", "e2e4"),
+        ("пешка е четыре повторяю четыре", "e2e4"),
+        ("конь эф три повторяю три", "g1f3"),
+    ],
+)
+def test_a_rank_repeated_after_a_move_is_an_echo_rather_than_a_destination(utterance: str, expected: str) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == expected
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "завершить игру",
+        "стоп игра",
+        "хватит завершаем игру",
+        "закончи заканчиваем шахматную партию",
+        "конец игры",
+        "конец партии",
+        "игра закончена",
+        "партия закончена",
+        "игра завершена",
+    ],
+)
+def test_asking_to_end_the_game_ends_the_game(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.RESIGN
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "помощь пожалуйста",
+        "помогите пожалуйста",
+        "помоги",
+        "пожалуйста помоги",
+        "алиса помоги",
+        "помоги мне",
+        "помоги пожалуйста мне",
+    ],
+)
+def test_a_politeness_word_does_not_hide_the_request_for_help(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.HELP
+
+
+@pytest.mark.parametrize("utterance", ["конец игры это мат или пат", "что бывает в конце игры"])
+def test_naming_the_end_of_a_game_as_a_term_does_not_end_the_game(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is not CommandKind.RESIGN
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "не заканчивай игру отмени ход",
+        "не надо заканчивать игру отмени ход",
+        "не надо сейчас заканчивать игру отмени ход",
+    ],
+)
+def test_a_negated_end_of_game_leaves_the_command_that_follows_it_alone(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.UNDO
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "не заканчивай игру",
+        "не надо заканчивать игру",
+        "не хочу завершать игру",
+        "давай не будем заканчивать партию",
+        "не буду заканчивать партию",
+        "не хочу больше завершать партию",
+        "завершать игру не надо",
+        "завершать шахматную партию не надо",
+        "завершать игру мне не надо",
+    ],
+)
+def test_a_wish_between_the_refusal_and_the_end_of_the_game_still_refuses(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is not CommandKind.RESIGN
+
+
+@pytest.mark.parametrize("utterance", ["не хочу играть закончи игру", "не хочу сейчас закончи игру"])
+def test_a_refusal_to_play_still_ends_the_game_it_asks_to_end(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.RESIGN
+
+
+@pytest.mark.parametrize("utterance", ["что значит завершить партию", "что такое закончить игру"])
+def test_asking_what_ending_a_game_means_explains_it_instead_of_ending_one(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.HELP
+
+
+@pytest.mark.parametrize("utterance", ["можно ли закончить игру", "все я сдаюсь что значит партия окончена"])
+def test_a_question_about_ending_the_game_that_asks_for_one_still_ends_it(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.RESIGN
+
+
+@pytest.mark.parametrize("utterance", ["почему ты закончила эту игру", "кто завершил игру"])
+def test_asking_about_a_game_that_already_ended_does_not_end_this_one(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is not CommandKind.RESIGN
+
+
+@pytest.mark.parametrize(
+    "utterance", ["не заканчивай игру а теперь закончи игру", "что значит мат а теперь закончи игру"]
+)
+def test_the_clause_an_utterance_ends_on_is_the_one_that_is_answered(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.RESIGN
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["помоги с ходом", "помоги пожалуйста с ходом", "помоги пожалуйста мне с ходом", "помогите мне с ходом"],
+)
+def test_asking_for_help_with_one_move_still_reaches_the_trainer(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.TRAINING
+
+
+@pytest.mark.parametrize("utterance", ["повернуть ход", "вывернуть ход", "вернуть ход"])
+def test_asr_variants_of_taking_a_move_back_still_undo(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.UNDO
+
+
+@pytest.mark.parametrize("utterance", ["поверни доску", "поверни доску чей ход"])
+def test_turning_the_board_is_not_taking_a_move_back(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is not CommandKind.UNDO
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("продолжи", CommandKind.CONTINUE),
+        ("продолжите", CommandKind.CONTINUE),
+        ("продолжайте", CommandKind.CONTINUE),
+        ("продолжите пожалуйста", CommandKind.CONTINUE),
+        ("продолжай", CommandKind.CONTINUE),
+        ("вперед", CommandKind.BACKCHANNEL),
+    ],
+)
+def test_a_short_go_on_is_answered_instead_of_ignored(utterance: str, expected: CommandKind) -> None:
+    assert route(utterance, chess.Board()).kind is expected

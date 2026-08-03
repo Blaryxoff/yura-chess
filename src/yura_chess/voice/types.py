@@ -17,6 +17,9 @@ class TokenKind(StrEnum):
     SQUARE = "square"
     FILE = "file"
     RANK = "rank"
+    # The rank left over when ASR glued the two halves of a move into one number
+    # and swallowed the destination file: it is where the move ends, not a source.
+    DESTINATION_RANK = "destination_rank"
     CAPTURE = "capture"
     CASTLE_SHORT = "castle_short"
     CASTLE_LONG = "castle_long"
