@@ -53,6 +53,10 @@ Before implementation, read the active product and dev plans under `docs/plans/`
 - Production secrets stay on Firebat with restrictive permissions.
 - Production deploys require green CI, an immutable image, health checks, and the public webhook smoke. Backup and
   restore-smoke status is monitored separately and never blocks an application deploy.
+- A webhook smoke request needs `session.user.user_id`; the deprecated `session.user_id` alone is answered with
+  «Не удалось определить пользователя».
+- Every turn after the first must echo the previous reply's `session_state` and `user_state_update` back in
+  `request.state`, otherwise each request opens a new game and multi-turn behaviour cannot be observed.
 
 <!-- devkit-toolkit:start -->
 ## devkit-toolkit
