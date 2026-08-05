@@ -422,11 +422,22 @@ SITE_SCRIPT = """
         if (!reveal) return;
         section.querySelectorAll(".stats-cards, .stats-chart").forEach((element) => reveal.observe(element));
       };
+      const syncPeriodLinks = (url) => {
+        const metric = url.searchParams.get("metric");
+        if (!metric) return;
+        document.querySelectorAll("a.stats-tab").forEach((tab) => {
+          const target = new URL(tab.href);
+          target.searchParams.set("metric", metric);
+          tab.href = target.toString();
+        });
+      };
       // Clicking two periods quickly used to let the slower answer win and leave
-      // the section disagreeing with the address bar.
+      // the section disagreeing with the address bar. The period redraws the whole
+      // section; the metric redraws the chart panel alone, so the totals beside it
+      // are neither discarded nor counted up a second time.
       let statisticsRequest = 0;
-      const loadStatistics = async (url, updateHistory = true) => {
-        const current = document.querySelector("#statistics");
+      const loadStatistics = async (url, selector = "#statistics", updateHistory = true) => {
+        const current = document.querySelector(selector);
         if (!current) return;
         const request = ++statisticsRequest;
         current.setAttribute("aria-busy", "true");
@@ -434,24 +445,32 @@ SITE_SCRIPT = """
           const response = await fetch(url, { headers: { "X-Requested-With": "statistics" } });
           if (!response.ok) throw new Error(`Statistics request failed: ${response.status}`);
           const page = new DOMParser().parseFromString(await response.text(), "text/html");
-          const replacement = page.querySelector("#statistics");
+          const replacement = page.querySelector(selector);
           if (!replacement) throw new Error("Statistics section is missing");
           if (request !== statisticsRequest) return;
           const scrollPosition = window.scrollY;
-          const wasFocused = document.activeElement?.closest?.(".stats-tab") !== null
-            && document.activeElement?.classList?.contains("stats-tab");
-          current.replaceWith(replacement);
+          const focused = document.activeElement?.classList?.contains("stats-tab")
+            ? ".stats-tab.active"
+            : document.activeElement?.classList?.contains("stats-metric") ? ".stats-metric" : null;
+          // A view transition morphs the heading and the metric pill across the
+          // swap; without one they would blink out and back at a new width.
+          const swap = () => {
+            current.replaceWith(replacement);
+            if (focused) document.querySelector(focused)?.focus({ preventScroll: true });
+          };
+          if (reducedMotion || !document.startViewTransition) swap();
+          else await document.startViewTransition(swap).updateCallbackDone;
           if (updateHistory) history.pushState({ statistics: true }, "", url);
           window.scrollTo({ top: scrollPosition });
-          // Replacing the section destroys the link that was just activated, which
-          // would otherwise drop keyboard focus to the top of the document.
-          if (wasFocused) replacement.querySelector(".stats-tab.active")?.focus({ preventScroll: true });
+          // The period links live outside the chart panel, so a metric-only swap
+          // leaves them pointing at the metric the reader has just left behind.
+          syncPeriodLinks(new URL(url, window.location.href));
           prepareStatistics(replacement);
         } catch (error) {
           window.location.assign(url);
         } finally {
           if (request === statisticsRequest) {
-            document.querySelector("#statistics")?.setAttribute("aria-busy", "false");
+            document.querySelector(selector)?.setAttribute("aria-busy", "false");
           }
         }
       };
@@ -511,7 +530,15 @@ SITE_SCRIPT = """
         event.preventDefault();
         loadStatistics(tab.href);
       });
-      window.addEventListener("popstate", () => loadStatistics(window.location.href, false));
+      document.addEventListener("change", (event) => {
+        const select = event.target.closest(".stats-metric");
+        if (!select || !select.form) return;
+        const url = new URL(select.form.action, window.location.href);
+        url.search = new URLSearchParams(new FormData(select.form)).toString();
+        url.hash = "statistics";
+        loadStatistics(url.toString(), "#statistics-chart");
+      });
+      window.addEventListener("popstate", () => loadStatistics(window.location.href, "#statistics", false));
 
       if (reducedMotion) return;
       document.documentElement.classList.add("has-motion");

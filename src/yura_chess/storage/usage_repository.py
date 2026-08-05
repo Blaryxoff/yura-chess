@@ -29,6 +29,10 @@ def _in_moscow(column: str) -> str:
     return f"DATE_ADD({column}, INTERVAL {int(_MOSCOW_OFFSET.total_seconds())} SECOND)"
 
 
+_DAY_BUCKET = "DATE({moment})"
+_MONTH_BUCKET = "DATE_SUB(DATE({moment}), INTERVAL DAYOFMONTH({moment}) - 1 DAY)"
+
+
 @dataclass(frozen=True, slots=True)
 class UsageTotals:
     requests: int
@@ -49,6 +53,8 @@ class DailyUsage:
     sessions: int = 0
     games: int = 0
     player_moves: int = 0
+    engaged_games: int = 0
+    puzzle_attempts: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,99 +196,72 @@ class UsageRepository:
         row = self._session.execute(statement, parameters).mappings().one()
         return UsageTotals(**{field: int(row[field]) for field in UsageTotals.__dataclass_fields__})
 
-    def _daily(self, source: DashboardSource, start: date, day_count: int) -> tuple[DailyUsage, ...]:
+    def _buckets(self, source: DashboardSource, bucket: str, start: date | None) -> dict[date, dict[str, int]]:
+        """Every charted metric grouped by the given time bucket, keyed by its first day."""
         source_filter = "" if source == "all" else " AND u.traffic_source = :source"
-        parameters: dict[str, object] = {"start": _utc_start(start)}
-        if source != "all":
-            parameters["source"] = source
-        days: dict[date, dict[str, int]] = {
-            start + timedelta(days=offset): {
-                "requests": 0,
-                "users": 0,
-                "sessions": 0,
-                "games": 0,
-                "player_moves": 0,
-            }
-            for offset in range(day_count)
-        }
-        requests = self._session.execute(
-            text(
-                f"""
-                SELECT DATE({_in_moscow("r.created_at")}) day, COUNT(*) requests,
-                       COUNT(DISTINCT r.owner_key) users, COUNT(DISTINCT r.session_key) sessions
-                FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
-                WHERE r.created_at >= :start{source_filter}
-                GROUP BY DATE({_in_moscow("r.created_at")})
-                """
-            ),
-            parameters,
-        ).mappings()
-        for row in requests:
-            day = row["day"]
-            if day in days:
-                days[day].update(requests=int(row["requests"]), users=int(row["users"]), sessions=int(row["sessions"]))
-        games = self._session.execute(
-            text(
-                f"""
-                SELECT DATE({_in_moscow("g.created_at")}) day, COUNT(*) games
-                FROM games g JOIN usage_users u ON u.owner_key = g.owner_key
-                WHERE g.created_at >= :start{source_filter}
-                GROUP BY DATE({_in_moscow("g.created_at")})
-                """
-            ),
-            parameters,
-        ).mappings()
-        for row in games:
-            if row["day"] in days:
-                days[row["day"]]["games"] = int(row["games"])
-        moves = self._session.execute(
-            text(
-                f"""
-                SELECT DATE({_in_moscow("m.created_at")}) day, COUNT(*) player_moves
-                FROM game_moves m JOIN games g ON g.id = m.game_id
-                JOIN usage_users u ON u.owner_key = g.owner_key
-                WHERE m.actor = 'player' AND m.created_at >= :start{source_filter}
-                GROUP BY DATE({_in_moscow("m.created_at")})
-                """
-            ),
-            parameters,
-        ).mappings()
-        for row in moves:
-            if row["day"] in days:
-                days[row["day"]]["player_moves"] = int(row["player_moves"])
-        return tuple(DailyUsage(day=day, **values) for day, values in days.items())
-
-    def _monthly(self, source: DashboardSource, end: date, *, limited: bool) -> tuple[DailyUsage, ...]:
-        source_filter = "" if source == "all" else " AND u.traffic_source = :source"
-        end_month = date(end.year, end.month, 1)
-        start = _add_months(end_month, -11) if limited else None
-        time_filter = "" if start is None else " AND r.created_at >= :start"
         parameters: dict[str, object] = {}
         if source != "all":
             parameters["source"] = source
         if start is not None:
             parameters["start"] = _utc_start(start)
-        rows = self._session.execute(
-            text(
-                f"""
-                SELECT YEAR({_in_moscow("r.created_at")}) year,
-                       MONTH({_in_moscow("r.created_at")}) month,
-                       COUNT(*) requests
-                FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
-                WHERE 1=1{source_filter}{time_filter}
-                GROUP BY YEAR({_in_moscow("r.created_at")}),
-                         MONTH({_in_moscow("r.created_at")})
-                ORDER BY year, month
-                """
-            ),
-            parameters,
-        ).mappings()
-        counts = {date(int(row["year"]), int(row["month"]), 1): int(row["requests"]) for row in rows}
-        first_month = start or min(counts, default=end_month)
+        buckets: dict[date, dict[str, int]] = {}
+
+        def collect(column: str, tables: str, condition: str, metrics: str) -> None:
+            time_filter = "" if start is None else f" AND {column} >= :start"
+            rows = self._session.execute(
+                text(
+                    f"""
+                    SELECT {bucket.format(moment=_in_moscow(column))} bucket, {metrics}
+                    FROM {tables}
+                    WHERE 1=1{condition}{source_filter}{time_filter}
+                    GROUP BY bucket
+                    """
+                ),
+                parameters,
+            ).mappings()
+            for row in rows:
+                values = buckets.setdefault(row["bucket"], {})
+                values.update({name: int(count) for name, count in row.items() if name != "bucket"})
+
+        collect(
+            "r.created_at",
+            "usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key",
+            "",
+            "COUNT(*) requests, COUNT(DISTINCT r.owner_key) users, COUNT(DISTINCT r.session_key) sessions",
+        )
+        collect(
+            "g.created_at",
+            "games g JOIN usage_users u ON u.owner_key = g.owner_key",
+            "",
+            "COUNT(*) games",
+        )
+        collect(
+            "m.created_at",
+            "game_moves m JOIN games g ON g.id = m.game_id JOIN usage_users u ON u.owner_key = g.owner_key",
+            " AND m.actor = 'player'",
+            "COUNT(*) player_moves, COUNT(DISTINCT g.id) engaged_games",
+        )
+        collect(
+            "p.created_at",
+            "puzzle_attempts p JOIN usage_users u ON u.owner_key = p.owner_key",
+            "",
+            "COUNT(*) puzzle_attempts",
+        )
+        return buckets
+
+    def _daily(self, source: DashboardSource, start: date, day_count: int) -> tuple[DailyUsage, ...]:
+        buckets = self._buckets(source, _DAY_BUCKET, start)
+        days = (start + timedelta(days=offset) for offset in range(day_count))
+        return tuple(DailyUsage(day=day, **buckets.get(day, {})) for day in days)
+
+    def _monthly(self, source: DashboardSource, end: date, *, limited: bool) -> tuple[DailyUsage, ...]:
+        end_month = date(end.year, end.month, 1)
+        start = _add_months(end_month, -11) if limited else None
+        buckets = self._buckets(source, _MONTH_BUCKET, start)
         months: list[DailyUsage] = []
-        month = first_month
+        month = start or min(buckets, default=end_month)
         while month <= end_month:
-            months.append(DailyUsage(day=month, requests=counts.get(month, 0)))
+            months.append(DailyUsage(day=month, **buckets.get(month, {})))
             month = _add_months(month, 1)
         return tuple(months)
 

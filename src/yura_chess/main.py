@@ -15,7 +15,7 @@ from yura_chess import __version__
 from yura_chess.adapters.alice.webhook import build_router as build_alice_router
 from yura_chess.adapters.yandex_images import BoardImageService
 from yura_chess.engine.stockfish import StockfishPool
-from yura_chess.presentation.dashboard import render_dashboard
+from yura_chess.presentation.dashboard import ChartMetric, render_dashboard
 from yura_chess.presentation.social_card import SOCIAL_CARD_PATH, SOCIAL_CARD_PNG
 from yura_chess.presentation.website import (
     ACCESSIBILITY_PAGE_HTML,
@@ -139,11 +139,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
     async def landing_page(
         period: Literal["month", "year", "all"] = "month",
+        metric: ChartMetric = "requests",
     ) -> HTMLResponse:
         def load() -> str:
             with session_scope(app.state.session_factory) as session:
                 snapshot = UsageRepository(session).dashboard("real", period=period)
-                return render_landing_page(render_dashboard(snapshot))
+                return render_landing_page(render_dashboard(snapshot, metric))
 
         return HTMLResponse(
             await run_in_threadpool(load),

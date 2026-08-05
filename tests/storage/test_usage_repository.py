@@ -9,8 +9,14 @@ from sqlalchemy.orm import Session
 
 from yura_chess.domain.game import GameStatus, PlayerColor
 from yura_chess.storage.game_repository import GameRepository
-from yura_chess.storage.models import UsageRequestRow, UsageUserRow
-from yura_chess.storage.usage_repository import UsageRepository
+from yura_chess.storage.models import (
+    GameMoveRow,
+    GameRow,
+    PuzzleAttemptRow,
+    UsageRequestRow,
+    UsageUserRow,
+)
+from yura_chess.storage.usage_repository import DailyUsage, UsageRepository
 
 REAL_OWNER = "a" * 64
 TEST_OWNER = "b" * 64
@@ -132,6 +138,34 @@ def test_dashboard_chart_supports_month_year_and_all_time_periods(session: Sessi
     )
     assert month_snapshot.totals.requests == year_snapshot.totals.requests == 1
     assert all_time_snapshot.totals.requests == 2
+
+
+def test_chart_series_carry_every_selectable_metric(session: Session) -> None:
+    played = datetime(2026, 7, 22, 12, 0, 0)
+    usage = UsageRepository(session)
+    usage.record_request(REAL_OWNER, "skill", "session", "1", "real", played)
+    usage.record_request(REAL_OWNER, "skill", "session", "2", "real", played + timedelta(minutes=1))
+    games = GameRepository(session)
+    game = games.create_game(REAL_OWNER, PlayerColor.WHITE)
+    games.append_moves(game.id, REAL_OWNER, game.revision, ("e2e4", "e7e5"))
+    session.add(PuzzleAttemptRow(owner_key=REAL_OWNER, puzzle_id="abc123", created_at=played, updated_at=played))
+    session.flush()
+    rows = {row.id: row for row in session.scalars(select(GameRow))}
+    rows[game.id].created_at = played
+    for move in session.scalars(select(GameMoveRow)):
+        move.created_at = played
+    session.commit()
+
+    month = {point.day: point for point in usage.dashboard("real", played, period="month").daily}
+    all_time = {point.day: point for point in usage.dashboard("real", played, period="all").daily}
+    day = month[date(2026, 7, 22)]
+    bucket = all_time[date(2026, 7, 1)]
+
+    assert (day.requests, day.users, day.sessions) == (2, 1, 1)
+    assert (day.games, day.player_moves, day.engaged_games, day.puzzle_attempts) == (1, 1, 1, 1)
+    assert (bucket.requests, bucket.users, bucket.sessions) == (2, 1, 1)
+    assert (bucket.games, bucket.player_moves, bucket.engaged_games, bucket.puzzle_attempts) == (1, 1, 1, 1)
+    assert month[date(2026, 7, 21)] == DailyUsage(date(2026, 7, 21))
 
 
 def test_dashboard_groups_utc_timestamps_by_moscow_day_and_month(session: Session) -> None:
