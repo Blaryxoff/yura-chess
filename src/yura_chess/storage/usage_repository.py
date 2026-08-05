@@ -50,6 +50,8 @@ class DailyUsage:
     day: date
     requests: int = 0
     users: int = 0
+    new_users: int = 0
+    returning_users: int = 0
     sessions: int = 0
     games: int = 0
     player_moves: int = 0
@@ -223,11 +225,17 @@ class UsageRepository:
                 values = buckets.setdefault(row["bucket"], {})
                 values.update({name: int(count) for name, count in row.items() if name != "bucket"})
 
+        # A user is new to the bucket their very first request falls in, and returning
+        # in every later one, so the two always add up to the active users beside them.
+        first_bucket = bucket.format(moment=_in_moscow("u.first_seen_at"))
+        active_bucket = bucket.format(moment=_in_moscow("r.created_at"))
         collect(
             "r.created_at",
             "usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key",
             "",
-            "COUNT(*) requests, COUNT(DISTINCT r.owner_key) users, COUNT(DISTINCT r.session_key) sessions",
+            "COUNT(*) requests, COUNT(DISTINCT r.owner_key) users, COUNT(DISTINCT r.session_key) sessions,"
+            f" COUNT(DISTINCT CASE WHEN {first_bucket} = {active_bucket} THEN r.owner_key END) new_users,"
+            f" COUNT(DISTINCT CASE WHEN {first_bucket} < {active_bucket} THEN r.owner_key END) returning_users",
         )
         collect(
             "g.created_at",

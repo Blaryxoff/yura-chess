@@ -17,6 +17,8 @@ def snapshot() -> DashboardSnapshot:
             start + timedelta(days=offset),
             requests=offset * 3,
             users=offset,
+            new_users=offset + 6,
+            returning_users=offset + 7,
             sessions=offset * 2,
             games=offset + 1,
             player_moves=offset * 4,
@@ -58,7 +60,17 @@ def test_chart_offers_every_metric_and_keeps_the_period_while_switching() -> Non
     assert 'name="metric"' in html
     assert '<input type="hidden" name="period" value="month">' in html
     assert 'value="player_moves" selected' in html
-    for key in ("requests", "users", "sessions", "player_moves", "games", "engaged_games", "puzzle_attempts"):
+    for key in (
+        "requests",
+        "users",
+        "new_users",
+        "returning_users",
+        "sessions",
+        "player_moves",
+        "games",
+        "engaged_games",
+        "puzzle_attempts",
+    ):
         assert f'<option value="{key}"' in html
     assert 'href="/?period=year&amp;metric=player_moves#statistics"' in html
 
@@ -68,6 +80,8 @@ def test_chart_offers_every_metric_and_keeps_the_period_while_switching() -> Non
     [
         ("requests", "Запросы по дням · 30 дней", "Запросов", 87),
         ("users", "Пользователи по дням · 30 дней", "Пользователей", 29),
+        ("new_users", "Новые пользователи по дням · 30 дней", "Новых", 35),
+        ("returning_users", "Вернувшиеся по дням · 30 дней", "Вернувшихся", 36),
         ("sessions", "Сессии по дням · 30 дней", "Сессий", 58),
         ("player_moves", "Ходы игроков по дням · 30 дней", "Ходов", 116),
         ("games", "Новые партии по дням · 30 дней", "Партий", 30),

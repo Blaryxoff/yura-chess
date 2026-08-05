@@ -13,6 +13,8 @@ from yura_chess.storage.usage_repository import DashboardSnapshot, UsageTotals
 ChartMetric = Literal[
     "requests",
     "users",
+    "new_users",
+    "returning_users",
     "sessions",
     "player_moves",
     "games",
@@ -35,6 +37,8 @@ _CHART_SPANS = {
 _METRIC_LABELS: dict[str, tuple[str, str]] = {
     "requests": ("Запросы", "Запросов"),
     "users": ("Пользователи", "Пользователей"),
+    "new_users": ("Новые пользователи", "Новых"),
+    "returning_users": ("Вернувшиеся", "Вернувшихся"),
     "sessions": ("Сессии", "Сессий"),
     "player_moves": ("Ходы игроков", "Ходов"),
     "games": ("Новые партии", "Партий"),

@@ -161,11 +161,36 @@ def test_chart_series_carry_every_selectable_metric(session: Session) -> None:
     day = month[date(2026, 7, 22)]
     bucket = all_time[date(2026, 7, 1)]
 
-    assert (day.requests, day.users, day.sessions) == (2, 1, 1)
+    assert (day.requests, day.users, day.sessions, day.new_users) == (2, 1, 1, 1)
     assert (day.games, day.player_moves, day.engaged_games, day.puzzle_attempts) == (1, 1, 1, 1)
     assert (bucket.requests, bucket.users, bucket.sessions) == (2, 1, 1)
     assert (bucket.games, bucket.player_moves, bucket.engaged_games, bucket.puzzle_attempts) == (1, 1, 1, 1)
     assert month[date(2026, 7, 21)] == DailyUsage(date(2026, 7, 21))
+
+
+def test_new_and_returning_users_split_the_active_ones(session: Session) -> None:
+    newcomer = "c" * 64
+    first = datetime(2026, 7, 21, 12, 0, 0)
+    second = datetime(2026, 7, 22, 12, 0, 0)
+    usage = UsageRepository(session)
+    usage.record_request(REAL_OWNER, "skill", "first-visit", "1", "real", first)
+    usage.record_request(REAL_OWNER, "skill", "second-visit", "2", "real", second)
+    usage.record_request(newcomer, "skill", "only-visit", "1", "real", second)
+    session.commit()
+
+    snapshot = usage.dashboard("real", second, period="month")
+    days = {point.day: point for point in snapshot.daily}
+    all_time = usage.dashboard("real", second, period="all")
+    july = all_time.daily[-1]
+
+    assert (days[date(2026, 7, 21)].users, days[date(2026, 7, 21)].new_users) == (1, 1)
+    assert days[date(2026, 7, 21)].returning_users == 0
+    assert (days[date(2026, 7, 22)].users, days[date(2026, 7, 22)].new_users) == (2, 1)
+    assert days[date(2026, 7, 22)].returning_users == 1
+    # A month bucket asks the same question of the month: both owners arrive in July,
+    # so a day-chart return does not count as one here.
+    assert (july.day, july.users, july.new_users, july.returning_users) == (date(2026, 7, 1), 2, 2, 0)
+    assert sum(point.new_users for point in all_time.daily) == all_time.totals.users
 
 
 def test_dashboard_groups_utc_timestamps_by_moscow_day_and_month(session: Session) -> None:
