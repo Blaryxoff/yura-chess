@@ -389,18 +389,9 @@ SITE_CSS = (
 SITE_SCRIPT = """
     (() => {
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const showLatest = (root = document, instant = false) => {
+      const showLatest = (root = document) => {
         const chart = root.querySelector(".stats-chart");
-        if (!chart) return;
-        const left = chart.scrollWidth - chart.clientWidth;
-        if (!instant) {
-          chart.scrollTo({ left });
-          return;
-        }
-        const declared = chart.style.scrollBehavior;
-        chart.style.scrollBehavior = "auto";
-        chart.scrollLeft = left;
-        chart.style.scrollBehavior = declared;
+        if (chart) chart.scrollLeft = chart.scrollWidth - chart.clientWidth;
       };
       requestAnimationFrame(() => showLatest());
       window.addEventListener("load", () => showLatest(), { once: true });
@@ -425,6 +416,7 @@ SITE_SCRIPT = """
       let reveal;
       const prepareStatistics = (section) => {
         if (!section) return;
+        requestAnimationFrame(() => showLatest(section));
         // Switching the period replaces the section, and with it every hint listener.
         wireTooltips(section);
         if (!reveal) return;
@@ -463,14 +455,11 @@ SITE_SCRIPT = """
           // A view transition morphs the heading and the metric pill across the
           // swap; without one they would blink out and back at a new width.
           const swap = () => {
-            if (request !== statisticsRequest) return;
             current.replaceWith(replacement);
-            showLatest(replacement, true);
             if (focused) document.querySelector(focused)?.focus({ preventScroll: true });
           };
           if (reducedMotion || !document.startViewTransition) swap();
           else await document.startViewTransition(swap).updateCallbackDone;
-          if (request !== statisticsRequest) return;
           if (updateHistory) history.pushState({ statistics: true }, "", url);
           window.scrollTo({ top: scrollPosition });
           // The period links live outside the chart panel, so a metric-only swap
@@ -478,7 +467,7 @@ SITE_SCRIPT = """
           syncPeriodLinks(new URL(url, window.location.href));
           prepareStatistics(replacement);
         } catch (error) {
-          if (request === statisticsRequest) window.location.assign(url);
+          window.location.assign(url);
         } finally {
           if (request === statisticsRequest) {
             document.querySelector(selector)?.setAttribute("aria-busy", "false");
