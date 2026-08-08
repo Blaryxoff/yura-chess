@@ -1856,6 +1856,7 @@ def test_asking_about_puzzles_is_not_asking_for_one(utterance: str, kind: Comman
         ("у меня не получается решить задачу", PuzzleQuestion.SOLUTION),
         ("не объясняй долго покажи решение", PuzzleQuestion.SOLUTION),
         ("не хочу ждать дай задачу", PuzzleQuestion.START),
+        ("не хочу играть лучше задачу дай", PuzzleQuestion.START),
         ("какая у меня серия", PuzzleQuestion.STREAK),
         ("какие задачи я решал", PuzzleQuestion.HISTORY),
         ("решенные задачи", PuzzleQuestion.HISTORY),

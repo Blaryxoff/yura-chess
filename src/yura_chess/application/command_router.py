@@ -1129,6 +1129,7 @@ _REFUSAL_AGAIN = re.compile(
     r"\bне\s+(?:\w+\s+){0,2}(?:дай|давай|хочу|надо|нужн|буду|открыв|открой|покажи|скажи|объясни)\w*"
 )
 _REFUSAL_JUST_BEFORE = re.compile(r"\bне\s+(?:\w+\s+)?$")
+_REFUSAL_WORD = re.compile(r"\bне\b")
 
 # Themes the shipped catalogue actually carries, named the way a player names them.
 _PUZZLE_THEMES: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -1421,11 +1422,23 @@ def _asked_plainly(text: str) -> bool:
     for asked in _PUZZLE_ASKED.finditer(text):
         if _REFUSAL_JUST_BEFORE.search(text[: asked.start()]):
             continue
-        wanted = text[asked.end() :]
-        refused_again = _REFUSAL_AGAIN.search(wanted)
-        if _PUZZLE_WANTED.search(wanted[: refused_again.start()] if refused_again else wanted):
+        if _PUZZLE_WANTED.search(_after(text, asked) or _before(text, asked)):
             return True
     return False
+
+
+def _after(text: str, asked: re.Match[str]) -> str:
+    """What the verb asks for, up to the next refusal; empty when the verb ends the phrase."""
+    wanted = text[asked.end() :]
+    refused_again = _REFUSAL_AGAIN.search(wanted)
+    return wanted[: refused_again.start()] if refused_again else wanted
+
+
+def _before(text: str, asked: re.Match[str]) -> str:
+    """What «лучше задачу дай» asks for: named first, since the last refusal."""
+    said = text[: asked.start()]
+    refusals = list(_REFUSAL_WORD.finditer(said))
+    return said[refusals[-1].end() :] if refusals else said
 
 
 def _puzzle_theme(text: str) -> str | None:
