@@ -216,6 +216,7 @@ _SECTIONS_BY_TOPIC = {section.topic: section for section in SECTIONS}
 # current state («Идет партия») reads as a move prompt rather than as an
 # instruction, and Yandex moderation rejects it as such.
 SKILL_INTRO = "Это навык «Шахматы с Юрой». Здесь вы играете в шахматы голосом против компьютера."
+_PUZZLE_INVITE = "Чтобы решить шахматную задачу, скажите «дай задачу»."
 _HOW_TO_USE = (
     "Чтобы начать партию, скажите: «новая игра белыми уровень пять». "
     "Ход называйте так: «пешка е два е четыре». Уровень — от нуля до двадцати."
@@ -430,6 +431,7 @@ def _menu(mode: HelpMode) -> HelpAnswer:
     state, expected = _MODE_TAILS[mode]
     text = (
         f"{SKILL_INTRO} {_HOW_TO_USE} Разделы справки. {first_titles}. {other_titles}. "
+        f"{_PUZZLE_INVITE} "
         f"Назовите раздел. Или скажите: «все команды». Тогда я прочитаю весь список. "
         f"{state} {_AFTER_HELP} {expected}"
     )

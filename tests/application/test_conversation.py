@@ -975,6 +975,7 @@ async def test_help_before_a_game_offers_topics_without_starting_anything(
     assert "Разделы справки" in reply.speech.text
     assert "Разделы справки. Правила, ходы, позиция, факты." in reply.speech.spoken()
     assert "Партия, настройки, тренер, разбор, задачи, речь." in reply.speech.spoken()
+    assert "Чтобы решить шахматную задачу, скажите «дай задачу»." in reply.speech.spoken()
     assert "Назовите раздел. Или скажите: «все команды»." in reply.speech.spoken()
     assert reply.state.help == HelpState(topic=None, page=0)
     assert reply.state.game_id is None

@@ -16,6 +16,7 @@ from yura_chess.application.command_router import (
     PendingClarification,
     PersonaWish,
     PreferenceChange,
+    PuzzleQuestion,
     RematchColor,
     RematchRequest,
     ReviewQuestion,
@@ -25,6 +26,7 @@ from yura_chess.application.command_router import (
     route,
 )
 from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle, PauseStyle
+from yura_chess.presentation.response_composer import NEXT_STEP_PROMPT
 from yura_chess.voice.move_resolver import recognize, resolve
 from yura_chess.voice.normalizer import normalize
 from yura_chess.voice.types import ResolutionStatus, TokenKind
@@ -1751,3 +1753,91 @@ def test_a_command_said_to_yura_by_name_is_still_the_command(utterance: str, kin
 
     assert routed.kind is kind
     assert routed.normalized.text == utterance
+
+
+@pytest.mark.parametrize(
+    ("utterance", "theme"),
+    [
+        ("задачки", None),
+        ("давай задачу", None),
+        ("можно задачу", None),
+        ("можно мне задачу", None),
+        ("решим задачу", None),
+        ("открой задачи", None),
+        ("перейдем к задачам", None),
+        ("режим задачи", None),
+        ("раздел задачи", None),
+        ("тактическую задачу", None),
+        ("шахматную задачу", None),
+        ("шахматная головоломка", None),
+        ("тактика", None),
+        ("головоломка", None),
+        ("этюд", None),
+        ("дай этюд", None),
+        ("хочу этюд", None),
+        ("шахматный этюд", None),
+        ("мат в 1", "mateIn1"),
+        ("мат в 1 ход", "mateIn1"),
+        ("мат в 2 хода", "mateIn2"),
+        ("дай мат в один ход", "mateIn1"),
+        ("давай мат в два хода", "mateIn2"),
+        ("задачу с вилкой", "fork"),
+        ("задачу про связку", "pin"),
+        ("задача сквозной удар", "skewer"),
+    ],
+)
+def test_a_puzzle_is_asked_for_in_more_than_one_way(utterance: str, theme: str | None) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.PUZZLE
+    assert routed.puzzle is not None
+    assert routed.puzzle.question is PuzzleQuestion.START
+    assert routed.puzzle.theme == theme
+
+
+@pytest.mark.parametrize(
+    ("utterance", "kind"),
+    [
+        ("мат", CommandKind.UNKNOWN),
+        ("какая тактика лучше", CommandKind.UNKNOWN),
+        ("тебе мат в 3 хода", CommandKind.CLARIFY),
+        ("мат в три хода", CommandKind.CLARIFY),
+        ("тактика ферзя", CommandKind.CLARIFY),
+        ("справка по задачам", CommandKind.HELP),
+        ("темы задач", CommandKind.HELP),
+        ("тема задач", CommandKind.HELP),
+        ("какие у тебя есть задачи", CommandKind.HELP),
+    ],
+)
+def test_asking_about_puzzles_is_not_asking_for_one(utterance: str, kind: CommandKind) -> None:
+    assert route(utterance, chess.Board()).kind is kind
+
+
+@pytest.mark.parametrize(
+    ("utterance", "question"),
+    [
+        ("выйти из задач", PuzzleQuestion.EXIT),
+        ("следующая задача", PuzzleQuestion.NEXT),
+        ("повтори задачу", PuzzleQuestion.REPEAT),
+        ("покажи решение", PuzzleQuestion.SOLUTION),
+        ("какая у меня серия", PuzzleQuestion.STREAK),
+    ],
+)
+def test_the_puzzle_commands_keep_their_own_question(utterance: str, question: PuzzleQuestion) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.puzzle is not None
+    assert routed.puzzle.question is question
+
+
+@pytest.mark.parametrize(
+    ("utterance", "kind"),
+    [
+        ("разобрать партию", CommandKind.REVIEW),
+        ("начать новую игру", CommandKind.NEW_GAME),
+        ("решить задачу", CommandKind.PUZZLE),
+    ],
+)
+def test_every_phrase_the_game_over_prompt_names_is_a_command(utterance: str, kind: CommandKind) -> None:
+    assert utterance in NEXT_STEP_PROMPT
+    assert route(utterance, chess.Board()).kind is kind

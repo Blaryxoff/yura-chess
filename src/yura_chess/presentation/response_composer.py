@@ -48,7 +48,7 @@ _DRAW_TEXTS: dict[GameEnd, str] = {
     GameEnd.THREEFOLD_REPETITION: "Троекратное повторение позиции. Ничья.",
 }
 
-NEXT_STEP_PROMPT = "Скажите «разбери партию» или «новая игра»."
+NEXT_STEP_PROMPT = "Теперь можно разобрать партию, начать новую игру или решить задачу."
 
 
 def compose_turn(
