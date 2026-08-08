@@ -752,6 +752,38 @@ def test_asking_for_help_in_the_genitive_still_opens_help(utterance: str) -> Non
     assert route(utterance, chess.Board()).kind is CommandKind.HELP
 
 
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "короткая рокировка",
+        "рокировка короткая",
+        "рокирую в короткую сторону",
+        "мой ход короткая рокировка",
+        "говори короткая рокировка",
+    ],
+)
+def test_castling_is_never_read_as_a_notation_or_brevity_setting(utterance: str) -> None:
+    assert route(utterance, chess.Board(CASTLING_FEN)).kind is not CommandKind.PREFERENCE
+
+
+@pytest.mark.parametrize("utterance", ["покажи нотацию", "партию в нотации"])
+def test_asking_for_the_written_game_is_not_a_notation_setting(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.REVIEW
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["покажи полную нотацию", "что такое полная нотация", "какая сейчас нотация", "что значит короткая нотация"],
+)
+def test_asking_about_a_setting_never_changes_it(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is not CommandKind.PREFERENCE
+
+
+@pytest.mark.parametrize("utterance", ["аннотация", "короткая", "развернуть ход"])
+def test_a_word_that_cannot_name_a_style_changes_no_setting(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is not CommandKind.PREFERENCE
+
+
 def test_help_navigation_is_matched_before_the_new_game_command() -> None:
     assert route("справка сначала", chess.Board()).kind is CommandKind.HELP
 
@@ -765,6 +797,15 @@ def test_help_navigation_is_matched_before_the_new_game_command() -> None:
         ("говори медленнее", PreferenceChange(pause_style=PauseStyle.EXTENDED)),
         ("говори быстрее", PreferenceChange(pause_style=PauseStyle.NORMAL)),
         ("называй только клетку назначения", PreferenceChange(notation_style=NotationStyle.SHORT)),
+        # Yandex ASR returns «аннотация» for «нотация», in any adjective ending.
+        ("короткая аннотация", PreferenceChange(notation_style=NotationStyle.SHORT)),
+        ("краткая аннотация", PreferenceChange(notation_style=NotationStyle.SHORT)),
+        ("полная аннотация", PreferenceChange(notation_style=NotationStyle.FULL)),
+        ("полное аннотация", PreferenceChange(notation_style=NotationStyle.FULL)),
+        ("включить полную аннотацию", PreferenceChange(notation_style=NotationStyle.FULL)),
+        ("полное нотация", PreferenceChange(notation_style=NotationStyle.FULL)),
+        ("говори коротко", PreferenceChange(detail_level=DetailLevel.BRIEF)),
+        ("говори краткую нотацию", PreferenceChange(notation_style=NotationStyle.SHORT)),
         ("полная нотация", PreferenceChange(notation_style=NotationStyle.FULL)),
         ("доску всегда белыми", PreferenceChange(board_orientation=BoardOrientation.WHITE)),
         ("ориентация за черных", PreferenceChange(board_orientation=BoardOrientation.BLACK)),

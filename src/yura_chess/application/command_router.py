@@ -715,10 +715,29 @@ def _sound_preference(text: str) -> PreferenceChange | None:
 
 # Settings are matched before the control table, so «говори медленнее» is a
 # preference while «повтори медленно» stays a repeat of the previous answer.
+# «покажи полную нотацию» and «что такое полная нотация» ask about the notation rather than set it.
+_NOTATION_QUESTION = re.compile(r"\bпокажи\b|что такое|что значит|что означает|кака\w+ сейчас|расскажи")
+
+
 _PREFERENCE_PATTERNS: tuple[tuple[PreferenceChange, re.Pattern[str]], ...] = (
+    # Before the brevity styles: «говори краткую нотацию» names the notation, not the answer length.
+    (
+        PreferenceChange(notation_style=NotationStyle.SHORT),
+        re.compile(
+            r"(?:кратк|коротк)\w*\s+(?:ан)?нотаци|только (клетку|поле) назначения|"
+            r"называй только (клетку|поле|куда)"
+        ),
+    ),
+    (
+        PreferenceChange(notation_style=NotationStyle.FULL),
+        re.compile(r"полн\w*\s+(?:ан)?нотаци|обе клетки|называй обе"),
+    ),
     (
         PreferenceChange(detail_level=DetailLevel.BRIEF),
-        re.compile(r"говори кратк|отвечай кратк|покороче|кратк(ие|о) ответ|краткост|не так подробн"),
+        re.compile(
+            r"говори кратк\w*\b(?!\s+рокиров)|говори коротко\b|отвечай кратк|покороче|"
+            r"кратк(ие|о) ответ|краткост|не так подробн"
+        ),
     ),
     # Before the detailed style, whose «подробность» it also contains.
     (
@@ -736,14 +755,6 @@ _PREFERENCE_PATTERNS: tuple[tuple[PreferenceChange, re.Pattern[str]], ...] = (
     (
         PreferenceChange(pause_style=PauseStyle.NORMAL),
         re.compile(r"говори быстр|убери пауз|без пауз|читай быстр"),
-    ),
-    (
-        PreferenceChange(notation_style=NotationStyle.SHORT),
-        re.compile(r"коротк(ая|ую|ой) нотаци|только (клетку|поле) назначения|называй только (клетку|поле|куда)"),
-    ),
-    (
-        PreferenceChange(notation_style=NotationStyle.FULL),
-        re.compile(r"полн(ая|ую|ой) нотаци|обе клетки|называй обе"),
     ),
     # Adjacency keeps a question about the board («что на доске у черных») out of
     # the orientation setting.
@@ -1087,9 +1098,10 @@ def parse_preference(text: str) -> PreferenceChange | None:
     sound = _sound_preference(text)
     if sound is not None:
         return sound
+    asked_about = _NOTATION_QUESTION.search(text) is not None
     for change, pattern in _PREFERENCE_PATTERNS:
         if pattern.search(text):
-            return change
+            return None if asked_about and change.notation_style is not None else change
     return None
 
 

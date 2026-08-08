@@ -1778,7 +1778,7 @@ async def test_short_notation_applies_to_the_next_engine_move(
 ) -> None:
     conversation = subject(session_factory, offline_settings)
     started = await conversation.handle(OWNER, "", context(1))
-    await conversation.handle(OWNER, "короткая нотация", context(2), started.state)
+    await conversation.handle(OWNER, "короткая аннотация", context(2), started.state)
 
     reply = await conversation.handle(OWNER, "пешка е два е четыре", context(3), started.state)
 
@@ -1786,6 +1786,23 @@ async def test_short_notation_applies_to_the_next_engine_move(
     engine_move = reply.turn.engine_move or ""
     assert f" {engine_move[2:4]}." in reply.speech.text
     assert engine_move[:2] not in reply.speech.text
+
+
+async def test_full_notation_restores_both_squares_after_the_short_one(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    await conversation.handle(OWNER, "короткая аннотация", context(2), started.state)
+    await conversation.handle(OWNER, "полная аннотация", context(3), started.state)
+
+    reply = await conversation.handle(OWNER, "пешка е два е четыре", context(4), started.state)
+
+    assert reply.turn is not None
+    engine_move = reply.turn.engine_move or ""
+    assert engine_move[:2] in reply.speech.text
+    assert engine_move[2:4] in reply.speech.text
 
 
 async def test_slow_adds_pauses_and_fast_removes_only_those(
