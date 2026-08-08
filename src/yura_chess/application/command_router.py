@@ -1070,9 +1070,9 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
     (
         PuzzleQuestion.SOLUTION,
         re.compile(
-            r"(покажи|какое|объясни|не знаю)\w* решение|сдаюсь в задаче|решение задачи|"
+            r"(покажи|скажи|какое|объясни|не знаю)\w* решение|сдаюсь в (?:эт\w+ )?задач\w*|решение задачи|"
             # Anchored: «не могу решить, какой ход лучше» asks the trainer, not the puzzle.
-            r"не (?:могу|мог|могла)(?: \w+){0,2} реши\w+(?: эту)?(?: задач\w*)?$"
+            r"(?:не (?:могу|мог|могла)|не получается)(?: \w+){0,2} реши\w+(?: эту)?(?: задач\w*)?$"
         ),
     ),
     (
@@ -1383,16 +1383,20 @@ def parse_review(text: str) -> ReviewRequest | None:
 def parse_puzzle(text: str) -> PuzzleRequest | None:
     """Read a puzzle command, or return `None` when the phrase is not one."""
     for question, pattern in _PUZZLE_PATTERNS:
-        if not pattern.search(text):
+        if not pattern.search(text) or _puzzle_refused(question, text):
             continue
-        if question is PuzzleQuestion.SOLUTION and _SOLUTION_REFUSED.search(text):
-            continue
-        if question is PuzzleQuestion.START and _START_REFUSED.search(text):
-            return None
         if question not in {PuzzleQuestion.START, PuzzleQuestion.NEXT}:
             return PuzzleRequest(question)
         return PuzzleRequest(question, theme=_puzzle_theme(text))
     return None
+
+
+def _puzzle_refused(question: PuzzleQuestion, text: str) -> bool:
+    if question is PuzzleQuestion.SOLUTION:
+        return bool(_SOLUTION_REFUSED.search(text))
+    if question is PuzzleQuestion.START:
+        return bool(_START_REFUSED.search(text) or _SOLUTION_REFUSED.search(text))
+    return False
 
 
 def _puzzle_theme(text: str) -> str | None:
