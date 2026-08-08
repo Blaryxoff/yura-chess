@@ -1335,7 +1335,7 @@ def test_politeness_after_the_promotion_piece_keeps_the_piece_that_was_named() -
     assert resolution.move == "a7a8q"
 
 
-@pytest.mark.parametrize("utterance", ["мне 65 лет", "громкость 88", "и 24", "а 24", "мне б 24", "же 24"])
+@pytest.mark.parametrize("utterance", ["мне 65 лет", "и 24", "а 24", "мне б 24", "же 24"])
 def test_a_two_digit_number_outside_a_move_is_not_read_as_two_ranks(utterance: str) -> None:
     assert route(utterance, chess.Board()).kind is CommandKind.UNKNOWN
 
@@ -1505,3 +1505,87 @@ def test_turning_the_board_is_not_taking_a_move_back(utterance: str) -> None:
 )
 def test_a_short_go_on_is_answered_instead_of_ignored(utterance: str, expected: CommandKind) -> None:
     assert route(utterance, chess.Board()).kind is expected
+
+
+@pytest.mark.parametrize(
+    ("utterance", "kind"),
+    [
+        ("громкость 3", CommandKind.PLATFORM),
+        ("громкость 88", CommandKind.PLATFORM),
+        ("алиса громкость на 4", CommandKind.PLATFORM),
+        ("алиса сделай звук на шестерку", CommandKind.PLATFORM),
+        ("включите погромче", CommandKind.PLATFORM),
+        ("не слышу сделайте погромче", CommandKind.PLATFORM),
+        ("потише", CommandKind.PLATFORM),
+        ("а вы сделайте погромче", CommandKind.PLATFORM),
+        ("музыку включи", CommandKind.PLATFORM),
+        ("включи лучше музыку", CommandKind.PLATFORM),
+        ("включить российские новости", CommandKind.PLATFORM),
+        ("выключи телевизор", CommandKind.PLATFORM),
+        ("выключи свет", CommandKind.PLATFORM),
+        ("алиса хватит какие игры у тебя есть", CommandKind.PLATFORM),
+        ("алиса хватит давай во что нибудь другое поиграем", CommandKind.PLATFORM),
+        ("алиса хватит давай лучше поиграем в другие шашки и шахматы", CommandKind.PLATFORM),
+        ("стоп навык", CommandKind.EXIT),
+        ("алиса стоп навык", CommandKind.EXIT),
+        ("а можешь постопить", CommandKind.EXIT),
+        ("алиса прекрати", CommandKind.EXIT),
+        ("алиса нам это не надо стоп", CommandKind.EXIT),
+        ("алис хватит стоп", CommandKind.EXIT),
+        ("все алиса выключи хватит", CommandKind.EXIT),
+        ("пока", CommandKind.EXIT),
+        ("алиса пока", CommandKind.EXIT),
+        ("все у меня шахмат перед глазами нет пока пока", CommandKind.EXIT),
+        ("выключи себя", CommandKind.EXIT),
+        ("алисонька отключай меня", CommandKind.EXIT),
+        ("алиса выключай шахматы", CommandKind.EXIT),
+        ("алиса выключи эту игру", CommandKind.EXIT),
+        ("выключите эту игру", CommandKind.EXIT),
+        ("алиса выключи эту программу с шахматами", CommandKind.EXIT),
+        ("алиса отключи этот режим шахмат", CommandKind.EXIT),
+        ("алиса отключить этот навык", CommandKind.EXIT),
+        ("алиса как отключить этот навык", CommandKind.EXIT),
+        ("а как отключиться", CommandKind.EXIT),
+        ("алиса помощь как выключить", CommandKind.EXIT),
+        ("закончить сессию", CommandKind.EXIT),
+        ("все выходим из игры", CommandKind.EXIT),
+        ("выходим выходим из игры", CommandKind.EXIT),
+        ("все надоели мне шахматы", CommandKind.EXIT),
+        ("алиса стоп игра", CommandKind.RESIGN),
+        ("алиса давай закончим этот тур", CommandKind.RESIGN),
+    ],
+)
+def test_leaving_and_asking_alice_are_told_apart(utterance: str, kind: CommandKind) -> None:
+    assert route(utterance, chess.Board()).kind is kind
+
+
+@pytest.mark.parametrize(
+    ("utterance", "kind"),
+    [
+        ("выключи режим тренера", CommandKind.TRAINING),
+        ("выключить тренера", CommandKind.TRAINING),
+        ("как отключить тренера", CommandKind.TRAINING),
+        ("выключи подсказки", CommandKind.TRAINING),
+        ("выключи звук", CommandKind.PREFERENCE),
+        ("как отключить звуки", CommandKind.PREFERENCE),
+        ("включи звуки", CommandKind.PREFERENCE),
+        ("выйти из задач", CommandKind.PUZZLE),
+        ("говори громче", CommandKind.UNKNOWN),
+        ("говори потише", CommandKind.UNKNOWN),
+        ("говори быстрее", CommandKind.PREFERENCE),
+        ("говори медленнее", CommandKind.PREFERENCE),
+        ("тише едешь дальше будешь", CommandKind.UNKNOWN),
+        ("подожди тише", CommandKind.UNKNOWN),
+        ("не хочу играть за черных", CommandKind.NEW_GAME),
+        ("стоп разбор", CommandKind.REVIEW),
+        ("закончить партию", CommandKind.RESIGN),
+        ("завершить игру", CommandKind.RESIGN),
+        ("стоп игра", CommandKind.RESIGN),
+        ("выходим конем на эф три", CommandKind.MOVE),
+        ("не хочу играть белыми давай черными", CommandKind.COLOR_CHOICE),
+        ("подожди пока я думаю", CommandKind.UNKNOWN),
+        ("пока не знаю", CommandKind.UNKNOWN),
+    ],
+)
+def test_leaving_never_steals_a_command_that_stays_in_the_skill(utterance: str, kind: CommandKind) -> None:
+    assert route(utterance, chess.Board()).kind is kind

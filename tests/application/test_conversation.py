@@ -640,14 +640,40 @@ async def test_platform_command_ends_only_the_skill_and_preserves_the_game(
     conversation = subject(session_factory, offline_settings)
     started = await conversation.handle(OWNER, "новая игра", context(1))
 
-    handed_off = await conversation.handle(OWNER, "включи музыку", context(2), started.state)
+    handed_off = await conversation.handle(OWNER, "громкость 3", context(2), started.state)
 
     assert handed_off.end_session is True
-    assert "повторите команду Алисе" in handed_off.speech.text
+    assert handed_off.speech.text == "Партия сохранена. Закрываю шахматы. Теперь повторите команду Алисе."
     with session_scope(session_factory) as session:
         game = GameRepository(session).load(started.state.game_id or "", OWNER)
     assert game.status is GameStatus.ACTIVE
     assert game.moves == ()
+
+
+async def test_a_platform_command_without_a_game_does_not_promise_a_saved_one(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    reply = await subject(session_factory, offline_settings).handle(OWNER, "включи музыку", context(1))
+
+    assert reply.end_session is True
+    assert reply.speech.text == "Закрываю шахматы. Теперь повторите команду Алисе."
+
+
+async def test_a_farewell_ends_the_session_and_keeps_the_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    goodbye = await conversation.handle(OWNER, "пока", context(2), started.state)
+
+    assert goodbye.end_session is True
+    assert goodbye.speech.text == "До свидания. Партия сохранена."
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert game.status is GameStatus.ACTIVE
 
 
 @pytest.mark.parametrize(
