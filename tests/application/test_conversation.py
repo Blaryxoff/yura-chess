@@ -1263,7 +1263,7 @@ async def test_natural_trainer_and_review_questions_reach_their_services(
     trainer = await conversation.handle(OWNER, "что лучше сыграть", context(2), started.state)
     review = await conversation.handle(OWNER, "как я сыграл", context(3), trainer.state)
 
-    assert "включи режим тренера" in trainer.speech.text
+    assert "Включить режим тренера" in trainer.speech.text
     assert review.speech.text == "Законченной партии еще нет, разбирать нечего. Скажите «новая игра»."
 
 

@@ -10,7 +10,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from yura_chess.application.command_router import RematchColor, ReviewQuestion
+from yura_chess.application.command_router import RematchColor, ReviewQuestion, TrainingQuestion
 from yura_chess.presentation.help_speech import HelpTopic
 from yura_chess.presentation.response_composer import CARD_DESCRIPTION_LIMIT, CARD_ITEMS_LIMIT
 
@@ -137,13 +137,20 @@ class RematchState(_AliceModel):
     harder: bool = False
 
 
+class TrainingState(_AliceModel):
+    question: TrainingQuestion
+    # A preview keeps the move it was asked about; the question alone cannot name it.
+    move_text: str | None = Field(default=None, max_length=255)
+
+
 class PendingActionState(_AliceModel):
-    kind: Literal["new_game", "resign", "continue", "rematch", "review", "puzzle", "exit_confirm"]
+    kind: Literal["new_game", "resign", "continue", "rematch", "review", "puzzle", "exit_confirm", "training"]
     utterance: str = Field(max_length=255)
     # A rematch and a review question keep what was asked for; re-reading the
     # utterance after the confirmation would lose it.
     rematch: RematchState | None = None
     review: ReviewQuestion | None = None
+    training: TrainingState | None = None
     expected_message_id: int | None = Field(default=None, ge=0)
     signature: str | None = Field(default=None, min_length=64, max_length=64)
 

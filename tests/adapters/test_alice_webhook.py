@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
+from hashlib import sha256
 from typing import Any
 
 import chess
@@ -29,6 +31,8 @@ from yura_chess.application.command_router import (
     RematchRequest,
     ReviewQuestion,
     ReviewRequest,
+    TrainingQuestion,
+    TrainingRequest,
 )
 from yura_chess.application.conversation import ConversationService, ConversationState, PendingAction
 from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key, traffic_source
@@ -854,6 +858,16 @@ def test_the_review_page_flag_survives_the_alice_session_state() -> None:
         PendingAction(CommandKind.REVIEW, "сыграть заново", review=ReviewRequest(ReviewQuestion.REPLAY_POSITION)),
         PendingAction(CommandKind.PUZZLE, ""),
         PendingAction(CommandKind.EXIT_CONFIRM, "я хочу выйти"),
+        PendingAction(
+            CommandKind.TRAINING,
+            "хорошие ходы",
+            training=TrainingRequest(TrainingQuestion.CANDIDATES),
+        ),
+        PendingAction(
+            CommandKind.TRAINING,
+            "что будет если конь эф три",
+            training=TrainingRequest(TrainingQuestion.PREVIEW, move_text="конь эф три"),
+        ),
     ],
 )
 def test_a_confirmation_comes_back_as_the_very_action_it_was_asked_about(pending: PendingAction) -> None:
@@ -888,6 +902,61 @@ def test_live_confirmations_are_signed_for_the_exact_next_message() -> None:
 
     stale = AliceRequest.model_validate(alice_request(3, session_state=sent.model_dump(exclude_none=True)))
     assert _conversation_state(stale, salt).pending_action is None
+
+
+def test_a_confirmation_signed_without_the_trainer_field_still_verifies() -> None:
+    """A pending action issued by a build that had no training field must survive this one."""
+    salt = SecretStr(TEST_IDENTITY_SALT)
+    pending = PendingAction(CommandKind.RESIGN, "сдаюсь")
+    legacy_body = json.dumps(
+        {
+            "kind": "resign",
+            "utterance": "сдаюсь",
+            "rematch": None,
+            "review": None,
+            "session_id": "session-1",
+            "expected_message_id": 2,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    legacy_signature = hmac.new(
+        TEST_IDENTITY_SALT.encode("utf-8"),
+        legacy_body.encode("utf-8"),
+        sha256,
+    ).hexdigest()
+    state = {
+        "pending_action": {
+            "kind": "resign",
+            "utterance": "сдаюсь",
+            "expected_message_id": 2,
+            "signature": legacy_signature,
+        }
+    }
+
+    confirmed = AliceRequest.model_validate(alice_request(2, session_state=state))
+
+    assert _conversation_state(confirmed, salt).pending_action == pending
+
+
+def test_a_signed_trainer_question_cannot_be_swapped_for_another_one() -> None:
+    salt = SecretStr(TEST_IDENTITY_SALT)
+    pending = PendingAction(
+        CommandKind.TRAINING,
+        "хорошие ходы",
+        training=TrainingRequest(TrainingQuestion.CANDIDATES),
+    )
+    prompt = AliceRequest.model_validate(alice_request(1))
+    sent = _session_state_update(ConversationState(pending_action=pending), prompt, salt)
+    state = sent.model_dump(exclude_none=True)
+
+    confirmed = AliceRequest.model_validate(alice_request(2, session_state=state))
+    assert _conversation_state(confirmed, salt).pending_action == pending
+
+    state["pending_action"]["training"]["question"] = TrainingQuestion.HINT.value
+    tampered = AliceRequest.model_validate(alice_request(2, session_state=state))
+    assert _conversation_state(tampered, salt).pending_action is None
 
 
 def test_no_durable_identifier_other_than_the_game_reaches_the_client() -> None:

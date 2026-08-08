@@ -91,6 +91,10 @@ _LEVEL_SCALE_ANSWER = (
     "Чем больше число, тем сильнее я играю. Ноль — самый легкий уровень, двадцать — самый сильный. "
     "Чтобы поставить, скажите: «уровень пять»."
 )
+_TRAINER_OFFER = (
+    "Сейчас играем без подсказок. Включить режим тренера и ответить на ваш вопрос? "
+    "Это уже не честная партия. Скажите «да» или «нет»."
+)
 _LEVEL_NO_GAME = "Партии сейчас нет. Скажите: «новая игра, уровень пять»."
 _LEVEL_GAME_OVER = "Партия закончена. В новой партии скажите: «новая игра, уровень три»."
 _MONTHS = {
@@ -138,6 +142,8 @@ class PendingAction:
     rematch: RematchRequest | None = None
     # Which review question is waiting for a yes; only the training branch asks.
     review: ReviewRequest | None = None
+    # The coaching question asked in an honest game, answered once the trainer is on.
+    training: TrainingRequest | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -509,7 +515,11 @@ class ConversationService:
                         Speech.of("Хорошо. Скажите «новая игра», если хотите начать другую."),
                         cancelled_state,
                     )
+                if confirmed.kind is CommandKind.TRAINING:
+                    return ConversationReply(Speech.of("Хорошо. Продолжаем без подсказок."), cancelled_state)
                 return ConversationReply(Speech.of("Хорошо, отменяю."), cancelled_state)
+            if confirmed.kind is CommandKind.TRAINING and confirmed.training is not None and game is not None:
+                return await self._enable_trainer_and_answer(owner_key, game, confirmed.training, request, next_state)
             if confirmed.kind is CommandKind.PUZZLE:
                 unsolved = self._puzzles.find_open(owner_key)
                 if unsolved is not None:
@@ -718,6 +728,18 @@ class ConversationService:
                 return ConversationReply(
                     Speech.of("Партии еще нет, тренировать нечего. Скажите «новая игра»."),
                     next_state,
+                )
+            if _needs_trainer_consent(game, routed.training):
+                return ConversationReply(
+                    Speech.of(_TRAINER_OFFER),
+                    replace(
+                        self._with_game(next_state, game),
+                        pending_action=PendingAction(
+                            CommandKind.TRAINING,
+                            routed.normalized.text,
+                            training=routed.training,
+                        ),
+                    ),
                 )
             speech = await self._training.answer(owner_key, game, routed.training, request)
             return ConversationReply(speech, self._with_game(next_state, self._reload(owner_key, game)))
@@ -1182,6 +1204,25 @@ class ConversationService:
         )
         return comment.text if comment is not None else None
 
+    async def _enable_trainer_and_answer(
+        self,
+        owner_key: str,
+        game: GameState,
+        asked: TrainingRequest,
+        request: RequestContext,
+        state: ConversationState,
+    ) -> ConversationReply:
+        """Turn the trainer on and answer the question that asked for it, in one reply."""
+        enabling = await self._training.answer(owner_key, game, TrainingRequest(TrainingQuestion.ENABLE), request)
+        enabled = self._reload(owner_key, game)
+        if enabled.mode is not GameMode.TRAINING:
+            return ConversationReply(enabling, self._with_game(state, enabled))
+        answer = await self._training.answer(owner_key, enabled, asked, request)
+        return ConversationReply(
+            Speech.of(f"Включаю режим тренера. {answer.text}"),
+            self._with_game(state, self._reload(owner_key, enabled)),
+        )
+
     @staticmethod
     def _level_change_reply(change: LevelChange, state: ConversationState) -> ConversationReply:
         if change.status is LevelChangeStatus.APPLIED:
@@ -1587,6 +1628,13 @@ def _preference_confirmation(change: PreferenceChange) -> str:
         _SOUND_CONFIRMATIONS[change.sounds_enabled] if change.sounds_enabled is not None else "",
     ]
     return " ".join(part for part in parts if part) or "Настройка не изменилась."
+
+
+def _needs_trainer_consent(game: GameState, asked: TrainingRequest) -> bool:
+    """Whether a coaching question must be paid for by turning the trainer on first."""
+    if asked.question in {TrainingQuestion.ENABLE, TrainingQuestion.DISABLE}:
+        return False
+    return game.status is GameStatus.ACTIVE and game.mode is not GameMode.TRAINING
 
 
 def _help_mode(game: GameState | None, solving_puzzle: bool = False) -> HelpMode:

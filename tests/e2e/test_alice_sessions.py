@@ -130,6 +130,26 @@ async def test_every_mutation_request_is_safe_to_redeliver(
     assert games_count(database_engine) == 1
 
 
+async def test_the_trainer_is_turned_on_and_answers_in_one_confirmed_step(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """A coaching question in an honest game costs one «да», not a second question."""
+    async with build_client(session_factory) as client:
+        dialogue = AliceSession(client, "e2e-trainer")
+        await dialogue.say(new=True)
+        offered = await dialogue.say("хорошие ходы")
+        message_id = dialogue.message_id
+        accepted = await dialogue.say("да")
+        retried = await dialogue.resend(dialogue.message_id, "да")
+
+    assert "Включить режим тренера" in offered["response"]["text"]
+    assert offered["session_state"]["pending_action"]["kind"] == "training"
+    assert "режим тренера" in accepted["response"]["text"]
+    assert "pending_action" not in accepted["session_state"]
+    assert retried == accepted
+    assert message_id != dialogue.message_id
+
+
 async def test_a_reused_replay_key_with_another_command_changes_nothing(
     session_factory: sessionmaker[Session],
     database_engine: Engine,

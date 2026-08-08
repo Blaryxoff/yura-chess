@@ -6,6 +6,7 @@ import chess
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
+from yura_chess.adapters.alice.models import TTS_LIMIT
 from yura_chess.application.command_router import CommandKind, TrainingQuestion, TrainingRequest, route
 from yura_chess.application.conversation import ConversationService, ConversationState
 from yura_chess.application.game_service import RequestContext
@@ -115,9 +116,104 @@ async def test_advice_in_an_honest_game_offers_the_trainer_without_answering(
 
     reply = await conversation.handle(OWNER, "дай подсказку", context(2), started.state)
 
-    assert "включи режим тренера" in reply.speech.text
+    assert "Включить режим тренера" in reply.speech.text
     assert "e2e4" not in reply.speech.text
     assert engine.analysed == []
+    assert load(session_factory, started.state.game_id or "").mode is GameMode.GAME
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "дай подсказку",
+        "хорошие ходы",
+        "чем ты угрожаешь",
+        "оцени позицию",
+        "назови оценку числом",
+        "что будет если я сыграю конь эф три",
+        "где я ошибся",
+        "почему ты так сходил",
+    ],
+)
+async def test_no_coaching_question_reaches_the_engine_before_consent(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+) -> None:
+    engine = FakeEngine(scores={"e2e4": 120})
+    conversation = ConversationService(session_factory, engine, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    reply = await conversation.handle(OWNER, utterance, context(2), started.state)
+
+    assert "Включить режим тренера" in reply.speech.text
+    assert engine.analysed == []
+
+
+async def test_saying_yes_turns_the_trainer_on_and_answers_the_question_at_once(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    engine = FakeEngine(scores={"e2e4": 120})
+    conversation = ConversationService(session_factory, engine, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    offered = await conversation.handle(OWNER, "хорошие ходы", context(2), started.state)
+
+    answered = await conversation.handle(OWNER, "да", context(3), offered.state)
+
+    assert answered.speech.text.startswith("Включаю режим тренера. ")
+    assert len(answered.speech.text) > len("Включаю режим тренера. ")
+    assert len(answered.speech.spoken()) <= TTS_LIMIT
+    assert engine.analysed != []
+    assert load(session_factory, started.state.game_id or "").mode is GameMode.TRAINING
+
+
+async def test_an_exhausted_engine_still_turns_the_trainer_on_and_apologises(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    """Consent is honoured even when the analysis behind the answer cannot run."""
+    engine = FakeEngine(analysis_error=EngineUnavailableError("no worker"))
+    conversation = ConversationService(session_factory, engine, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    offered = await conversation.handle(OWNER, "хорошие ходы", context(2), started.state)
+
+    answered = await conversation.handle(OWNER, "да", context(3), offered.state)
+
+    assert answered.speech.text.startswith("Включаю режим тренера. ")
+    assert load(session_factory, started.state.game_id or "").mode is GameMode.TRAINING
+    assert load(session_factory, started.state.game_id or "").moves == ()
+
+
+async def test_saying_no_leaves_the_game_honest_and_asks_nothing_of_the_engine(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    engine = FakeEngine(scores={"e2e4": 120})
+    conversation = ConversationService(session_factory, engine, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    offered = await conversation.handle(OWNER, "хорошие ходы", context(2), started.state)
+
+    declined = await conversation.handle(OWNER, "нет", context(3), offered.state)
+
+    assert declined.speech.text == "Хорошо. Продолжаем без подсказок."
+    assert engine.analysed == []
+    assert load(session_factory, started.state.game_id or "").mode is GameMode.GAME
+
+
+async def test_a_question_in_a_training_game_is_answered_without_a_confirmation_step(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    engine = FakeEngine(scores={"e2e4": 120})
+    conversation = ConversationService(session_factory, engine, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    await conversation.handle(OWNER, "включи режим тренера", context(2), started.state)
+
+    reply = await conversation.handle(OWNER, "хорошие ходы", context(3), started.state)
+
+    assert "Включить режим тренера" not in reply.speech.text
+    assert engine.analysed != []
 
 
 async def test_evaluation_is_verbal_first_and_numeric_on_request(

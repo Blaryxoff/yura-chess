@@ -691,6 +691,67 @@ def test_male_trainer_phrases_are_routed(utterance: str, expected: TrainingQuest
     assert routed.training.question is expected
 
 
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        # Yandex ASR keeps «хорошие» and invents the noun; each of these is a real transcript.
+        ("хорошие коды", TrainingQuestion.CANDIDATES),
+        ("хорошие коты", TrainingQuestion.CANDIDATES),
+        ("хорошие сады", TrainingQuestion.CANDIDATES),
+        ("хорошие годы", TrainingQuestion.CANDIDATES),
+        ("хорошие ходи", TrainingQuestion.CANDIDATES),
+        ("хорошие хиты", TrainingQuestion.CANDIDATES),
+        ("хороший садик", TrainingQuestion.CANDIDATES),
+        ("какие коды лучше", TrainingQuestion.CANDIDATES),
+        ("какой ход лучше", TrainingQuestion.CANDIDATES),
+        ("какой ход лучший", TrainingQuestion.CANDIDATES),
+        ("хороший совет", TrainingQuestion.HINT),
+        ("чем ты мне угрожаешь", TrainingQuestion.THREAT),
+        ("кем ты угрожаешь", TrainingQuestion.THREAT),
+        ("что угрожает моему королю", TrainingQuestion.THREAT),
+        ("какие угрозы", TrainingQuestion.THREAT),
+    ],
+)
+def test_the_manglings_of_a_trainer_question_reach_the_trainer(utterance: str, expected: TrainingQuestion) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.TRAINING
+    assert routed.training is not None
+    assert routed.training.question is expected
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "хорошо играю",
+        "все хорошо",
+        "включи хорошую песню",
+        "поставь хорошую песню",
+        "хорошая защита",
+        "хорошая жертва",
+        "хороший размен",
+    ],
+)
+def test_a_judgement_or_an_off_domain_wish_is_not_a_trainer_question(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is not CommandKind.TRAINING
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["конь эф три угрожает матом", "пешка е два е четыре угрожает", "включи песню угроза", "я угрожаю ферзем"],
+)
+def test_a_threat_named_inside_another_command_does_not_become_a_trainer_question(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is not CommandKind.TRAINING
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["прошу помощи", "помощь нужна", "попросить помощи", "просим помощи", "попросите помощи", "помогите помогите"],
+)
+def test_asking_for_help_in_the_genitive_still_opens_help(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.HELP
+
+
 def test_help_navigation_is_matched_before_the_new_game_command() -> None:
     assert route("справка сначала", chess.Board()).kind is CommandKind.HELP
 

@@ -40,6 +40,7 @@ from yura_chess.adapters.alice.models import (
     PendingActionState,
     RematchState,
     ResponseBody,
+    TrainingState,
 )
 from yura_chess.adapters.yandex_images import BoardImageService
 from yura_chess.application.command_router import (
@@ -49,6 +50,8 @@ from yura_chess.application.command_router import (
     RematchRequest,
     ReviewQuestion,
     ReviewRequest,
+    TrainingQuestion,
+    TrainingRequest,
 )
 from yura_chess.application.conversation import ConversationReply, ConversationService, ConversationState, PendingAction
 from yura_chess.application.game_service import RequestContext
@@ -298,7 +301,7 @@ def _state_update(result: TurnResult | None) -> GameStateUpdate | None:
 
 _PENDING_KINDS: dict[
     CommandKind,
-    Literal["new_game", "resign", "continue", "rematch", "review", "puzzle", "exit_confirm"],
+    Literal["new_game", "resign", "continue", "rematch", "review", "puzzle", "exit_confirm", "training"],
 ] = {
     CommandKind.NEW_GAME: "new_game",
     CommandKind.RESIGN: "resign",
@@ -307,6 +310,7 @@ _PENDING_KINDS: dict[
     CommandKind.REVIEW: "review",
     CommandKind.PUZZLE: "puzzle",
     CommandKind.EXIT_CONFIRM: "exit_confirm",
+    CommandKind.TRAINING: "training",
 }
 
 
@@ -349,7 +353,19 @@ def _pending_action(
             review = ReviewRequest(ReviewQuestion(review_raw))
         except ValueError:
             review = None
-    pending = PendingAction(command, utterance[:255], rematch=rematch, review=review)
+    training_raw = raw.get("training")
+    training = None
+    if isinstance(training_raw, dict):
+        question_raw = training_raw.get("question")
+        move_text = training_raw.get("move_text")
+        try:
+            training = TrainingRequest(
+                TrainingQuestion(question_raw) if isinstance(question_raw, str) else TrainingQuestion.HINT,
+                move_text=move_text[:255] if isinstance(move_text, str) else None,
+            )
+        except ValueError:
+            training = None
+    pending = PendingAction(command, utterance[:255], rematch=rematch, review=review, training=training)
     if payload is not None and salt is not None:
         expected_message_id = raw.get("expected_message_id")
         signature = raw.get("signature")
@@ -433,6 +449,11 @@ def _session_state_update(
                     else None
                 ),
                 review=pending.review.question if pending.review is not None else None,
+                training=(
+                    TrainingState(question=pending.training.question, move_text=_clipped_move_text(pending.training))
+                    if pending.training is not None
+                    else None
+                ),
                 expected_message_id=expected_message_id,
                 signature=(
                     _pending_signature(pending, payload.session.session_id, expected_message_id, salt)
@@ -505,27 +526,33 @@ def _clip_tts(pronunciation: str) -> str:
     return pronunciation[:cut] + "…"
 
 
+def _clipped_move_text(training: TrainingRequest) -> str | None:
+    return training.move_text[:255] if training.move_text is not None else None
+
+
 def _pending_signature(
     pending: PendingAction,
     session_id: str,
     expected_message_id: int,
     salt: SecretStr,
 ) -> str:
-    body = json.dumps(
-        {
-            "kind": pending.kind.value,
-            "utterance": pending.utterance[:255],
-            "rematch": (
-                {"color": pending.rematch.color.value, "harder": pending.rematch.harder}
-                if pending.rematch is not None
-                else None
-            ),
-            "review": pending.review.question.value if pending.review is not None else None,
-            "session_id": session_id,
-            "expected_message_id": expected_message_id,
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    # An absent field is omitted rather than signed as null, so a confirmation issued before it existed still verifies.
+    signed: dict[str, object] = {
+        "kind": pending.kind.value,
+        "utterance": pending.utterance[:255],
+        "rematch": (
+            {"color": pending.rematch.color.value, "harder": pending.rematch.harder}
+            if pending.rematch is not None
+            else None
+        ),
+        "review": pending.review.question.value if pending.review is not None else None,
+        "session_id": session_id,
+        "expected_message_id": expected_message_id,
+    }
+    if pending.training is not None:
+        signed["training"] = {
+            "question": pending.training.question.value,
+            "move_text": _clipped_move_text(pending.training),
+        }
+    body = json.dumps(signed, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hmac.new(salt.get_secret_value().encode("utf-8"), body.encode("utf-8"), sha256).hexdigest()
