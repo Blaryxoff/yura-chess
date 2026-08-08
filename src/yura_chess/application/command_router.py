@@ -322,7 +322,8 @@ _HELP_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
 # The skill is named after a man who never introduces himself, so players look for
 # him: they ask where he went, why he is silent, and who is answering instead.
 _PERSONA_VOICE = re.compile(
-    r"(?:почему|отчего)\b(?:\s+\w+){0,2}\s+(?:у тебя|у вас|ты|твой|ваш)\b(?:\s+\w+){0,3}\s+голос\w*|"
+    r"(?:почему|отчего)\b(?:\s+\w+){0,2}\s+(?:у тебя|у вас|твой|ваш)\b(?:\s+\w+){0,3}\s+голос\w*|"
+    r"(?:ты|вы)\b(?:\s+\w+){0,2}\s+(?:мужск|женск)\w+\s+голос\w*|"
     r"(?:помен|измен|смен)\w+\s+(?:\w+\s+){0,2}голос|"
     r"нужен (?:мужской|женский)\w*\s*(?:не \w+\s*)?голос|"
     r"^вы девушк\w+ или (?:мальчик|мужчин)\w*$|куда делась алиса девушка"
@@ -547,7 +548,9 @@ _LEVEL_SETTER_WORDS = frozenset(
 )
 # «уровень громкости» belongs to Alice, not to the chess engine.
 _LEVEL_NOT_CHESS = re.compile(r"\b(?:громкост|звук|сигнал|батаре|заряд|яркост|шум)\w*")
-_VOCATIVES = frozenset({"алиса", "алис", "юра", "юрий"})
+_VOCATIVES = frozenset({"алиса", "алис", "юра", "юрий", "юр"})
+# Words that only ever open an address: «ну юра, твой ход».
+_ADDRESS_FILLERS = frozenset({"ну", "а", "все", "ладно", "эй"})
 _LEVEL_KINDS = frozenset({CommandKind.LEVEL, CommandKind.LEVEL_QUERY})
 _LEAVING_KINDS = frozenset({CommandKind.EXIT, CommandKind.EXIT_CONFIRM, CommandKind.PLATFORM})
 # «как выйти из партии победителем» asks how a game is won, not to be let out.
@@ -1161,14 +1164,24 @@ def route(
     routed = _route_once(utterance, board, pending, last_heard, confidence_threshold)
     if routed.kind is not CommandKind.UNKNOWN:
         return routed
-    relayed = _RELAY_TO_YURA.match(routed.normalized.text)
-    addressed = routed.normalized.text[relayed.end() :] if relayed else _without_vocative(routed.normalized.words)
-    if not addressed:
+    relayed = False
+    addressed = routed.normalized.text
+    for _ in range(len(_VOCATIVES)):
+        shorter = _RELAY_TO_YURA.match(addressed)
+        if shorter is not None:
+            relayed = True
+            addressed = addressed[shorter.end() :]
+            continue
+        without = _without_vocative(tuple(addressed.split()))
+        if without is None:
+            break
+        addressed = without
+    if addressed == routed.normalized.text or not addressed:
         return routed
     retried = _route_once(addressed, board, pending, last_heard, confidence_threshold)
     if retried.kind is not CommandKind.UNKNOWN:
         return replace(retried, normalized=routed.normalized)
-    if relayed is not None:
+    if relayed:
         return replace(routed, kind=CommandKind.PERSONA, persona=PersonaRequest(PersonaWish.WHO))
     return routed
 
@@ -1311,7 +1324,7 @@ def _without_vocative(words: tuple[str, ...]) -> str | None:
     «юра пока» and «твой ход юра» are the commands the skill already answers,
     said to the player's opponent by name.
     """
-    trimmed = words[1:] if words and words[0] in _VOCATIVES else words
+    trimmed = words[1:] if words and words[0] in _ADDRESS_FILLERS | _VOCATIVES else words
     if trimmed and trimmed[-1] in _VOCATIVES:
         trimmed = trimmed[:-1]
     return " ".join(trimmed) if trimmed and trimmed != words else None
