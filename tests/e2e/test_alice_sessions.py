@@ -98,7 +98,7 @@ async def test_a_restarted_session_resumes_the_same_game(
         prompted = await second.say(new=True)
         resumed = await second.say("да")
 
-    assert "назовите свой ход" in prompted["response"]["text"]
+    assert "назовите ход" in prompted["response"]["text"]
     assert resumed["user_state_update"]["game_id"] == game_id
     assert games_count(database_engine) == 1
 

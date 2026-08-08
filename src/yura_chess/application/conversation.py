@@ -86,6 +86,8 @@ from yura_chess.voice.move_resolver import recognize
 from yura_chess.voice.normalizer import normalize
 
 MAX_SKILL_LEVEL = MAX_LEVEL
+# The level the greeting offers a beaten player; below it there is nothing easier to suggest.
+EASY_SKILL_LEVEL = 5
 # One rematch step up is two of the twenty engine levels: less is not audible.
 REMATCH_LEVEL_STEP = 2
 
@@ -134,7 +136,7 @@ _MONTHS = {
 }
 
 
-_WELCOME = "Здравствуйте! Это навык «Шахматы с Юрой», я ваш соперник Юра, говорю голосом Алисы."
+_WELCOME = "Здравствуйте! Это навык «Шахматы с Юрой». Я Юра, ваш соперник, а говорит за меня Алиса."
 
 
 def _new_session_welcome(speech: Speech) -> Speech:
@@ -1098,14 +1100,15 @@ class ConversationService:
         side = "черными" if player_color is PlayerColor.BLACK else "белыми"
         reply = self._turn_reply(owner_key, result, state, preferences)
         if request.is_new_session and not utterance.strip():
+            easier = "Если хотите играть полегче, скажите «уровень пять». " if level > EASY_SKILL_LEVEL else ""
             return replace(
                 reply,
                 speech=_new_session_welcome(
                     Speech.of(
-                        f"Партия уже началась: вы играете {side}, мой уровень — {level} из {MAX_SKILL_LEVEL}. "
+                        f"Партия уже началась: вы играете {side}. "
+                        f"Мой уровень — {level} из {MAX_SKILL_LEVEL}, чем больше число, тем сильнее я играю. "
                         f"Назовите ход, например «пешка е два е четыре». "
-                        f"Хотите уровень полегче — скажите «уровень пять». "
-                        f"Если что-то непонятно, скажите «помощь». {reply.speech.text}"
+                        f"{easier}Если что-то непонятно, скажите «помощь». {reply.speech.text}"
                     )
                 ),
                 sound=_opening_sound(reply),
@@ -1330,7 +1333,9 @@ class ConversationService:
             history = f"Последний ход: {describe_recent_moves(board, 1).text}"
         else:
             history = f"Последние два хода: {describe_recent_moves(board, 2).text}"
-        return Speech.of(f"{opening} {history} Чтобы продолжить партию, назовите свой ход.")
+        # The engine still owes an answer, so the next word is not a move.
+        tail = "Чтобы продолжить, назовите ход." if game.pending_engine_turn is None else "Скажите «продолжаем»."
+        return Speech.of(f"{opening} {history} {tail}")
 
     def _reload(self, owner_key: str, game: GameState) -> GameState:
         """Re-read a game a coaching answer may have re-moded or hinted."""

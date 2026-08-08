@@ -177,6 +177,6 @@ async def test_deployed_returning_moderator_can_request_help_during_resume_confi
     ).json()
 
     assert "шахмат" in prompted["response"]["text"].lower()
-    assert "назовите свой ход" in prompted["response"]["text"].lower()
+    assert "назовите ход" in prompted["response"]["text"].lower()
     assert "пешка е два е четыре" in helped["response"]["text"].lower()
     assert "да» или «нет" not in helped["response"]["text"].lower()

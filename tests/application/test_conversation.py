@@ -521,11 +521,25 @@ async def test_new_session_greeting_explains_the_skill_and_next_commands(
 
     assert reply.turn is not None
     assert "Шахматы с Юрой" in reply.speech.text
-    assert "я ваш соперник Юра" in reply.speech.text
+    assert "Я Юра, ваш соперник" in reply.speech.text
     assert "пешка е два е четыре" in reply.speech.text
-    assert "скажите «уровень пять»" in reply.speech.text
     assert "скажите «помощь»" in reply.speech.text
     assert reply.speech.text.index("пешка е два е четыре") < reply.speech.text.index("скажите «помощь»")
+
+
+@pytest.mark.parametrize(("level", "offered"), [(15, True), (5, False), (0, False)])
+async def test_the_greeting_offers_an_easier_level_only_when_there_is_one(
+    level: int,
+    offered: bool,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    settings = offline_settings.model_copy(update={"engine_skill_level": level})
+
+    reply = await subject(session_factory, settings).handle(OWNER, "", context(1, new=True))
+
+    assert f"уровень — {level} из {MAX_SKILL_LEVEL}" in reply.speech.text
+    assert ("скажите «уровень пять»" in reply.speech.text) is offered
 
 
 @pytest.mark.parametrize(
@@ -542,7 +556,9 @@ async def test_every_phrase_the_greeting_names_is_a_command(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
 ) -> None:
-    reply = await subject(session_factory, offline_settings).handle(OWNER, "", context(1, new=True))
+    settings = offline_settings.model_copy(update={"engine_skill_level": MAX_SKILL_LEVEL})
+
+    reply = await subject(session_factory, settings).handle(OWNER, "", context(1, new=True))
 
     assert f"«{utterance}»" in reply.speech.text
     assert route(utterance, chess.Board()).kind is kind
@@ -585,7 +601,7 @@ async def test_new_session_offers_the_latest_unfinished_game_and_last_two_moves(
     assert prompt.state.pending_action.kind is CommandKind.CONTINUE
     assert "Шахматы с Юрой" in prompt.speech.text
     assert "Чтобы услышать инструкцию" not in prompt.speech.text
-    assert "назовите свой ход" in prompt.speech.text
+    assert "назовите ход" in prompt.speech.text
     assert "Последние два хода" in prompt.speech.text
     assert "пешка e2 e4" in prompt.speech.text
     assert "пешка e7 e5" in prompt.speech.text

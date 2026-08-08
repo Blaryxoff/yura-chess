@@ -207,7 +207,7 @@ async def test_a_new_session_recovers_and_confirms_the_latest_unfinished_game(
             )
         ).json()
 
-    assert "назовите свой ход" in prompted["response"]["text"]
+    assert "назовите ход" in prompted["response"]["text"]
     assert "Чтобы услышать инструкцию" not in prompted["response"]["text"]
     assert "Последние два хода" in prompted["response"]["text"]
     assert prompted["session_state"]["pending_action"]["kind"] == "continue"

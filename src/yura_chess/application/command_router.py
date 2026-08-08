@@ -1120,7 +1120,8 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
 _START_REFUSED = re.compile(r"\bне\s+(?:\w+\s+){0,2}(?:дай|давай|хочу|надо|нужн|буду|открыв|открой)\w*")
 _SOLUTION_REFUSED = re.compile(r"\bне\s+(?:показыв|говор|читай|озвуч|объясняй)\w*(?:\s+\w+){0,2}\s+решени")
 _PUZZLE_ASKED = re.compile(r"\b(?:дай|давай|хочу|надо|нужн|буду|открыв|открой|покажи|скажи|объясни)\w*")
-_PUZZLE_WANTED = re.compile(r"(?:\s+\w+){0,2}\s+(?:задач|головоломк|этюд|решени)\w*")
+_PUZZLE_WANTED = re.compile(r"задач|головоломк|этюд|решени|друг(?:ую|ая)")
+_REFUSAL_AGAIN = re.compile(r"\bне\b")
 _REFUSAL_JUST_BEFORE = re.compile(r"\bне\s+(?:\w+\s+)?$")
 
 # Themes the shipped catalogue actually carries, named the way a player names them.
@@ -1411,10 +1412,14 @@ def _asked_plainly(text: str) -> bool:
 
     The verb has to want a puzzle: «не давай задачу, покажи доску» asks for the board.
     """
-    return any(
-        _REFUSAL_JUST_BEFORE.search(text[: asked.start()]) is None and _PUZZLE_WANTED.match(text, asked.end())
-        for asked in _PUZZLE_ASKED.finditer(text)
-    )
+    for asked in _PUZZLE_ASKED.finditer(text):
+        if _REFUSAL_JUST_BEFORE.search(text[: asked.start()]):
+            continue
+        wanted = text[asked.end() :]
+        refused_again = _REFUSAL_AGAIN.search(wanted)
+        if _PUZZLE_WANTED.search(wanted[: refused_again.start()] if refused_again else wanted):
+            return True
+    return False
 
 
 def _puzzle_theme(text: str) -> str | None:
