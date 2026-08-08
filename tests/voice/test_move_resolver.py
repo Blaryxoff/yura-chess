@@ -1455,6 +1455,29 @@ def test_a_refusal_to_play_still_ends_the_game_it_asks_to_end(utterance: str) ->
     assert route(utterance, chess.Board()).kind is CommandKind.RESIGN
 
 
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        # A real player said this and lost the game to it.
+        "нет алиса я не сдаюсь",
+        "не сдаюсь",
+        "я не сдаюсь",
+        "я не сдался",
+        "я не проиграл",
+        "я сдаюсь а теперь не сдаюсь",
+    ],
+)
+def test_saying_you_are_not_resigning_does_not_resign(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is not CommandKind.RESIGN
+
+
+@pytest.mark.parametrize(
+    "utterance", ["сдаюсь", "я сдаюсь", "ладно сдаюсь", "сдаться", "я проиграл", "не сдаюсь а теперь сдаюсь"]
+)
+def test_resigning_still_resigns(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.RESIGN
+
+
 @pytest.mark.parametrize("utterance", ["что значит завершить партию", "что такое закончить игру"])
 def test_asking_what_ending_a_game_means_explains_it_instead_of_ending_one(utterance: str) -> None:
     assert route(utterance, chess.Board()).kind is CommandKind.HELP

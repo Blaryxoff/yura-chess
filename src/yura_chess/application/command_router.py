@@ -836,6 +836,8 @@ _LEAVING_NEGATED = re.compile(
     r"\bне\s+(?:\w+\s+){0,3}(?:выключ|отключ|выруб|убир|убер|закрыв|закрой|законч|заверш|говор|прибав|убав|мен[яю]|выйти|выход|надоел|постопить|прекрати)\w*"
 )
 _SURRENDER_SPOKEN = re.compile(_SURRENDER)
+# «нет, алиса, я не сдаюсь» resigned a real player's game. A wish may sit between.
+_SURRENDER_NEGATED = re.compile(rf"\bне\s+(?:{_SOUND_WISH}\s+)?(?:сда|проигр)\w*")
 # A refusal and a question hold only over the clause they were spoken in, so
 # both are read against the last one an utterance opens.
 _LAST_CLAUSE = re.compile(r"\bа (?:теперь|потом|сейчас)\b")
@@ -1283,13 +1285,17 @@ def _route_once(
                 continue
             if kind is CommandKind.EXIT_CONFIRM and _LEAVING_ASKED_AS_A_RULE.search(normalized.text):
                 continue
-            if kind is CommandKind.RESIGN and not _SURRENDER_SPOKEN.search(normalized.text):
+            if kind is CommandKind.RESIGN:
                 clause = _last_clause(normalized.text)
-                if _END_GAME_DEFINITION.search(clause):
-                    return RoutedCommand(CommandKind.HELP, normalized, clarification=None)
-                if _END_GAME_NEGATED.search(clause):
-                    # The refusal leaves whatever follows it to route.
-                    continue
+                if _SURRENDER_SPOKEN.search(normalized.text):
+                    if _SURRENDER_NEGATED.search(clause):
+                        continue
+                else:
+                    if _END_GAME_DEFINITION.search(clause):
+                        return RoutedCommand(CommandKind.HELP, normalized, clarification=None)
+                    if _END_GAME_NEGATED.search(clause):
+                        # The refusal leaves whatever follows it to route.
+                        continue
             colour_asked = parse_color_choice(normalized.text) if kind is CommandKind.COLOR_CHOICE else None
             if kind is CommandKind.COLOR_CHOICE and colour_asked is None:
                 # A colour named without asking for it: let the later patterns read it.
