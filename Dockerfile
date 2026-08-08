@@ -16,7 +16,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY src ./src
-COPY README.md ./
+COPY README.md LICENSE ./
 RUN uv sync --frozen --no-dev
 
 
@@ -33,6 +33,8 @@ RUN groupadd --gid 10001 yura && useradd --uid 10001 --gid 10001 --no-create-hom
 WORKDIR /app
 
 COPY --from=builder --chown=root:root /app/.venv /app/.venv
+# The image redistributes python-chess and Stockfish, so it carries their terms.
+COPY --chown=root:root LICENSE THIRD_PARTY_NOTICES.md ./
 COPY --chown=root:root src ./src
 COPY --chown=root:root migrations ./migrations
 COPY --chown=root:root alembic.ini ./
