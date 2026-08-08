@@ -415,6 +415,10 @@ def test_leaving_is_commanded_outright_or_asked_about(utterance: str, expected: 
         ("алиса твой ход", CommandKind.CONTINUE),
         ("да давай продолжим", CommandKind.CONTINUE),
         ("повтори свой ход", CommandKind.POSITION_QUERY),
+        ("как ты пошла", CommandKind.POSITION_QUERY),
+        ("как ты пошёл", CommandKind.POSITION_QUERY),
+        ("напомни свой ход", CommandKind.POSITION_QUERY),
+        ("напомни, как ты пошла", CommandKind.POSITION_QUERY),
         ("повтори ход", CommandKind.POSITION_QUERY),
         ("повтори еще раз свой ход", CommandKind.POSITION_QUERY),
         ("оценка позиции", CommandKind.TRAINING),
@@ -1478,7 +1482,6 @@ def test_saying_you_are_not_resigning_does_not_resign(utterance: str) -> None:
         "ладно сдаюсь",
         "сдаться",
         "я сдался",
-        "я проиграл",
         "не сдаюсь а теперь сдаюсь",
         # The refusal has to reach the word it refuses, and «но» is a new statement.
         "я не проиграл но сдаюсь",

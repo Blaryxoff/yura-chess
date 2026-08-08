@@ -218,6 +218,20 @@ def test_slow_repeat_spells_the_coordinate_and_leaves_the_board_untouched() -> N
     assert board.fen() == before
 
 
+@pytest.mark.parametrize(
+    "utterance",
+    ["как ты пошла", "как ты пошёл", "как ты походила", "напомни свой ход", "напомни, как ты пошла", "напомни ход"],
+)
+def test_asking_how_the_opponent_moved_reads_the_move_and_not_the_board(utterance: str) -> None:
+    board = chess.Board()
+    board.push_uci("e2e4")
+
+    answer = answer_position_query(utterance, board)
+
+    assert answer.query is PositionQuery.LAST_MOVE
+    assert answer.speech.text == "Последний ход: пешка e2 e4."
+
+
 def test_last_move_turn_and_check_can_be_asked_by_voice() -> None:
     board = chess.Board()
     no_move = answer_position_query("какой последний ход", board)

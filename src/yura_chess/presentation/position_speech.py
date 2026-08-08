@@ -59,9 +59,12 @@ _WHITE_WORD = re.compile(r"^бел")
 _BLACK_WORD = re.compile(r"^черн")
 _NEXT_PAGE = re.compile(r"\b(дальше|далее|еще|дальнейш)")
 _SLOWLY = re.compile(r"медленн|по буквам|по слогам|повтори координат")
-_LAST_MOVE = re.compile(
-    r"последн(ий|его) ход|как (ты|я) походил|какой (ты )?ход (сделал|сделала|сыграл|сыграла)|"
-    r"повтори (свой|последний свой|предыдущий свой) ход|твой последний ход"
+# Public like `RANK_LINE`: a phrase the router sends here but the reader misses reads the whole board.
+LAST_MOVE = re.compile(
+    r"последн(ий|его) ход|как (ты|я) (походил\w*|пошел|пошла|пошли)|"
+    r"какой (ты )?ход (сделал|сделала|сыграл|сыграла)|"
+    r"^(повтори[тл]?|напомни) ход$|(повтори|напомни)(?: еще раз)? (свой|последний свой|предыдущий свой) ход|"
+    r"твой последний ход"
 )
 _NUMBER_WORDS = {
     "один": 1,
@@ -266,7 +269,7 @@ def answer_position_query(utterance: str, board: chess.Board, page: int = 0) -> 
             else describe_numbered_move(board, index, colour)
         )
         return PositionAnswer(PositionQuery.NUMBERED_MOVE, speech)
-    if _LAST_MOVE.search(normalized.text):
+    if LAST_MOVE.search(normalized.text):
         if colour is not None:
             return PositionAnswer(PositionQuery.HISTORY, describe_historical_move(board, 1, colour))
         return PositionAnswer(PositionQuery.LAST_MOVE, describe_last_move(board))

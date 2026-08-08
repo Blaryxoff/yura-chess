@@ -23,7 +23,7 @@ from yura_chess.domain.preferences import (
 )
 from yura_chess.presentation import game_facts
 from yura_chess.presentation.help_speech import is_rules_request
-from yura_chess.presentation.position_speech import NUMBERED_MOVE, RANK_LINE
+from yura_chess.presentation.position_speech import LAST_MOVE, NUMBERED_MOVE, RANK_LINE
 from yura_chess.voice.illegal_move import Explanation, IllegalReason, explain
 from yura_chess.voice.move_resolver import resolve
 from yura_chess.voice.normalizer import MAX_UTTERANCE_LENGTH, normalize
@@ -460,7 +460,7 @@ _COLOR_RETRY = re.compile(
 
 # Surrender names the loser and ends the game outright; the forms below only end
 # it once the game is named too, so both are read against the same utterance.
-_SURRENDER = r"сдаюсь|сдаться|сдаемся|я сдался|я проиграл"
+_SURRENDER = r"сдаюсь|сдаться|сдаемся|я сдался"
 # Asking for the end of the game, not describing one: «кто завершил игру» and
 # «почему ты закончила эту игру» ask about a game that is already over.
 _END_GAME_REQUEST = (
@@ -752,12 +752,10 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"(?:кто|что) (?:стоит|находится) на\b|"
             rf"{NUMBERED_MOVE.pattern}|"
             r"чей ход|кто ходит|кому ходить|моя очередь|есть ли шах|кто под шахом|шах сейчас|"
-            r"последн(ий|его) ход|как (ты|я) походил|ход(а|ов)? назад|раз(а)? назад|повтори координат|"
+            rf"{LAST_MOVE.pattern}|"
+            r"ход(а|ов)? назад|раз(а)? назад|повтори координат|"
             r"что (сделали|делали) (белые|черные)|назови еще раз (свой|последний) ход|"
-            r"какой (ты )?ход (сделал|сделала|сыграл|сыграла)|"
-            r"^повтори[тл]? ход$|повтори(?: еще раз)? "
-            r"(свой|последний свой|предыдущий свой) ход|"
-            r"твой последний ход|^(дальше|далее)$"
+            r"^(дальше|далее)$"
         ),
     ),
     # After the board questions: «у черных», «за белых» and «что сделали белые»
