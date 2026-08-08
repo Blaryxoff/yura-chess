@@ -683,7 +683,7 @@ async def test_a_farewell_ends_the_session_and_keeps_the_game(
     [
         ("алиса", "Слушаю. Ваш ход."),
         ("привет", "Здравствуйте! Ваш ход."),
-        ("как тебя зовут", "Я Юра, ваш шахматный соперник. Навык говорит голосом Алисы. Ваш ход."),
+        ("как тебя зовут", "Я Юра, ваш соперник в шахматах. Я говорю голосом Алисы. Ваш ход."),
         ("спасибо", "Пожалуйста. Ваш ход."),
         ("как дела", "Все хорошо, готов играть. Ваш ход."),
         ("понятно", "Хорошо. Ваш ход."),
@@ -2611,3 +2611,57 @@ async def test_a_redelivered_level_command_closes_help_and_paging_the_same_way(
     assert first.state.help is None
     assert first.state.position_page == 0
     assert again.state == first.state
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("где юра", "Я здесь, слушаю вас. Ваш ход."),
+        ("почему юра со мной не разговаривает", "Я здесь. Скажите команду еще раз. Ваш ход."),
+        ("ты кто", "Я Юра, ваш соперник в шахматах. Я говорю голосом Алисы. Ваш ход."),
+        ("поменяй голос на девушку", "Я говорю голосом Алисы. Другой голос выбрать нельзя. Ваш ход."),
+    ],
+)
+async def test_a_question_about_yura_is_answered_without_touching_the_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+    expected: str,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    reply = await conversation.handle(OWNER, utterance, context(2), started.state)
+
+    assert reply.speech.text == expected
+    assert reply.end_session is False
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert game.status is GameStatus.ACTIVE
+    assert game.moves == ()
+
+
+async def test_a_question_about_yura_leaves_a_waiting_confirmation_alone(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    asked = await conversation.handle(OWNER, "новая игра", context(2), started.state)
+
+    reply = await conversation.handle(OWNER, "ты кто", context(3), asked.state)
+
+    assert asked.state.pending_action is not None
+    assert reply.state.pending_action == asked.state.pending_action
+    assert reply.speech.text.startswith("Я Юра, ваш соперник в шахматах.")
+    assert reply.speech.text.endswith("Скажите «да» или «нет».")
+
+
+async def test_a_question_about_yura_without_a_game_offers_one(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    reply = await subject(session_factory, offline_settings).handle(OWNER, "куда делся юра", context(1))
+
+    assert reply.speech.text == "Я здесь, слушаю вас. Скажите «новая игра», чтобы начать."
+    assert reply.state.game_id is None

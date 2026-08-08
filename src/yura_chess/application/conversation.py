@@ -94,10 +94,10 @@ _LEVEL_SCALE_ANSWER = (
     "Чем больше число, тем сильнее я играю. Ноль — самый легкий уровень, двадцать — самый сильный. "
     "Чтобы поставить, скажите: «уровень пять»."
 )
-_PERSONA_WHO_ANSWER = "Я Юра, ваш шахматный соперник. Навык говорит голосом Алисы."
+_PERSONA_WHO_ANSWER = "Я Юра, ваш соперник в шахматах. Я говорю голосом Алисы."
 _PERSONA_PRESENCE_ANSWER = "Я здесь, слушаю вас."
-_PERSONA_SILENCE_ANSWER = "Я здесь. Если я не ответил, повторите последнюю команду."
-_PERSONA_VOICE_ANSWER = "Голос у навыка один, поменять его я не могу."
+_PERSONA_SILENCE_ANSWER = "Я здесь. Скажите команду еще раз."
+_PERSONA_VOICE_ANSWER = "Я говорю голосом Алисы. Другой голос выбрать нельзя."
 _PERSONA_ANSWERS = {
     PersonaWish.WHO: _PERSONA_WHO_ANSWER,
     PersonaWish.PRESENCE: _PERSONA_PRESENCE_ANSWER,

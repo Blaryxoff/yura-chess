@@ -322,14 +322,14 @@ _HELP_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
 # The skill is named after a man who never introduces himself, so players look for
 # him: they ask where he went, why he is silent, and who is answering instead.
 _PERSONA_VOICE = re.compile(
-    r"(?:почему|отчего)\b(?:\s+\w+){0,3}\s+голос|"
+    r"(?:почему|отчего)\b(?:\s+\w+){0,2}\s+(?:у тебя|у вас|ты|твой|ваш)\b(?:\s+\w+){0,3}\s+голос\w*|"
     r"(?:помен|измен|смен)\w+\s+(?:\w+\s+){0,2}голос|"
     r"нужен (?:мужской|женский)\w*\s*(?:не \w+\s*)?голос|"
     r"^вы девушк\w+ или (?:мальчик|мужчин)\w*$|куда делась алиса девушка"
 )
 _PERSONA_PRESENCE = re.compile(
-    r"^(?:а |ну )?(?:где|куда дел[ася]+|куда пропал)\w*\s+юр\w+$|"
-    r"^(?:а |ну )?юра (?:здесь|тут)$|^без юры$"
+    r"^(?:а |ну )?(?:где|куда)\b(?:\s+(?:сейчас|же|там|тут|дел[ася]+|пропал\w*))*\s+юр\w+$|"
+    r"^(?:а |ну )?юр(?:а|ий) (?:здесь|тут)$|^без юры$"
 )
 _PERSONA_SILENCE = re.compile(
     r"юр\w*(?:\s+\w+){0,3}\s+(?:не разговарива|молчи|не отвеча)\w*|"
@@ -340,7 +340,7 @@ _PERSONA_WHO = re.compile(
     r"\bмужик ты кто\b|ты кто такой юр\w+ или алис\w+|"
     r"ты не (?:алиса|юра|юрий) ты (?:юрий|юра|алиса)|"
     r"^(?:а )?(?:он|ты) робот\??$|^ты живой\??$|"
-    r"(?:скажи|передай) юр[еы]\b|спроси у юры|пусть юра\b|^вызови юру$"
+    r"^вызови юру$|^кто такой юра$"
 )
 _PERSONA_REQUEST = re.compile(
     f"{_PERSONA_VOICE.pattern}|{_PERSONA_PRESENCE.pattern}|{_PERSONA_SILENCE.pattern}|{_PERSONA_WHO.pattern}"
@@ -402,7 +402,7 @@ _CONVERSATION_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         re.compile(
             r"^(?:привет|здравствуй|здравствуйте|доброе утро|добрый день|добрый вечер|"
             r"ты тут|ты здесь|как тебя зовут|как дела|как ты|как поживаешь|"
-            r"спасибо(?: (?:большое|тебе|за (?:игру|партию|урок)))?|большое спасибо)$"
+            r"(?:огромное |большое )?спасибо(?: (?:большое|огромное|тебе|вам|за (?:игру|партию|урок)))?)$"
         ),
     ),
     (
@@ -699,7 +699,8 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"(?:выйди|выйти|выход) из (?:шахмат|навыка|игры|партии)(?: пожалуйста)?$|"
             r"до свидания|закрой навык|"
             # Anchored: «подожди пока я думаю» is not a farewell, but a trailing doubled «пока» is.
-            r"^(?:ну |все |ладно |алиса |алис |юра )*пока(?: пока)*(?: алиса| юра| пожалуйста)?$|\bнет пока пока$|"
+            r"^(?:ну |все |ладно |спасибо |алиса |алис |юра )*пока(?: пока)*"
+            r"(?: алиса| юра| пожалуйста)?$|\bнет пока пока$|"
             r"стоп навык|^стоп шахматы$|^(?:а )?(?:можешь )?постопить$|"
             r"(?:хватит|выключи|надо) стоп$|выключи хватит$|"
             r"законч\w+ сесси|заверш\w+ сесси|"
@@ -751,7 +752,7 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"последн(ий|его) ход|как (ты|я) походил|ход(а|ов)? назад|раз(а)? назад|повтори координат|"
             r"что (сделали|делали) (белые|черные)|назови еще раз (свой|последний) ход|"
             r"какой (ты )?ход (сделал|сделала|сыграл|сыграла)|"
-            r"^повтори ход$|повтори(?: еще раз)? "
+            r"^повтори[тл]? ход$|повтори(?: еще раз)? "
             r"(свой|последний свой|предыдущий свой) ход|"
             r"твой последний ход|^(дальше|далее)$"
         ),
@@ -1157,6 +1158,28 @@ def route(
     confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
 ) -> RoutedCommand:
     """Classify `utterance`; `board` is `None` when there is no game to move in."""
+    routed = _route_once(utterance, board, pending, last_heard, confidence_threshold)
+    if routed.kind is not CommandKind.UNKNOWN:
+        return routed
+    relayed = _RELAY_TO_YURA.match(routed.normalized.text)
+    addressed = routed.normalized.text[relayed.end() :] if relayed else _without_vocative(routed.normalized.words)
+    if not addressed:
+        return routed
+    retried = _route_once(addressed, board, pending, last_heard, confidence_threshold)
+    if retried.kind is not CommandKind.UNKNOWN:
+        return replace(retried, normalized=routed.normalized)
+    if relayed is not None:
+        return replace(routed, kind=CommandKind.PERSONA, persona=PersonaRequest(PersonaWish.WHO))
+    return routed
+
+
+def _route_once(
+    utterance: str,
+    board: chess.Board | None,
+    pending: PendingClarification | None,
+    last_heard: str | None,
+    confidence_threshold: float,
+) -> RoutedCommand:
     normalized = normalize(utterance)
 
     # A retraction takes back a command as readily as a move: «покажи доску, ой
@@ -1274,14 +1297,12 @@ def route(
         )
 
     resolution = resolve(normalized, board)
-    routed = _from_resolution(normalized, resolution, board, confidence_threshold)
-    if routed.kind is not CommandKind.UNKNOWN:
-        return routed
-    addressed = _without_vocative(normalized.words)
-    if addressed is None:
-        return routed
-    retried = route(addressed, board, pending, last_heard, confidence_threshold)
-    return routed if retried.kind is CommandKind.UNKNOWN else replace(retried, normalized=normalized)
+    return _from_resolution(normalized, resolution, board, confidence_threshold)
+
+
+# Yura is asked to act as if he were a third person in the room. What follows the
+# request is the command; only when nothing follows is the question about him.
+_RELAY_TO_YURA = re.compile(r"(?:скажи|передай) юр[еы]\s+(?:то что\s+)?|спроси у юры\s+|пусть юра\s+")
 
 
 def _without_vocative(words: tuple[str, ...]) -> str | None:
