@@ -1120,6 +1120,7 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
 _START_REFUSED = re.compile(r"\bне\s+(?:\w+\s+){0,2}(?:дай|давай|хочу|надо|нужн|буду|открыв|открой)\w*")
 _SOLUTION_REFUSED = re.compile(r"\bне\s+(?:показыв|говор|читай|озвуч|объясняй)\w*(?:\s+\w+){0,2}\s+решени")
 _PUZZLE_ASKED = re.compile(r"\b(?:дай|давай|хочу|надо|нужн|буду|открыв|открой|покажи|скажи|объясни)\w*")
+_PUZZLE_WANTED = re.compile(r"(?:\s+\w+){0,2}\s+(?:задач|головоломк|этюд|решени)\w*")
 _REFUSAL_JUST_BEFORE = re.compile(r"\bне\s+(?:\w+\s+)?$")
 
 # Themes the shipped catalogue actually carries, named the way a player names them.
@@ -1406,8 +1407,14 @@ def _puzzle_refused(question: PuzzleQuestion, text: str) -> bool:
 
 
 def _asked_plainly(text: str) -> bool:
-    """Whether anything is still asked for outright, as «не хочу ждать, дай задачу» asks."""
-    return any(_REFUSAL_JUST_BEFORE.search(text[: asked.start()]) is None for asked in _PUZZLE_ASKED.finditer(text))
+    """Whether a puzzle is still asked for outright, as «не хочу ждать, дай задачу» asks.
+
+    The verb has to want a puzzle: «не давай задачу, покажи доску» asks for the board.
+    """
+    return any(
+        _REFUSAL_JUST_BEFORE.search(text[: asked.start()]) is None and _PUZZLE_WANTED.match(text, asked.end())
+        for asked in _PUZZLE_ASKED.finditer(text)
+    )
 
 
 def _puzzle_theme(text: str) -> str | None:
