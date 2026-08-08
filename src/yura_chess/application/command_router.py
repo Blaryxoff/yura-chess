@@ -66,6 +66,8 @@ class CommandKind(StrEnum):
     DONT_KNOW = "dont_know"
     BOARD_SETUP = "board_setup"
     SCREEN = "screen"
+    # A question about who Yura is, where he went, or why he sounds like this.
+    PERSONA = "persona"
     # A durable presentation setting: how much is said, how, and from which side.
     PREFERENCE = "preference"
     # A new game that inherits colour and level from the previous one.
@@ -204,6 +206,24 @@ class ScreenRequest:
     wish: ScreenWish
 
 
+class PersonaWish(StrEnum):
+    """What a question about Yura is actually asking."""
+
+    # «ты кто», «ты не алиса ты юрий», «скажи юре что он проиграл».
+    WHO = "who"
+    # «где юра», «куда делся юра», «а юра здесь».
+    PRESENCE = "presence"
+    # «почему юра со мной не разговаривает», «что он молчит».
+    SILENCE = "silence"
+    # «почему у тебя мужской голос», «поменяй голос на девушку».
+    VOICE = "voice"
+
+
+@dataclass(frozen=True, slots=True)
+class PersonaRequest:
+    wish: PersonaWish
+
+
 class LevelIntent(StrEnum):
     """What was asked about difficulty; only `SET` may change a running game."""
 
@@ -248,6 +268,8 @@ class RoutedCommand:
     training: TrainingRequest | None = None
     # Which question about a finished game was asked; set only for `REVIEW`.
     review: ReviewRequest | None = None
+    # Which question about Yura was asked; set only for `PERSONA`.
+    persona: PersonaRequest | None = None
     # Which puzzle question was asked; set only for `PUZZLE`.
     puzzle: PuzzleRequest | None = None
     # Which difficulty was named or asked about; set only for `LEVEL`.
@@ -297,6 +319,47 @@ _HELP_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     ),
 )
 
+# The skill is named after a man who never introduces himself, so players look for
+# him: they ask where he went, why he is silent, and who is answering instead.
+_PERSONA_VOICE = re.compile(
+    r"(?:почему|отчего)\b(?:\s+\w+){0,3}\s+голос|"
+    r"(?:помен|измен|смен)\w+\s+(?:\w+\s+){0,2}голос|"
+    r"нужен (?:мужской|женский)\w*\s*(?:не \w+\s*)?голос|"
+    r"^вы девушк\w+ или (?:мальчик|мужчин)\w*$|куда делась алиса девушка"
+)
+_PERSONA_PRESENCE = re.compile(
+    r"^(?:а |ну )?(?:где|куда дел[ася]+|куда пропал)\w*\s+юр\w+$|"
+    r"^(?:а |ну )?юра (?:здесь|тут)$|^без юры$"
+)
+_PERSONA_SILENCE = re.compile(
+    r"юр\w*(?:\s+\w+){0,3}\s+(?:не разговарива|молчи|не отвеча)\w*|"
+    r"почему\b(?:\s+\w+){0,3}\s+юр\w*(?:\s+\w+){0,3}\s+(?:не разговарива|молчи|не отвеча)\w*"
+)
+_PERSONA_WHO = re.compile(
+    r"^(?:а |эй |ну )?(?:ты|вы) кто(?: такой| такая| ты)?$|^(?:а |ну )?кто ты(?: такой| такая)?$|"
+    r"\bмужик ты кто\b|ты кто такой юр\w+ или алис\w+|"
+    r"ты не (?:алиса|юра|юрий) ты (?:юрий|юра|алиса)|"
+    r"^(?:а )?(?:он|ты) робот\??$|^ты живой\??$|"
+    r"(?:скажи|передай) юр[еы]\b|спроси у юры|пусть юра\b|^вызови юру$"
+)
+_PERSONA_REQUEST = re.compile(
+    f"{_PERSONA_VOICE.pattern}|{_PERSONA_PRESENCE.pattern}|{_PERSONA_SILENCE.pattern}|{_PERSONA_WHO.pattern}"
+)
+
+
+def parse_persona(text: str) -> PersonaRequest | None:
+    """Read a question about Yura, or `None` when the phrase is not one."""
+    if _PERSONA_VOICE.search(text):
+        return PersonaRequest(PersonaWish.VOICE)
+    if _PERSONA_SILENCE.search(text):
+        return PersonaRequest(PersonaWish.SILENCE)
+    if _PERSONA_PRESENCE.search(text):
+        return PersonaRequest(PersonaWish.PRESENCE)
+    if _PERSONA_WHO.search(text):
+        return PersonaRequest(PersonaWish.WHO)
+    return None
+
+
 # Alice owns the device. The skill holds the microphone but not the volume, the
 # television or the music, so the only answer that works is to hand the session back.
 _PLATFORM_MEDIA = (
@@ -323,19 +386,23 @@ _PLATFORM_DEVICE = (
 _PLATFORM_ELSEWHERE = (
     r"каки\w+ игры у тебя есть|во что нибудь друг\w+ (?:поигра|сыгра)\w*|"
     # «может в другую игру» leaves chess; «сыграем другую партию» is a rematch.
-    r"може\w*(?:\s+\w+){0,2}\s+друг\w+ игр\w*|в друг\w+ шашк\w*"
+    r"може\w*(?:\s+\w+){0,2}\s+друг\w+ игр\w*|в друг\w+ шашк\w*|"
+    r"^(?:а |ну |давай |алиса )*погово[рм]\w*(?: с тобой)?$|поболта\w+|о чем\b.*поговорим"
 )
 _PLATFORM_REQUEST = re.compile(f"{_PLATFORM_MEDIA}|{_PLATFORM_VOLUME}|{_PLATFORM_DEVICE}|{_PLATFORM_ELSEWHERE}")
 
 
 _CONVERSATION_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
+    # Before the platform handoff: «алиса измени голос» is about Yura, not about Alice.
+    (CommandKind.PERSONA, _PERSONA_REQUEST),
     (CommandKind.PLATFORM, _PLATFORM_REQUEST),
     (CommandKind.ATTENTION, re.compile(r"^(?:алиса|алис|юра)$")),
     (
         CommandKind.SOCIAL,
         re.compile(
             r"^(?:привет|здравствуй|здравствуйте|доброе утро|добрый день|добрый вечер|"
-            r"ты тут|ты здесь|как тебя зовут|кто ты)$"
+            r"ты тут|ты здесь|как тебя зовут|как дела|как ты|как поживаешь|"
+            r"спасибо(?: (?:большое|тебе|за (?:игру|партию|урок)))?|большое спасибо)$"
         ),
     ),
     (
@@ -480,6 +547,7 @@ _LEVEL_SETTER_WORDS = frozenset(
 )
 # «уровень громкости» belongs to Alice, not to the chess engine.
 _LEVEL_NOT_CHESS = re.compile(r"\b(?:громкост|звук|сигнал|батаре|заряд|яркост|шум)\w*")
+_VOCATIVES = frozenset({"алиса", "алис", "юра", "юрий"})
 _LEVEL_KINDS = frozenset({CommandKind.LEVEL, CommandKind.LEVEL_QUERY})
 _LEAVING_KINDS = frozenset({CommandKind.EXIT, CommandKind.EXIT_CONFIRM, CommandKind.PLATFORM})
 # «как выйти из партии победителем» asks how a game is won, not to be let out.
@@ -638,7 +706,7 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"^(?:все |алиса |давайте )?(?:выходим|выйдем)(?: выходим)?(?: из (?:игры|шахмат|навыка))?$|"
             r"надоел\w*(?:\s+\w+){0,2}\s+шахмат[ыуе]\b|"
             r"^(?:алиса |алис )?прекрати(?:те)?(?: пожалуйста)?$|"
-            r"^(?:алиса |алис )?стоп пожалуйста$|"
+            r"^(?:алиса |алис )?стоп пожалуйста$|ты меня достал\w*|"
             # A refusal that names a colour is choosing sides, not leaving.
             r"(?:закончить|закрой|останови) (навык|шахматы)|"
             r"не хочу (больше )?играть(?!\s+(?:бел|черн))|хватит играть|"
@@ -1136,7 +1204,10 @@ def route(
         if pattern.search(normalized.text):
             if kind in _LEAVING_KINDS and _LEAVING_NEGATED.search(normalized.text):
                 continue
-            return RoutedCommand(kind, normalized, clarification=None)
+            persona_asked = parse_persona(normalized.text) if kind is CommandKind.PERSONA else None
+            if kind is CommandKind.PERSONA and persona_asked is None:
+                continue
+            return RoutedCommand(kind, normalized, persona=persona_asked, clarification=None)
 
     for kind, pattern in _CONTROL_PATTERNS:
         if pattern.search(normalized.text):
@@ -1203,7 +1274,26 @@ def route(
         )
 
     resolution = resolve(normalized, board)
-    return _from_resolution(normalized, resolution, board, confidence_threshold)
+    routed = _from_resolution(normalized, resolution, board, confidence_threshold)
+    if routed.kind is not CommandKind.UNKNOWN:
+        return routed
+    addressed = _without_vocative(normalized.words)
+    if addressed is None:
+        return routed
+    retried = route(addressed, board, pending, last_heard, confidence_threshold)
+    return routed if retried.kind is CommandKind.UNKNOWN else replace(retried, normalized=normalized)
+
+
+def _without_vocative(words: tuple[str, ...]) -> str | None:
+    """The utterance with the name it was addressed to removed, or `None` if that leaves nothing.
+
+    «юра пока» and «твой ход юра» are the commands the skill already answers,
+    said to the player's opponent by name.
+    """
+    trimmed = words[1:] if words and words[0] in _VOCATIVES else words
+    if trimmed and trimmed[-1] in _VOCATIVES:
+        trimmed = trimmed[:-1]
+    return " ".join(trimmed) if trimmed and trimmed != words else None
 
 
 def parse_preference(text: str) -> PreferenceChange | None:

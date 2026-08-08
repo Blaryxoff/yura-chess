@@ -16,6 +16,8 @@ from yura_chess.application.command_router import (
     CommandKind,
     LevelIntent,
     PendingClarification,
+    PersonaRequest,
+    PersonaWish,
     PreferenceChange,
     PuzzleQuestion,
     PuzzleRequest,
@@ -92,6 +94,16 @@ _LEVEL_SCALE_ANSWER = (
     "Чем больше число, тем сильнее я играю. Ноль — самый легкий уровень, двадцать — самый сильный. "
     "Чтобы поставить, скажите: «уровень пять»."
 )
+_PERSONA_WHO_ANSWER = "Я Юра, ваш шахматный соперник. Навык говорит голосом Алисы."
+_PERSONA_PRESENCE_ANSWER = "Я здесь, слушаю вас."
+_PERSONA_SILENCE_ANSWER = "Я здесь. Если я не ответил, повторите последнюю команду."
+_PERSONA_VOICE_ANSWER = "Голос у навыка один, поменять его я не могу."
+_PERSONA_ANSWERS = {
+    PersonaWish.WHO: _PERSONA_WHO_ANSWER,
+    PersonaWish.PRESENCE: _PERSONA_PRESENCE_ANSWER,
+    PersonaWish.SILENCE: _PERSONA_SILENCE_ANSWER,
+    PersonaWish.VOICE: _PERSONA_VOICE_ANSWER,
+}
 _SCREEN_BIGGER_ANSWER = "На весь экран переключить не могу. Читаю доску."
 _SCREEN_BIGGER_NO_GAME = (
     "На весь экран переключить не могу. Зато я читаю доску вслух. Скажите «новая игра», и я буду называть каждый ход."
@@ -422,6 +434,7 @@ class ConversationService:
         if help_navigation is None and routed.kind in {
             CommandKind.ATTENTION,
             CommandKind.SOCIAL,
+            CommandKind.PERSONA,
             CommandKind.PAUSE,
             CommandKind.AMBIGUOUS_TURN,
             CommandKind.ORIENTATION_QUERY,
@@ -434,6 +447,7 @@ class ConversationService:
                     game,
                     open_puzzle is not None,
                     pending_action,
+                    routed.persona,
                 ),
                 state,
             )
@@ -1473,6 +1487,7 @@ def _conversational_reply(
     game: GameState | None,
     solving_puzzle: bool,
     pending_action: PendingAction | None,
+    persona: PersonaRequest | None = None,
 ) -> Speech:
     """Keep short conversational turns useful without changing chess state."""
     if kind is CommandKind.PAUSE:
@@ -1498,11 +1513,17 @@ def _conversational_reply(
 
     if kind is CommandKind.ATTENTION:
         return Speech.of(f"Слушаю. {expectation}")
+    if kind is CommandKind.PERSONA and persona is not None:
+        return Speech.of(f"{_PERSONA_ANSWERS[persona.wish]} {expectation}")
     if kind is CommandKind.SOCIAL:
-        if text in {"как тебя зовут", "кто ты"}:
-            return Speech.of(f"Я Юра, шахматный помощник Алисы. {expectation}")
+        if text in {"как тебя зовут"}:
+            return Speech.of(f"{_PERSONA_WHO_ANSWER} {expectation}")
         if text in {"ты тут", "ты здесь"}:
             return Speech.of(f"Да, я здесь. {expectation}")
+        if text.startswith("спасибо") or text == "большое спасибо":
+            return Speech.of(f"Пожалуйста. {expectation}")
+        if text in {"как дела", "как ты", "как поживаешь"}:
+            return Speech.of(f"Все хорошо, готов играть. {expectation}")
         return Speech.of(f"Здравствуйте! {expectation}")
     return Speech.of(f"Хорошо. {expectation}")
 

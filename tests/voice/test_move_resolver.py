@@ -14,6 +14,7 @@ from yura_chess.application.command_router import (
     LevelIntent,
     LevelRequest,
     PendingClarification,
+    PersonaWish,
     PreferenceChange,
     RematchColor,
     RematchRequest,
@@ -1647,3 +1648,80 @@ def test_leaving_and_asking_alice_are_told_apart(utterance: str, kind: CommandKi
 )
 def test_leaving_never_steals_a_command_that_stays_in_the_skill(utterance: str, kind: CommandKind) -> None:
     assert route(utterance, chess.Board()).kind is kind
+
+
+@pytest.mark.parametrize(
+    ("utterance", "wish"),
+    [
+        ("ты кто", PersonaWish.WHO),
+        ("кто ты", PersonaWish.WHO),
+        ("а ты кто такой", PersonaWish.WHO),
+        ("эй мужик ты кто", PersonaWish.WHO),
+        ("ты кто такой юра или алиса", PersonaWish.WHO),
+        ("ты не алиса ты юрий", PersonaWish.WHO),
+        ("а он робот", PersonaWish.WHO),
+        ("скажи юре то что он проиграл", PersonaWish.WHO),
+        ("спроси у юры это он на коня напал", PersonaWish.WHO),
+        ("пусть юра повторит ход", PersonaWish.WHO),
+        ("где юра", PersonaWish.PRESENCE),
+        ("куда делся юра", PersonaWish.PRESENCE),
+        ("а юра здесь", PersonaWish.PRESENCE),
+        ("без юры", PersonaWish.PRESENCE),
+        ("почему юра со мной не разговаривает", PersonaWish.SILENCE),
+        ("почему юра опять со мной не разговаривает", PersonaWish.SILENCE),
+        ("почему у тебя мужской голос", PersonaWish.VOICE),
+        ("почему ты мужским голосом разговариваешь теперь", PersonaWish.VOICE),
+        ("поменяй голос на девушку", PersonaWish.VOICE),
+        ("алиса измени голос", PersonaWish.VOICE),
+        ("мне нужен мужской не женский голос", PersonaWish.VOICE),
+        ("вы девушки или мальчик", PersonaWish.VOICE),
+    ],
+)
+def test_a_question_about_yura_is_told_from_a_question_about_the_board(utterance: str, wish: PersonaWish) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.PERSONA
+    assert routed.persona is not None
+    assert routed.persona.wish is wish
+
+
+@pytest.mark.parametrize(
+    ("utterance", "kind"),
+    [
+        ("юра", CommandKind.ATTENTION),
+        ("алиса", CommandKind.ATTENTION),
+        ("где юра поставил коня", CommandKind.POSITION_QUERY),
+        ("где мой конь", CommandKind.POSITION_QUERY),
+        ("юра играет черными", CommandKind.UNKNOWN),
+        ("хочу чтобы юра играл черными", CommandKind.UNKNOWN),
+        ("говори медленнее голосом алисы", CommandKind.PREFERENCE),
+        ("можно играть не голосом а визуально", CommandKind.SCREEN),
+        ("рокировка большое спасибо", CommandKind.ILLEGAL_MOVE),
+        ("пешка е два е четыре спасибо", CommandKind.MOVE),
+        ("спасибо алиса все до свидания", CommandKind.EXIT),
+        ("хватит ты меня достала", CommandKind.EXIT),
+    ],
+)
+def test_a_name_in_the_middle_of_a_command_is_not_a_question_about_yura(utterance: str, kind: CommandKind) -> None:
+    assert route(utterance, chess.Board()).kind is kind
+
+
+@pytest.mark.parametrize(
+    ("utterance", "kind"),
+    [
+        ("алиса привет", CommandKind.SOCIAL),
+        ("алис привет", CommandKind.SOCIAL),
+        ("юра пока", CommandKind.EXIT),
+        ("твой ход юра", CommandKind.CONTINUE),
+        ("юра давай белыми", CommandKind.COLOR_CHOICE),
+        ("юра пешка дэ два дэ четыре", CommandKind.MOVE),
+        ("алиса разбор", CommandKind.REVIEW),
+        ("алиса разборчиво", CommandKind.UNKNOWN),
+        ("алиса продолжай трек", CommandKind.UNKNOWN),
+    ],
+)
+def test_a_command_said_to_yura_by_name_is_still_the_command(utterance: str, kind: CommandKind) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is kind
+    assert routed.normalized.text == utterance
