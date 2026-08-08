@@ -207,7 +207,8 @@ async def test_a_new_session_recovers_and_confirms_the_latest_unfinished_game(
             )
         ).json()
 
-    assert "Продолжить?" in prompted["response"]["text"]
+    assert "назовите свой ход" in prompted["response"]["text"]
+    assert "Чтобы услышать инструкцию" not in prompted["response"]["text"]
     assert "Последние два хода" in prompted["response"]["text"]
     assert prompted["session_state"]["pending_action"]["kind"] == "continue"
     assert prompted["session_state"]["game_id"] == moved["user_state_update"]["game_id"]
@@ -242,7 +243,7 @@ async def test_returning_moderator_can_request_help_during_resume_confirmation(
         ).json()
 
     assert "Шахматы с Юрой" in prompted["response"]["text"]
-    assert "скажите «помощь»" in prompted["response"]["text"].lower()
+    assert "Чтобы услышать инструкцию" not in prompted["response"]["text"]
     assert "играете в шахматы голосом против компьютера" in helped["response"]["text"]
     assert "пешка е два е четыре" in helped["response"]["text"]
     assert "pending_action" not in helped["session_state"]

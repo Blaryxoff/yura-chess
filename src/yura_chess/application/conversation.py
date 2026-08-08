@@ -134,8 +134,11 @@ _MONTHS = {
 }
 
 
+_WELCOME = "Здравствуйте! Это навык «Шахматы с Юрой», я ваш соперник Юра, говорю голосом Алисы."
+
+
 def _new_session_welcome(speech: Speech) -> Speech:
-    return Speech.of(f"{help_speech.SKILL_INTRO} Чтобы услышать инструкцию и команды, скажите «помощь». {speech.text}")
+    return Speech.of(f"{_WELCOME} {speech.text}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1099,8 +1102,10 @@ class ConversationService:
                 reply,
                 speech=_new_session_welcome(
                     Speech.of(
-                        f"Новая партия уже началась: вы играете {side}, уровень {level}. "
-                        f"Назовите ход, например «пешка е два е четыре». {reply.speech.text}"
+                        f"Партия уже началась: вы играете {side}, мой уровень — {level} из {MAX_SKILL_LEVEL}. "
+                        f"Назовите ход, например «пешка е два е четыре». "
+                        f"Хотите уровень полегче — скажите «уровень пять». "
+                        f"Если что-то непонятно, скажите «помощь». {reply.speech.text}"
                     )
                 ),
                 sound=_opening_sound(reply),
@@ -1325,7 +1330,7 @@ class ConversationService:
             history = f"Последний ход: {describe_recent_moves(board, 1).text}"
         else:
             history = f"Последние два хода: {describe_recent_moves(board, 2).text}"
-        return Speech.of(f"{opening} {history} Продолжить?")
+        return Speech.of(f"{opening} {history} Чтобы продолжить партию, назовите свой ход.")
 
     def _reload(self, owner_key: str, game: GameState) -> GameState:
         """Re-read a game a coaching answer may have re-moded or hinted."""

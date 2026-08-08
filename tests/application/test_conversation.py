@@ -521,9 +521,31 @@ async def test_new_session_greeting_explains_the_skill_and_next_commands(
 
     assert reply.turn is not None
     assert "Шахматы с Юрой" in reply.speech.text
-    assert "шахматы голосом" in reply.speech.text
+    assert "я ваш соперник Юра" in reply.speech.text
     assert "пешка е два е четыре" in reply.speech.text
+    assert "скажите «уровень пять»" in reply.speech.text
     assert "скажите «помощь»" in reply.speech.text
+    assert reply.speech.text.index("пешка е два е четыре") < reply.speech.text.index("скажите «помощь»")
+
+
+@pytest.mark.parametrize(
+    ("utterance", "kind"),
+    [
+        ("пешка е два е четыре", CommandKind.MOVE),
+        ("уровень пять", CommandKind.LEVEL),
+        ("помощь", CommandKind.HELP),
+    ],
+)
+async def test_every_phrase_the_greeting_names_is_a_command(
+    utterance: str,
+    kind: CommandKind,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    reply = await subject(session_factory, offline_settings).handle(OWNER, "", context(1, new=True))
+
+    assert f"«{utterance}»" in reply.speech.text
+    assert route(utterance, chess.Board()).kind is kind
 
 
 @pytest.mark.parametrize("utterance", ["помощь", "что ты умеешь"])
@@ -562,8 +584,8 @@ async def test_new_session_offers_the_latest_unfinished_game_and_last_two_moves(
     assert prompt.state.pending_action is not None
     assert prompt.state.pending_action.kind is CommandKind.CONTINUE
     assert "Шахматы с Юрой" in prompt.speech.text
-    assert "шахматы голосом" in prompt.speech.text
-    assert "скажите «помощь»" in prompt.speech.text.lower()
+    assert "Чтобы услышать инструкцию" not in prompt.speech.text
+    assert "назовите свой ход" in prompt.speech.text
     assert "Последние два хода" in prompt.speech.text
     assert "пешка e2 e4" in prompt.speech.text
     assert "пешка e7 e5" in prompt.speech.text
@@ -828,9 +850,8 @@ async def test_new_session_greeting_explains_the_skill_when_resuming_a_puzzle(
     prompted = await conversation.handle(OWNER, "", context(2, new=True), ConversationState())
 
     assert "Шахматы с Юрой" in prompted.speech.text
-    assert "шахматы голосом" in prompted.speech.text
+    assert "Чтобы услышать инструкцию" not in prompted.speech.text
     assert "нерешенная задача" in prompted.speech.text
-    assert "скажите «помощь»" in prompted.speech.text.lower()
     assert prompted.state.pending_action is not None
     assert prompted.state.pending_action.kind is CommandKind.PUZZLE
 
