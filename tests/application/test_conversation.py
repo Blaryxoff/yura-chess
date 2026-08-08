@@ -643,7 +643,9 @@ async def test_platform_command_ends_only_the_skill_and_preserves_the_game(
     handed_off = await conversation.handle(OWNER, "громкость 3", context(2), started.state)
 
     assert handed_off.end_session is True
-    assert handed_off.speech.text == "Партия сохранена. Закрываю шахматы. Теперь повторите команду Алисе."
+    assert handed_off.speech.text == (
+        "Партия сохранена. Выхожу из навыка «Шахматы с Юрой». Теперь скажите это Алисе еще раз."
+    )
     with session_scope(session_factory) as session:
         game = GameRepository(session).load(started.state.game_id or "", OWNER)
     assert game.status is GameStatus.ACTIVE
@@ -657,7 +659,7 @@ async def test_a_platform_command_without_a_game_does_not_promise_a_saved_one(
     reply = await subject(session_factory, offline_settings).handle(OWNER, "включи музыку", context(1))
 
     assert reply.end_session is True
-    assert reply.speech.text == "Закрываю шахматы. Теперь повторите команду Алисе."
+    assert reply.speech.text == "Выхожу из навыка «Шахматы с Юрой». Теперь скажите это Алисе еще раз."
 
 
 async def test_a_farewell_ends_the_session_and_keeps_the_game(
