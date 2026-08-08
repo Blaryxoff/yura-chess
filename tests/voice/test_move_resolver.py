@@ -1467,6 +1467,9 @@ def test_a_refusal_to_play_still_ends_the_game_it_asks_to_end(utterance: str) ->
         "не сдаюсь",
         "я не сдаюсь",
         "не хочу сдаться",
+        # Saying you lost is a remark about the position, not a request to end the game.
+        "я проиграл",
+        "я проиграла",
         "я сдаюсь а теперь не сдаюсь",
     ],
 )
