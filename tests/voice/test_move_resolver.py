@@ -1821,6 +1821,7 @@ def test_a_puzzle_is_asked_for_in_more_than_one_way(utterance: str, theme: str |
         ("повторить позицию", CommandKind.POSITION_QUERY),
         ("не могу решить какой ход лучше", CommandKind.TRAINING),
         ("в этой задаче другая позиция покажи доску", CommandKind.POSITION_QUERY),
+        ("эту задачу не хочу новую игру", CommandKind.NEW_GAME),
         ("не могу решить стоит ли мне ходить конем", CommandKind.TRAINING),
     ],
 )
