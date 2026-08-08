@@ -1264,7 +1264,25 @@ async def test_natural_trainer_and_review_questions_reach_their_services(
     review = await conversation.handle(OWNER, "как я сыграл", context(3), trainer.state)
 
     assert "Включить режим тренера" in trainer.speech.text
-    assert review.speech.text == "Законченной партии еще нет, разбирать нечего. Скажите «новая игра»."
+    assert review.speech.text == "Сейчас партия еще идет. Доиграйте ее, потом скажите «разбери партию»."
+
+
+async def test_the_word_razbor_opens_the_help_topic_while_help_is_open(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    """The same word is a review request on its own and a topic name inside the help."""
+    conversation = subject(session_factory, offline_settings)
+    opened = await conversation.handle(OWNER, "все команды", context(1))
+
+    inside = await conversation.handle(OWNER, "разбор", context(2), opened.state)
+    outside = await conversation.handle(OWNER, "разбор", context(3), None)
+
+    assert inside.state.help == HelpState(topic=HelpTopic.REVIEW, page=0)
+    assert "разбери партию" in inside.speech.text
+    assert "Законченной партии еще нет" not in inside.speech.text
+    assert outside.state.help is None
+    assert "Законченной партии еще нет" in outside.speech.text
 
 
 async def test_help_navigation_walks_the_catalogue_forward_back_and_to_the_start(

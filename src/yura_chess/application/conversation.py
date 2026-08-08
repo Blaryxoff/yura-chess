@@ -978,8 +978,10 @@ class ConversationService:
         """Answer a question about a finished game; the game itself stays as it is."""
         reviewed = self._reviewable(owner_key, game)
         if reviewed is None:
+            playing = game is not None and game.status is GameStatus.ACTIVE
+            unfinished = "Сейчас партия еще идет. Доиграйте ее, потом скажите «разбери партию»." if playing else ""
             return ConversationReply(
-                Speech.of("Законченной партии еще нет, разбирать нечего. Скажите «новая игра»."),
+                Speech.of(unfinished or "Законченной партии еще нет, разбирать нечего. Скажите «новая игра»."),
                 self._with_game(state, game) if game is not None else state,
             )
         if request.question is ReviewQuestion.REPLAY_POSITION:

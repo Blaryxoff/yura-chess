@@ -10,6 +10,7 @@ import chess.pgn
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
+from yura_chess.adapters.alice.models import TTS_LIMIT
 from yura_chess.application.command_router import CommandKind, ReviewQuestion, ReviewRequest, route
 from yura_chess.application.conversation import ConversationService, ConversationState
 from yura_chess.application.game_service import RequestContext
@@ -585,6 +586,34 @@ async def test_the_summary_offered_when_the_game_ends_answers_the_next_utterance
 
     assert NEXT_STEP_PROMPT in mated.speech.text
     assert "Вы выиграли." in summary.speech.text
+
+
+async def test_the_words_a_player_uses_for_their_mistakes_reach_the_same_summary(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = ConversationService(session_factory, FakeEngine(), offline_settings)
+    game = finished_game(session_factory)
+    state = ConversationState(game_id=game.id, revision=game.revision)
+
+    asked = await conversation.handle(OWNER, "какие у меня ошибки", context(1), state)
+    canonical = await conversation.handle(OWNER, "разбери партию", context(2), state)
+
+    assert asked.speech.text == canonical.speech.text
+    assert len(asked.speech.spoken()) <= TTS_LIMIT
+    assert "Скажите «где был перелом», «какая моя главная ошибка» или «продиктуй партию»." in asked.speech.text
+
+
+async def test_a_review_asked_during_a_running_game_says_to_finish_it_first(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = ConversationService(session_factory, FakeEngine(), offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    reply = await conversation.handle(OWNER, "разобрать партию", context(2), started.state)
+
+    assert reply.speech.text == "Сейчас партия еще идет. Доиграйте ее, потом скажите «разбери партию»."
 
 
 async def test_a_review_of_another_owners_game_reads_nothing(

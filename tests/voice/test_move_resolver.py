@@ -17,6 +17,7 @@ from yura_chess.application.command_router import (
     PreferenceChange,
     RematchColor,
     RematchRequest,
+    ReviewQuestion,
     TrainingQuestion,
     confirmation_answer,
     route,
@@ -782,6 +783,67 @@ def test_asking_about_a_setting_never_changes_it(utterance: str) -> None:
 @pytest.mark.parametrize("utterance", ["аннотация", "короткая", "развернуть ход"])
 def test_a_word_that_cannot_name_a_style_changes_no_setting(utterance: str) -> None:
     assert route(utterance, chess.Board()).kind is not CommandKind.PREFERENCE
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("мои ошибки", ReviewQuestion.SUMMARY),
+        ("какие у меня ошибки", ReviewQuestion.SUMMARY),
+        ("какие мои ошибки", ReviewQuestion.SUMMARY),
+        ("покажи мои ошибки", ReviewQuestion.SUMMARY),
+        ("какая моя ошибка", ReviewQuestion.MAIN_MISTAKE),
+        ("сколько было ошибок", ReviewQuestion.MISTAKE_COUNT),
+        ("сколько у меня было ошибок", ReviewQuestion.MISTAKE_COUNT),
+        ("сколько я раз ошибся", ReviewQuestion.MISTAKE_COUNT),
+        ("разобрать партию", ReviewQuestion.SUMMARY),
+        ("разобрать игру", ReviewQuestion.SUMMARY),
+        ("а разобрать игру", ReviewQuestion.SUMMARY),
+        ("разобрать", ReviewQuestion.SUMMARY),
+        ("разбор партий", ReviewQuestion.SUMMARY),
+        ("алиса разбор", ReviewQuestion.SUMMARY),
+        ("разбор разбор", ReviewQuestion.SUMMARY),
+        ("последняя партия", ReviewQuestion.SUMMARY),
+        ("вернуться к предыдущей партии", ReviewQuestion.SUMMARY),
+    ],
+)
+def test_a_question_about_the_finished_game_reaches_the_review(
+    utterance: str,
+    expected: ReviewQuestion,
+) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.REVIEW
+    assert routed.review is not None
+    assert routed.review.question is expected
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("где я ошибся", CommandKind.TRAINING),
+        ("в чем моя ошибка", CommandKind.TRAINING),
+        ("сколько ходов мы сыграли", CommandKind.GAME_FACT),
+        ("сколько пешек стоила ошибка на пятом ходу", CommandKind.UNKNOWN),
+        ("продолжи последнюю партию", CommandKind.CONTINUE),
+    ],
+)
+def test_a_question_about_the_running_game_is_not_a_review(utterance: str, expected: CommandKind) -> None:
+    assert route(utterance, chess.Board()).kind is expected
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "что ты разобрала",
+        "разобрать сколько ходов мы сыграли",
+        "разобрать почему ты так сходила",
+        "разобрать ход конь эф три",
+        "алиса разборчиво",
+    ],
+)
+def test_a_sentence_that_merely_contains_the_word_is_not_a_review_request(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is not CommandKind.REVIEW
 
 
 def test_help_navigation_is_matched_before_the_new_game_command() -> None:
