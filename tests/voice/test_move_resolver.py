@@ -1462,8 +1462,7 @@ def test_a_refusal_to_play_still_ends_the_game_it_asks_to_end(utterance: str) ->
         "нет алиса я не сдаюсь",
         "не сдаюсь",
         "я не сдаюсь",
-        "я не сдался",
-        "я не проиграл",
+        "не хочу сдаться",
         "я сдаюсь а теперь не сдаюсь",
     ],
 )
@@ -1472,7 +1471,18 @@ def test_saying_you_are_not_resigning_does_not_resign(utterance: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "utterance", ["сдаюсь", "я сдаюсь", "ладно сдаюсь", "сдаться", "я проиграл", "не сдаюсь а теперь сдаюсь"]
+    "utterance",
+    [
+        "сдаюсь",
+        "я сдаюсь",
+        "ладно сдаюсь",
+        "сдаться",
+        "я сдался",
+        "я проиграл",
+        "не сдаюсь а теперь сдаюсь",
+        # The refusal has to reach the word it refuses, and «но» is a new statement.
+        "я не проиграл но сдаюсь",
+    ],
 )
 def test_resigning_still_resigns(utterance: str) -> None:
     assert route(utterance, chess.Board()).kind is CommandKind.RESIGN

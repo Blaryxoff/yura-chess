@@ -836,8 +836,8 @@ _LEAVING_NEGATED = re.compile(
     r"\bне\s+(?:\w+\s+){0,3}(?:выключ|отключ|выруб|убир|убер|закрыв|закрой|законч|заверш|говор|прибав|убав|мен[яю]|выйти|выход|надоел|постопить|прекрати)\w*"
 )
 _SURRENDER_SPOKEN = re.compile(_SURRENDER)
-# «нет, алиса, я не сдаюсь» resigned a real player's game. A wish may sit between.
-_SURRENDER_NEGATED = re.compile(rf"\bне\s+(?:{_SOUND_WISH}\s+)?(?:сда|проигр)\w*")
+# Only a wish stands between the refusal and the word it refuses: «я не проиграл, но сдаюсь» resigns.
+_SURRENDER_REFUSED = re.compile(r"\bне\s+(?:(?:хочу|хочется|хотел\w*|надо|нужн\w*|буд(?:у|ем))\s+)?$")
 # A refusal and a question hold only over the clause they were spoken in, so
 # both are read against the last one an utterance opens.
 _LAST_CLAUSE = re.compile(r"\bа (?:теперь|потом|сейчас)\b")
@@ -1288,7 +1288,7 @@ def _route_once(
             if kind is CommandKind.RESIGN:
                 clause = _last_clause(normalized.text)
                 if _SURRENDER_SPOKEN.search(normalized.text):
-                    if _SURRENDER_NEGATED.search(clause):
+                    if not _surrender_meant(clause):
                         continue
                 else:
                     if _END_GAME_DEFINITION.search(clause):
@@ -1584,6 +1584,11 @@ def _from_resolution(
 def _last_clause(text: str) -> str:
     """What the utterance ends on, once it has moved past its own preamble."""
     return _LAST_CLAUSE.split(text)[-1]
+
+
+def _surrender_meant(clause: str) -> bool:
+    """Whether the game is given up outright, as «я не сдаюсь» refuses to."""
+    return any(_SURRENDER_REFUSED.search(clause[: said.start()]) is None for said in _SURRENDER_SPOKEN.finditer(clause))
 
 
 def _undo_count(text: str) -> int:
