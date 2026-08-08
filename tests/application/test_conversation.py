@@ -1543,6 +1543,22 @@ async def test_help_inside_a_game_changes_neither_the_game_nor_the_revision(
     assert state.pending_engine_turn is None
 
 
+@pytest.mark.parametrize("utterance", ["напомни ход", "ну юра напомни ход", "напомни ход юра", "алиса повтори ход"])
+async def test_the_name_a_question_is_addressed_by_does_not_change_its_answer(
+    utterance: str,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    played = await conversation.handle(OWNER, "пешка е два е четыре", context(2), started.state)
+
+    asked = await conversation.handle(OWNER, utterance, context(3), played.state)
+
+    assert "Последний ход" in asked.speech.text
+    assert "горизонталь" not in asked.speech.text
+
+
 async def test_next_page_still_reads_the_board_when_help_is_closed(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,

@@ -277,6 +277,8 @@ class RoutedCommand:
     screen: ScreenRequest | None = None
     # Number of complete player+engine turns requested by an undo command.
     undo_count: int = 1
+    # The phrase without the name it was addressed by, for parsers that read it again.
+    addressed: str | None = None
 
 
 # Help is matched before everything else: «справка по задачам» names a help
@@ -1207,7 +1209,7 @@ def route(
         return routed
     retried = _route_once(addressed, board, pending, last_heard, confidence_threshold)
     if retried.kind is not CommandKind.UNKNOWN:
-        return replace(retried, normalized=routed.normalized)
+        return replace(retried, normalized=routed.normalized, addressed=addressed)
     if relayed:
         return replace(routed, kind=CommandKind.PERSONA, persona=PersonaRequest(PersonaWish.WHO))
     return routed

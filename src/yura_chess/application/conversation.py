@@ -876,7 +876,7 @@ class ConversationService:
             if fact is not None:
                 return ConversationReply(fact.speech, self._with_game(next_state, game))
         if routed.kind is CommandKind.POSITION_QUERY:
-            answer = answer_position_query(utterance, board, state.position_page)
+            answer = answer_position_query(routed.addressed or utterance, board, state.position_page)
             return ConversationReply(
                 answer.speech,
                 replace(self._with_game(next_state, game), position_page=answer.page),
@@ -1002,7 +1002,7 @@ class ConversationService:
             pending = routed.clarification or prior.clarification
             return ConversationReply(self._clarification_speech(pending), replace(state, clarification=pending))
         if routed.kind is CommandKind.POSITION_QUERY:
-            answer = answer_position_query(utterance, board, prior.position_page)
+            answer = answer_position_query(routed.addressed or utterance, board, prior.position_page)
             return ConversationReply(answer.speech, replace(state, position_page=answer.page))
         if routed.kind is CommandKind.SCREEN and routed.screen is not None:
             if routed.screen.wish is ScreenWish.TAP:

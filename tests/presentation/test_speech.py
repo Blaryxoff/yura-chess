@@ -227,9 +227,6 @@ def test_slow_repeat_spells_the_coordinate_and_leaves_the_board_untouched() -> N
         "напомни свой ход",
         "напомни, как ты пошла",
         "напомни ход",
-        # `route()` drops the name it was addressed by; the reader is handed the raw phrase.
-        "алиса напомни ход",
-        "юра повтори ход",
     ],
 )
 def test_asking_how_the_opponent_moved_reads_the_move_and_not_the_board(utterance: str) -> None:
