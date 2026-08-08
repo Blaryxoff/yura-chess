@@ -1090,7 +1090,9 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
     (
         PuzzleQuestion.REPEAT,
         re.compile(
-            r"(повтор(?:и|ить)|напомн(?:и|ить))( мне)? (задачу|позицию|условие)|еще раз (задачу|позицию|условие)|"
+            # Only «задачу» takes the infinitive: «повторить позицию» reads the board.
+            r"(повтори|напомни)( мне)? (задачу|позицию|условие)|(повторить|напомнить)( мне)? задачу|"
+            r"еще раз (задачу|позицию|условие)|"
             r"какая сейчас задача|что за задача сейчас|какие задачи сейчас открыты"
         ),
     ),
@@ -1117,6 +1119,8 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
 # «не надо решение, следующую задачу» refuses one puzzle command and asks for another.
 _START_REFUSED = re.compile(r"\bне\s+(?:\w+\s+){0,2}(?:дай|давай|хочу|надо|нужн|буду|открыв|открой)\w*")
 _SOLUTION_REFUSED = re.compile(r"\bне\s+(?:показыв|говор|читай|озвуч|объясняй)\w*(?:\s+\w+){0,2}\s+решени")
+_PUZZLE_ASKED = re.compile(r"\b(?:дай|давай|хочу|надо|нужн|буду|открыв|открой|покажи|скажи|объясни)\w*")
+_REFUSAL_JUST_BEFORE = re.compile(r"\bне\s+(?:\w+\s+)?$")
 
 # Themes the shipped catalogue actually carries, named the way a player names them.
 _PUZZLE_THEMES: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -1393,10 +1397,17 @@ def parse_puzzle(text: str) -> PuzzleRequest | None:
 
 def _puzzle_refused(question: PuzzleQuestion, text: str) -> bool:
     if question is PuzzleQuestion.SOLUTION:
-        return bool(_SOLUTION_REFUSED.search(text))
-    if question is PuzzleQuestion.START:
-        return bool(_START_REFUSED.search(text) or _SOLUTION_REFUSED.search(text))
-    return False
+        refused = _SOLUTION_REFUSED.search(text)
+    elif question is PuzzleQuestion.START:
+        refused = _START_REFUSED.search(text) or _SOLUTION_REFUSED.search(text)
+    else:
+        return False
+    return bool(refused) and not _asked_plainly(text)
+
+
+def _asked_plainly(text: str) -> bool:
+    """Whether anything is still asked for outright, as «не хочу ждать, дай задачу» asks."""
+    return any(_REFUSAL_JUST_BEFORE.search(text[: asked.start()]) is None for asked in _PUZZLE_ASKED.finditer(text))
 
 
 def _puzzle_theme(text: str) -> str | None:
