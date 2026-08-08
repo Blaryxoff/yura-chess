@@ -521,7 +521,7 @@ async def test_new_session_greeting_explains_the_skill_and_next_commands(
 
     assert reply.turn is not None
     assert "Шахматы с Юрой" in reply.speech.text
-    assert "Я Юра, ваш соперник" in reply.speech.text
+    assert "Я Юра, ваш соперник в шахматах." in reply.speech.text
     assert "пешка е два е четыре" in reply.speech.text
     assert "скажите «помощь»" in reply.speech.text
     assert reply.speech.text.index("пешка е два е четыре") < reply.speech.text.index("скажите «помощь»")
@@ -576,6 +576,29 @@ async def test_moderation_help_commands_return_an_instruction_in_a_new_session(
     assert "играете в шахматы голосом против компьютера" in reply.speech.text
     assert "новая игра белыми" in reply.speech.text
     assert "пешка е два е четыре" in reply.speech.text
+
+
+async def test_a_resume_asks_for_the_word_that_settles_the_engines_owed_move(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        game = repository.create_game(OWNER, PlayerColor.WHITE)
+        game = repository.append_moves(game.id, OWNER, game.revision, ("e2e4",))
+        repository.set_pending_engine_turn(
+            game.id,
+            OWNER,
+            expected_revision=game.revision,
+            token="7f1c0d1e-0000-4000-8000-00000000beef",
+            player_move_uci="e2e4",
+        )
+
+    prompt = await subject(session_factory, offline_settings).handle(OWNER, "", context(1, new=True))
+
+    assert "Скажите «продолжаем»." in prompt.speech.text
+    assert "назовите ход" not in prompt.speech.text
+    assert route("продолжаем", chess.Board()).kind is CommandKind.CONTINUE
 
 
 @pytest.mark.parametrize(

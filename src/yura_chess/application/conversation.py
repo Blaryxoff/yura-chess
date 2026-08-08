@@ -136,7 +136,7 @@ _MONTHS = {
 }
 
 
-_WELCOME = "Здравствуйте! Это навык «Шахматы с Юрой». Я Юра, ваш соперник, а говорит за меня Алиса."
+_WELCOME = f"Здравствуйте! Это навык «Шахматы с Юрой». {_PERSONA_WHO_ANSWER}"
 
 
 def _new_session_welcome(speech: Speech) -> Speech:
@@ -1106,8 +1106,8 @@ class ConversationService:
                 speech=_new_session_welcome(
                     Speech.of(
                         f"Партия уже началась: вы играете {side}. "
-                        f"Мой уровень — {level} из {MAX_SKILL_LEVEL}, чем больше число, тем сильнее я играю. "
                         f"Назовите ход, например «пешка е два е четыре». "
+                        f"Мой уровень — {level} из {MAX_SKILL_LEVEL}. Чем больше число, тем сильнее я играю. "
                         f"{easier}Если что-то непонятно, скажите «помощь». {reply.speech.text}"
                     )
                 ),

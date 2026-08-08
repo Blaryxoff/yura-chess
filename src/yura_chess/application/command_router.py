@@ -1121,7 +1121,9 @@ _START_REFUSED = re.compile(r"\bне\s+(?:\w+\s+){0,2}(?:дай|давай|хо�
 _SOLUTION_REFUSED = re.compile(r"\bне\s+(?:показыв|говор|читай|озвуч|объясняй)\w*(?:\s+\w+){0,2}\s+решени")
 _PUZZLE_ASKED = re.compile(r"\b(?:дай|давай|хочу|надо|нужн|буду|открыв|открой|покажи|скажи|объясни)\w*")
 _PUZZLE_WANTED = re.compile(r"задач|головоломк|этюд|решени|друг(?:ую|ая)")
-_REFUSAL_AGAIN = re.compile(r"\bне\b")
+_REFUSAL_AGAIN = re.compile(
+    r"\bне\s+(?:\w+\s+){0,2}(?:дай|давай|хочу|надо|нужн|буду|открыв|открой|покажи|скажи|объясни)\w*"
+)
 _REFUSAL_JUST_BEFORE = re.compile(r"\bне\s+(?:\w+\s+)?$")
 
 # Themes the shipped catalogue actually carries, named the way a player names them.
