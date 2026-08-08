@@ -10,6 +10,7 @@ from __future__ import annotations
 import chess
 import pytest
 
+from yura_chess.adapters.alice.models import TTS_LIMIT
 from yura_chess.domain.game import GameStatus, PlayerColor
 from yura_chess.domain.preferences import NotationStyle, PauseStyle
 from yura_chess.domain.results import GameEnd, GameOutcome, TurnResult, TurnStatus
@@ -43,6 +44,7 @@ EN_PASSANT_FEN = "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1"
 CASTLING_FEN = "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1"
 CAPTURE_FEN = "4k3/8/8/8/8/8/8/R2q1K2 w - - 0 1"
 MATE_IN_ONE_FEN = "6k1/5ppp/8/8/8/8/8/R6K w - - 0 1"
+DENSE_FEN = "r1bq1rk1/pp2ppbp/2np1np1/2p5/2P1P3/2NP1NP1/PP2BP1P/R1BQ1RK1 w - - 0 9"
 
 
 def _result(status: TurnStatus, **kwargs: object) -> TurnResult:
@@ -184,26 +186,96 @@ def test_all_pieces_of_one_side_can_be_asked_for() -> None:
     assert answer.speech.text == "У черных: король e8."
 
 
-def test_whole_position_is_read_in_stable_groups_with_a_continuation() -> None:
+def test_whole_position_is_read_in_groups_with_a_continuation() -> None:
     board = chess.Board()
-    first = answer_position_query("прочитай всю позицию", board)
+    first = answer_position_query("какая позиция", board)
     second = answer_position_query("дальше", board, page=first.page)
 
     assert first.query is PositionQuery.WHOLE_BOARD
     assert first.page == 0 and first.has_next
     assert "Восьмая горизонталь" in first.speech.text and "Седьмая горизонталь" in first.speech.text
     assert second.page == 1
-    assert "Шестая горизонталь пуста." in second.speech.text
-    # Stable grouping: the same page always holds the same ranks.
+    assert "Вторая горизонталь" in second.speech.text and "Первая горизонталь" in second.speech.text
     assert read_board(board, 0).speech == first.speech
 
 
-def test_last_group_offers_no_continuation() -> None:
+def test_empty_ranks_are_skipped_so_a_sparse_position_takes_fewer_pages() -> None:
+    only = read_board(chess.Board(CASTLING_FEN))
+
+    assert not only.has_next
+    assert "пуста" not in only.speech.text
+    assert only.speech.text == (
+        "Восьмая горизонталь: черные — король e8. Первая горизонталь: белые — ладья a1, король e1, ладья h1."
+    )
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["прочитай всю позицию", "прочитай позицию целиком", "всю доску", "прочитай доску полностью"],
+)
+def test_an_explicit_whole_board_request_is_read_without_a_continuation(utterance: str) -> None:
+    board = chess.Board(DENSE_FEN)
+    answer = answer_position_query(utterance, board)
+
+    assert answer.query is PositionQuery.WHOLE_BOARD
+    assert not answer.has_next
+    assert "дальше" not in answer.speech.text
+    assert "Восьмая горизонталь" in answer.speech.text and "Первая горизонталь" in answer.speech.text
+    assert len(answer.speech.spoken()) < TTS_LIMIT
+
+
+def test_a_fresh_board_request_restarts_from_the_top() -> None:
+    board = chess.Board(DENSE_FEN)
+    paged = answer_position_query("дальше", board, page=1)
+    again = answer_position_query("какая позиция", board, page=paged.page)
+
+    assert paged.page == 2
+    assert again.page == 0
+    assert "Восьмая горизонталь" in again.speech.text
+
+
+@pytest.mark.parametrize("utterance", ["еще раз позицию", "повтори позицию"])
+def test_asking_for_the_position_again_rereads_it_instead_of_continuing(utterance: str) -> None:
+    board = chess.Board(DENSE_FEN)
+    answer = answer_position_query(utterance, board, page=1)
+
+    assert answer.page == 0
+    assert "Восьмая горизонталь" in answer.speech.text
+
+
+def test_a_page_past_the_last_one_is_clamped_to_the_last() -> None:
     last = read_board(chess.Board(), PAGE_COUNT - 1)
 
     assert not last.has_next
     assert "дальше" not in last.speech.text
     assert "Первая горизонталь" in last.speech.text
+
+
+def test_a_board_without_pieces_says_so_instead_of_reading_ranks() -> None:
+    answer = read_board(chess.Board(None))
+
+    assert answer.query is PositionQuery.WHOLE_BOARD
+    assert not answer.has_next
+    assert answer.speech.text == "На доске нет фигур."
+
+
+def test_a_possessive_names_the_side_when_the_asker_colour_is_known() -> None:
+    board = chess.Board(CASTLING_FEN)
+    mine = answer_position_query("где моя ладья", board, player=chess.WHITE)
+    yours = answer_position_query("где твоя ладья", board, player=chess.BLACK)
+    unknown = answer_position_query("где моя ладья", board)
+
+    assert mine.query is PositionQuery.PIECE_KIND
+    assert mine.speech.text == "Белые ладьи: a1, h1."
+    assert yours.speech.text == "Белые ладьи: a1, h1."
+    assert "ладьи черных нет" in unknown.speech.text
+
+
+@pytest.mark.parametrize("utterance", ["какая моя позиция", "покажи мне позицию"])
+def test_a_possessive_without_a_named_piece_still_reads_the_board(utterance: str) -> None:
+    answer = answer_position_query(utterance, chess.Board(), player=chess.WHITE)
+
+    assert answer.query is PositionQuery.WHOLE_BOARD
 
 
 def test_slow_repeat_spells_the_coordinate_and_leaves_the_board_untouched() -> None:

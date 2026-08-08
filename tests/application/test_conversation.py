@@ -1439,6 +1439,37 @@ async def test_the_board_reading_continues_page_by_page_after_a_visibility_reque
     assert second.speech.text != first.speech.text
 
 
+async def test_a_possessive_is_answered_for_the_colour_the_player_chose(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра черными", context(1))
+
+    mine = await conversation.handle(OWNER, "где мой король", context(2), started.state)
+    yours = await conversation.handle(OWNER, "где твой король", context(3), mine.state)
+
+    assert mine.speech.text == "Черные короли: e8."
+    assert yours.speech.text == "Белые короли: e1."
+
+
+async def test_a_whole_board_request_is_read_in_one_reply_and_restarts_the_pages(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    paged = await conversation.handle(OWNER, "какая позиция", context(2), started.state)
+    complete = await conversation.handle(OWNER, "прочитай всю позицию", context(3), paged.state)
+    again = await conversation.handle(OWNER, "какая позиция", context(4), complete.state)
+
+    assert "дальше" not in complete.speech.text
+    assert "Восьмая горизонталь" in complete.speech.text and "Первая горизонталь" in complete.speech.text
+    assert again.state.position_page == 0
+    assert "Восьмая горизонталь" in again.speech.text
+
+
 async def test_a_visibility_request_answers_a_waiting_confirmation_with_the_board(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,

@@ -23,7 +23,7 @@ from yura_chess.domain.preferences import (
 )
 from yura_chess.presentation import game_facts
 from yura_chess.presentation.help_speech import is_rules_request
-from yura_chess.presentation.position_speech import LAST_MOVE, NUMBERED_MOVE, RANK_LINE
+from yura_chess.presentation.position_speech import LAST_MOVE, NUMBERED_MOVE, RANK_LINE, WHOLE_BOARD_ONLY
 from yura_chess.voice.illegal_move import Explanation, IllegalReason, explain
 from yura_chess.voice.move_resolver import resolve
 from yura_chess.voice.normalizer import MAX_UTTERANCE_LENGTH, normalize
@@ -746,6 +746,7 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         re.compile(
             r"кака(я|ю) позици|позици(я|ю)|расстановк|\bгде\b|что на|покажи (?:мне\s+)?(?:\w+\s+)?(?:доску|поле)\b|"
             r"какие (?:у меня )?фигуры|сколько фигур|прочитай|"
+            rf"{WHOLE_BOARD_ONLY.pattern}|"
             # A rank only when one is named: «мат по последней горизонтали» is a
             # term, and «ходить по горизонтали» a rule, neither reads the board.
             rf"{RANK_LINE.pattern}|"
@@ -1093,9 +1094,12 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
         PuzzleQuestion.REPEAT,
         re.compile(
             # Only «задачу» takes the infinitive: «повторить позицию» reads the board.
-            r"(повтори|напомни)( мне)? (задачу|позицию|условие)|(повторить|напомнить)( мне)? задачу|"
-            r"еще раз (задачу|позицию|условие)|"
-            r"какая сейчас задача|что за задача сейчас|какие задачи сейчас открыты"
+            r"(повтори|напомни)( мне)? (задачу|задани\w+|позицию|условие)|"
+            r"(повторить|напомнить)( мне)? (задачу|задани\w+)|"
+            r"еще раз (задачу|задани\w+|позицию|условие)|"
+            # Bare, so anchored: «какая задача, почему ты так сходил» asks the trainer.
+            r"какая сейчас задача|что за задача сейчас|^какая задача$|^что за задача$|"
+            r"какие задачи сейчас открыты"
         ),
     ),
     (

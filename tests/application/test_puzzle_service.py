@@ -501,7 +501,17 @@ def test_repeating_a_puzzle_is_read_only(session_factory: sessionmaker[Session])
     assert attempt(session_factory, MATE_IN_TWO).revision == before.revision
 
 
-@pytest.mark.parametrize("utterance", ["какая сейчас задача", "напомни условие", "какие задачи сейчас открыты"])
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "какая сейчас задача",
+        "напомни условие",
+        "какие задачи сейчас открыты",
+        "какая задача",
+        "что за задача",
+        "повтори задание",
+    ],
+)
 async def test_current_puzzle_questions_repeat_it_without_changing_the_attempt(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
@@ -696,14 +706,36 @@ async def test_declining_the_resumed_puzzle_gives_the_game_back(
     assert "Ваш ход: пешка e2 e4" in played.speech.text
 
 
+@pytest.mark.parametrize("utterance", ["какая задача", "что за задача", "повтори задание"])
+async def test_asking_about_the_task_with_none_open_leaves_the_game_alone(
+    utterance: str,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    puzzles = service(session_factory, MATE_IN_TWO)
+    conversation = ConversationService(session_factory, FakeEngine(), offline_settings, puzzles)
+    started = await conversation.handle(OWNER, "", context(1))
+    played = await conversation.handle(OWNER, "пешка е четыре", context(2), started.state)
+
+    asked = await conversation.handle(OWNER, utterance, context(3), played.state)
+    moved = await conversation.handle(OWNER, "конь же эф три", context(4), asked.state)
+
+    assert puzzles.find_open(OWNER) is None
+    assert "Сейчас нет задачи" in asked.speech.text
+    assert asked.state.game_id == played.state.game_id
+    assert asked.state.revision == played.state.revision
+    assert "конь g1 f3" in moved.speech.text
+
+
 def test_puzzle_commands_are_routed_before_the_game_commands() -> None:
     assert route("дай задачу").kind is CommandKind.PUZZLE
     assert route("еще задачу").kind is CommandKind.PUZZLE
     assert route("выйти из задач").puzzle == PuzzleRequest(PuzzleQuestion.EXIT)
     assert route("покажи решение").puzzle == PuzzleRequest(PuzzleQuestion.SOLUTION)
     assert route("повтори задачу").puzzle == PuzzleRequest(PuzzleQuestion.REPEAT)
-    assert route("какая задача").kind is not CommandKind.PUZZLE
+    assert route("какая задача").puzzle == PuzzleRequest(PuzzleQuestion.REPEAT)
     assert route("какая сейчас задача").puzzle == PuzzleRequest(PuzzleQuestion.REPEAT)
+    assert route("повтори задание").puzzle == PuzzleRequest(PuzzleQuestion.REPEAT)
     assert route("какие задачи я решал").puzzle == PuzzleRequest(PuzzleQuestion.HISTORY)
     assert route("задача на мат в два").puzzle == PuzzleRequest(PuzzleQuestion.START, theme="mateIn2")
     assert route("следующая задача на вилку").puzzle == PuzzleRequest(PuzzleQuestion.NEXT, theme="fork")

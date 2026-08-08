@@ -2,9 +2,10 @@
 
 Four questions are supported: what stands on a square, where a kind of piece
 stands, what one side has, and the whole board. The whole board is too long for
-one reply, so it is read in stable groups of two ranks and continued on
-«дальше» — the same page always contains the same ranks, which is what makes a
-spoken board followable.
+one reply, so it is read two occupied ranks at a time and continued on
+«дальше». Empty ranks are skipped: a page spent announcing that nothing stands
+on it is a page the listener has to sit through, and a sparse position — which
+is what a puzzle usually is — then takes far fewer of them.
 
 The sub-question is read off the normaliser's signature rather than parsed
 again, so the piece, file and rank vocabulary has exactly one definition.
@@ -57,7 +58,18 @@ _RANK_ORDINALS: dict[int, str] = {
 
 _WHITE_WORD = re.compile(r"^бел")
 _BLACK_WORD = re.compile(r"^черн")
-_NEXT_PAGE = re.compile(r"\b(дальше|далее|еще|дальнейш)")
+# «мне» and «меня» are excluded on purpose: «покажи мне позицию» asks for the board.
+_MY_WORDS = frozenset({"мой", "моя", "мое", "мои", "моего", "моей", "моему", "моих", "моим", "моими", "мою", "моем"})
+_YOUR_WORDS = frozenset(
+    {"твой", "твоя", "твое", "твои", "твоего", "твоей", "твоему", "твоих", "твоим", "твоими", "твою", "твоем"}
+)
+_NEXT_PAGE = re.compile(r"\b(дальше|далее|дальнейш)")
+WHOLE_BOARD_REQUEST = re.compile(
+    r"\b(?:всю|все|полн\w+)\s+(?:доск|позици|расстановк)\w*|"
+    r"\b(?:доск|позици|расстановк)\w*\s+(?:целиком|полностью)"
+)
+# Anchored for the router: «ферзь через всю доску на a8» names a move, not a request.
+WHOLE_BOARD_ONLY = re.compile(rf"^(?:{WHOLE_BOARD_REQUEST.pattern})$")
 _SLOWLY = re.compile(r"медленн|по буквам|по слогам|повтори координат")
 # Public like `RANK_LINE`: a phrase the router sends here but the reader misses reads the whole board.
 LAST_MOVE = re.compile(
@@ -242,8 +254,16 @@ class PositionAnswer:
     has_next: bool = False
 
 
-def answer_position_query(utterance: str, board: chess.Board, page: int = 0) -> PositionAnswer:
-    """Answer whatever `utterance` asks about `board`; never mutates the board."""
+def answer_position_query(
+    utterance: str,
+    board: chess.Board,
+    page: int = 0,
+    player: chess.Color | None = None,
+) -> PositionAnswer:
+    """Answer whatever `utterance` asks about `board`; never mutates the board.
+
+    `player` is the side the asker plays, which is what «мой» and «твой» resolve to.
+    """
     normalized = normalize(utterance)
     square = _first_square(normalized)
     colour = _colour(normalized)
@@ -286,13 +306,16 @@ def answer_position_query(utterance: str, board: chess.Board, page: int = 0) -> 
     if square is not None and piece_type is None:
         return PositionAnswer(PositionQuery.SQUARE, describe_square(board, square))
     if piece_type is not None:
-        return PositionAnswer(PositionQuery.PIECE_KIND, describe_piece_kind(board, piece_type, colour))
+        owner = colour if colour is not None else _owned_colour(normalized, player)
+        return PositionAnswer(PositionQuery.PIECE_KIND, describe_piece_kind(board, piece_type, owner))
     if colour is not None:
         return PositionAnswer(PositionQuery.SIDE, describe_side(board, colour))
 
     if _NEXT_PAGE.search(normalized.text):
-        page += 1
-    return read_board(board, page)
+        return read_board(board, page + 1)
+    if WHOLE_BOARD_REQUEST.search(normalized.text):
+        return read_board(board, complete=True)
+    return read_board(board)
 
 
 def describe_last_move(board: chess.Board) -> Speech:
@@ -409,14 +432,28 @@ def describe_side(board: chess.Board, colour: chess.Color) -> Speech:
     return Speech.of(f"У {COLOUR_GENITIVE[colour]}: {listing}.")
 
 
-def read_board(board: chess.Board, page: int = 0) -> PositionAnswer:
-    """One stable group of ranks, read from the eighth rank down."""
-    page = max(0, min(page, PAGE_COUNT - 1))
-    top_rank = 8 - page * RANKS_PER_PAGE
-    lines = [_rank_line(board, rank) for rank in range(top_rank, top_rank - RANKS_PER_PAGE, -1)]
-    has_next = page + 1 < PAGE_COUNT
+def read_board(board: chess.Board, page: int = 0, *, complete: bool = False) -> PositionAnswer:
+    """Occupied ranks from the eighth down: one group, or every one of them at once.
+
+    A complete reading fits Alice's 1024-character limit even on a full board, so
+    the asker who named the whole board is not made to page through it.
+    """
+    pages = _occupied_pages(board)
+    if not pages:
+        return PositionAnswer(PositionQuery.WHOLE_BOARD, Speech.of("На доске нет фигур."))
+    if complete:
+        text = " ".join(_rank_line(board, rank) for group in pages for rank in group)
+        return PositionAnswer(PositionQuery.WHOLE_BOARD, Speech.of(text), page=len(pages) - 1)
+    page = max(0, min(page, len(pages) - 1))
+    lines = [_rank_line(board, rank) for rank in pages[page]]
+    has_next = page + 1 < len(pages)
     text = " ".join(lines) + (_CONTINUATION if has_next else "")
     return PositionAnswer(PositionQuery.WHOLE_BOARD, Speech.of(text), page=page, has_next=has_next)
+
+
+def _occupied_pages(board: chess.Board) -> list[tuple[int, ...]]:
+    ranks = [rank for rank in range(8, 0, -1) if board.occupied & chess.BB_RANKS[rank - 1]]
+    return [tuple(ranks[start : start + RANKS_PER_PAGE]) for start in range(0, len(ranks), RANKS_PER_PAGE)]
 
 
 def _rank_line(board: chess.Board, rank: int) -> str:
@@ -470,6 +507,18 @@ def _colour(normalized: Normalized) -> chess.Color | None:
             return chess.WHITE
         if _BLACK_WORD.match(word):
             return chess.BLACK
+    return None
+
+
+def _owned_colour(normalized: Normalized, player: chess.Color | None) -> chess.Color | None:
+    """Which side a possessive names, once the asker's own colour is known."""
+    if player is None:
+        return None
+    for word in normalized.words:
+        if word in _MY_WORDS:
+            return player
+        if word in _YOUR_WORDS:
+            return not player
     return None
 
 

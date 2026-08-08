@@ -876,7 +876,12 @@ class ConversationService:
             if fact is not None:
                 return ConversationReply(fact.speech, self._with_game(next_state, game))
         if routed.kind is CommandKind.POSITION_QUERY:
-            answer = answer_position_query(routed.addressed or utterance, board, state.position_page)
+            answer = answer_position_query(
+                routed.addressed or utterance,
+                board,
+                state.position_page,
+                game.player_color.to_chess(),
+            )
             return ConversationReply(
                 answer.speech,
                 replace(self._with_game(next_state, game), position_page=answer.page),
@@ -1002,7 +1007,7 @@ class ConversationService:
             pending = routed.clarification or prior.clarification
             return ConversationReply(self._clarification_speech(pending), replace(state, clarification=pending))
         if routed.kind is CommandKind.POSITION_QUERY:
-            answer = answer_position_query(routed.addressed or utterance, board, prior.position_page)
+            answer = answer_position_query(routed.addressed or utterance, board, prior.position_page, board.turn)
             return ConversationReply(answer.speech, replace(state, position_page=answer.page))
         if routed.kind is CommandKind.SCREEN and routed.screen is not None:
             if routed.screen.wish is ScreenWish.TAP:
@@ -1303,7 +1308,7 @@ class ConversationService:
         state: ConversationState,
         preferences: PlayerPreferences,
     ) -> ConversationReply:
-        replay_state = replace(state, last_heard=utterance.strip() or state.last_heard)
+        replay_state = replace(state, last_heard=utterance.strip() or state.last_heard, position_page=0)
         reply = self._turn_reply(owner_key, result, replay_state, preferences, echo_player_move=True)
         if _named_player_move(result) is not None:
             return reply

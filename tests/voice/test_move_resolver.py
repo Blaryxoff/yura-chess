@@ -318,6 +318,12 @@ def test_utterance_without_move_tokens_is_unmatched() -> None:
         ("что ты можешь делать", CommandKind.HELP),
         ("какой уровень сложности", CommandKind.LEVEL_QUERY),
         ("какая позиция", CommandKind.POSITION_QUERY),
+        ("всю доску", CommandKind.POSITION_QUERY),
+        ("позицию целиком", CommandKind.POSITION_QUERY),
+        # The screen question still wins: it asks about the picture, not the pieces.
+        ("покажи доску на весь экран", CommandKind.SCREEN),
+        # A bare «какая задача» repeats the puzzle, but the same words opening a question do not.
+        ("какая задача почему ты так сходил", CommandKind.TRAINING),
         ("где стоит мой король", CommandKind.POSITION_QUERY),
         ("где белые слоны", CommandKind.POSITION_QUERY),
         ("какой был последний ход", CommandKind.POSITION_QUERY),
@@ -348,6 +354,15 @@ def test_control_commands_are_separated_before_move_resolution(utterance: str, e
 
     assert routed.kind is expected
     assert routed.move is None
+
+
+def test_a_move_that_mentions_the_whole_board_is_still_played() -> None:
+    board = chess.Board("7k/8/8/8/8/8/8/Q6K w - - 0 1")
+
+    routed = route("ферзь через всю доску на а восемь", board)
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == "a1a8"
 
 
 @pytest.mark.parametrize(
@@ -1877,6 +1892,11 @@ def test_asking_about_puzzles_is_not_asking_for_one(utterance: str, kind: Comman
         ("повторить задачу", PuzzleQuestion.REPEAT),
         ("можно повторить задачу", PuzzleQuestion.REPEAT),
         ("напомнить задачу", PuzzleQuestion.REPEAT),
+        ("повтори задание", PuzzleQuestion.REPEAT),
+        ("повторить задание", PuzzleQuestion.REPEAT),
+        ("еще раз задание", PuzzleQuestion.REPEAT),
+        ("какая задача", PuzzleQuestion.REPEAT),
+        ("что за задача", PuzzleQuestion.REPEAT),
         ("покажи решение", PuzzleQuestion.SOLUTION),
         ("не знаю решение", PuzzleQuestion.SOLUTION),
         ("не могу решить задачу", PuzzleQuestion.SOLUTION),
