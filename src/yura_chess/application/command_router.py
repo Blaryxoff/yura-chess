@@ -311,8 +311,8 @@ _PLATFORM_MEDIA = (
 # «говори громче» belongs to the speech settings, not here: only a device-volume
 # phrasing hands the session back, so its siblings «говори быстрее» keep working.
 _PLATFORM_VOLUME = (
-    r"^(?:алиса |алис )?громкост\w*\b|(?:прибав|убав|сделай|поставь|измени)\w*\s+громкост|"
-    r"(?:сделай|поставь)\w*(?:\s+\w+){0,2}\s+звук на\b|^звук на \w+$|"
+    r"^(?:алиса |алис )?громкост\w*(?: на)? \d+\b|(?:прибав|убав|сделай|поставь|измени)\w*\s+громкост|"
+    r"(?:сделай|поставь)\w*(?:\s+\w+){0,2}\s+звук на\b|"
     r"(?:сделай|включи|поставь|прибав|убав)\w*(?:\s+\w+){0,2}\s+(?:по)?(?:громче|тише)\b|"
     r"(?:прибав|убав)\w*\s+звук\b|звук\s+(?:по)?(?:громче|тише)\b|"
     r"^(?:по)?(?:громче|тише)(?: пожалуйста)?$"
@@ -477,6 +477,7 @@ _LEVEL_SETTER_WORDS = frozenset(
 # «уровень громкости» belongs to Alice, not to the chess engine.
 _LEVEL_NOT_CHESS = re.compile(r"\b(?:громкост|звук|сигнал|батаре|заряд|яркост|шум)\w*")
 _LEVEL_KINDS = frozenset({CommandKind.LEVEL, CommandKind.LEVEL_QUERY})
+_LEAVING_KINDS = frozenset({CommandKind.EXIT, CommandKind.EXIT_CONFIRM, CommandKind.PLATFORM})
 # «а уровень пять как сделать» asks how, and outranks the number it happens to carry.
 _LEVEL_HOW = re.compile(
     r"\bкак\b(?:\s+[а-я]+){0,4}?\s+"
@@ -613,7 +614,7 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             # A noun, never an adjective: «выключи шахматного тренера» is a trainer command.
             r"(?:выключ|отключ|выруб|убер)\w*(?:\s+\w+){0,3}\s+"
             r"(?:навык\w*|шахмат[ыуе]\b|шахматами\b|юр[уеы]\b|себя\b|меня\b|"
-            r"эт\w+ игру|эт\w+ программу|эт\w+ режим)|"
+            r"эт\w+ игру|эт\w+ программу|эт\w+ режим|шахматн\w+ программу|программу для шахмат)|"
             r"(?:убрать шахмат|шахмат\w* убрать)|"
             # The object is required: «как выйти из шаха» asks a rule, not to leave.
             r"как\s+(?:тебя|это|отсюда)\s+(?:выключить|отключить|выйти)|"
@@ -621,7 +622,7 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"^(?:а )?как\s+отключиться$|помощь как выключить|"
             r"(?:выйди|выйти|выход) из (шахмат|навыка|игры|партии)|до свидания|закрой навык|"
             # Anchored: «подожди пока я думаю» is not a farewell, but a trailing doubled «пока» is.
-            r"^(?:ну |алиса |алис )?пока(?: пока)*(?: алиса)?$|пока пока$|"
+            r"^(?:ну |все |ладно |алиса |алис |юра )*пока(?: пока)*(?: алиса| юра| пожалуйста)?$|\bнет пока пока$|"
             r"стоп навык|^стоп шахматы$|^(?:а )?(?:можешь )?постопить$|"
             r"(?:хватит|выключи|надо) стоп$|выключи хватит$|"
             r"законч\w+ сесси|заверш\w+ сесси|"
@@ -688,7 +689,7 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (
         CommandKind.EXIT_CONFIRM,
         re.compile(
-            r"\b(?:выход|выйти|выйду|выхожу)\b(?!\s+(?:[а-я]+\s+){0,2}(?:кон[ьяем]|слон|ферз|ладь|корол|пешк|шах))"
+            r"\b(?:выход|выйти|выйду|выхожу)\b(?!\s+(?:[а-я]+\s+){0,4}(?:кон[ьяем]|слон|ферз|ладь|корол|пешк|шах))"
         ),
     ),
 )
@@ -748,8 +749,11 @@ _END_GAME_NEGATED = re.compile(
 # «что значит закончить партию» asks what ending a game means. Kept apart from
 # _RULES_FRAME: «можно ли закончить игру» is how a game is actually resigned.
 _END_GAME_DEFINITION = re.compile(r"\bчто (?:значит|такое)\b")
-# «не выключай шахматы» keeps the session; the refusal holds over its own clause.
-_EXIT_NEGATED = re.compile(r"\bне\s+(?:надо\s+)?(?:выключ|отключ|выруб|убир|убер|закрыв|закрой)\w*")
+# «не выключай шахматы» keeps the session, and so does «не говори до свидания».
+# Read off the whole utterance: a refusal anywhere in it outranks the request.
+_LEAVING_NEGATED = re.compile(
+    r"\bне\s+(?:\w+\s+){0,2}(?:выключ|отключ|выруб|убир|убер|закрыв|закрой|говор|прибав|убав|мен[яю])\w*"
+)
 _SURRENDER_SPOKEN = re.compile(_SURRENDER)
 # A refusal and a question hold only over the clause they were spoken in, so
 # both are read against the last one an utterance opens.
@@ -1121,6 +1125,8 @@ def route(
 
     for kind, pattern in _CONVERSATION_PATTERNS:
         if pattern.search(normalized.text):
+            if kind in _LEAVING_KINDS and _LEAVING_NEGATED.search(normalized.text):
+                continue
             return RoutedCommand(kind, normalized, clarification=None)
 
     for kind, pattern in _CONTROL_PATTERNS:
@@ -1130,7 +1136,7 @@ def route(
                 # rank and «как сделать первый ход» a move number, but both ask
                 # a rule the board reader has no answer to.
                 return RoutedCommand(CommandKind.HELP, normalized, clarification=None)
-            if kind is CommandKind.EXIT and _EXIT_NEGATED.search(_last_clause(normalized.text)):
+            if kind in _LEAVING_KINDS and _LEAVING_NEGATED.search(normalized.text):
                 continue
             if kind is CommandKind.RESIGN and not _SURRENDER_SPOKEN.search(normalized.text):
                 clause = _last_clause(normalized.text)

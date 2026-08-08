@@ -381,7 +381,7 @@ class ConversationService:
         if routed.kind is CommandKind.PLATFORM:
             saved = "Партия сохранена. " if game is not None and game.status is GameStatus.ACTIVE else ""
             return ConversationReply(
-                Speech.of(f"{saved}Выхожу из навыка «Шахматы с Юрой». Теперь скажите это Алисе еще раз."),
+                Speech.of(f"{saved}Закрываю навык «Шахматы с Юрой». Теперь повторите команду Алисе."),
                 replace(next_state, pending_action=None),
                 end_session=True,
             )
