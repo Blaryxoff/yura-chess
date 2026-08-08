@@ -170,7 +170,7 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     # role="img" flattened the bars out of the tree, so the numbers live in a real table.
     assert 'class="stats-chart" aria-hidden="true"' in response.text
     assert 'class="stats-table visually-hidden"' in response.text
-    assert '<th scope="col">Запросов</th>' in response.text
+    assert '<th scope="col">Партий с ходом</th>' in response.text
     # A stale period response must not overwrite a newer one.
     assert "if (request !== statisticsRequest) return;" in response.text
     # Sharing a link should unfurl into something.
@@ -245,7 +245,10 @@ def test_statistics_expose_the_chart_data_as_a_table(
         "month",
         datetime(2026, 7, 23, 12, 0, 0),
         UsageTotals(2, 1, 1, 1, 1, 1, 0, 0),
-        (DailyUsage(date(2026, 7, 22), requests=7), DailyUsage(date(2026, 7, 23), requests=9)),
+        (
+            DailyUsage(date(2026, 7, 22), engaged_games=7),
+            DailyUsage(date(2026, 7, 23), engaged_games=9),
+        ),
     )
     monkeypatch.setattr(
         "yura_chess.main.UsageRepository.dashboard",

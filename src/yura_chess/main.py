@@ -139,7 +139,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
     async def landing_page(
         period: Literal["month", "year", "all"] = "month",
-        metric: ChartMetric = "requests",
+        metric: ChartMetric = "engaged_games",
     ) -> HTMLResponse:
         def load() -> str:
             with session_scope(app.state.session_factory) as session:

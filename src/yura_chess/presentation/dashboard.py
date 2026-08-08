@@ -11,15 +11,15 @@ from yura_chess.presentation.russian import plural_form
 from yura_chess.storage.usage_repository import DashboardSnapshot, UsageTotals
 
 ChartMetric = Literal[
-    "requests",
+    "engaged_games",
+    "player_moves",
+    "returning_users",
+    "puzzle_attempts",
+    "games",
+    "sessions",
     "users",
     "new_users",
-    "returning_users",
-    "sessions",
-    "player_moves",
-    "games",
-    "engaged_games",
-    "puzzle_attempts",
+    "requests",
 ]
 
 _PERIOD_LABELS = {"month": "Месяц", "year": "Год", "all": "Всё время"}
@@ -35,15 +35,15 @@ _CHART_SPANS = {
 }
 # Chart heading, then the column heading of the table that carries the same series.
 _METRIC_LABELS: dict[str, tuple[str, str]] = {
-    "requests": ("Запросы", "Запросов"),
+    "engaged_games": ("Партии с ходом", "Партий с ходом"),
+    "player_moves": ("Ходы игроков", "Ходов"),
+    "returning_users": ("Вернувшиеся", "Вернувшихся"),
+    "puzzle_attempts": ("Шахматные задачи", "Задач"),
+    "games": ("Новые партии", "Партий"),
+    "sessions": ("Сессии", "Сессий"),
     "users": ("Пользователи", "Пользователей"),
     "new_users": ("Новые пользователи", "Новых"),
-    "returning_users": ("Вернувшиеся", "Вернувшихся"),
-    "sessions": ("Сессии", "Сессий"),
-    "player_moves": ("Ходы игроков", "Ходов"),
-    "games": ("Новые партии", "Партий"),
-    "engaged_games": ("Партии с ходом", "Партий с ходом"),
-    "puzzle_attempts": ("Шахматные задачи", "Задач"),
+    "requests": ("Запросы", "Запросов"),
 }
 
 DASHBOARD_CSS = """
@@ -287,7 +287,7 @@ DASHBOARD_CSS = """
 """
 
 
-def render_dashboard(snapshot: DashboardSnapshot, metric: ChartMetric = "requests") -> str:
+def render_dashboard(snapshot: DashboardSnapshot, metric: ChartMetric = "engaged_games") -> str:
     title, column = _METRIC_LABELS[metric]
     chart_title = f"{title} {_CHART_SPANS[snapshot.period]}"
     series = [(point.day, getattr(point, metric)) for point in snapshot.daily]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -37,8 +38,8 @@ def test_dashboard_is_aggregate_responsive_and_explains_pseudonymous_users() -> 
     assert "необратимый HMAC-ключ" in html
     assert "120" in html
     assert 'id="statistics"' in html
-    assert 'href="/?period=month&amp;metric=requests#statistics"' in html
-    assert 'href="/?period=year&amp;metric=requests#statistics"' in html
+    assert 'href="/?period=month&amp;metric=engaged_games#statistics"' in html
+    assert 'href="/?period=year&amp;metric=engaged_games#statistics"' in html
     assert 'rel="nofollow"' in html
     assert 'aria-label="Период статистики"' in html
     assert "Реальные" not in html
@@ -49,7 +50,7 @@ def test_dashboard_is_aggregate_responsive_and_explains_pseudonymous_users() -> 
     assert "overflow-y: hidden" in DASHBOARD_CSS
     assert "top: calc(100% + 10px)" in DASHBOARD_CSS
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in DASHBOARD_CSS
-    assert "Запросы по дням · 30 дней" in html
+    assert "Партии с ходом по дням · 30 дней" in html
     assert "owner_key" not in html
     assert "session_key" not in html
 
@@ -60,18 +61,17 @@ def test_chart_offers_every_metric_and_keeps_the_period_while_switching() -> Non
     assert 'name="metric"' in html
     assert '<input type="hidden" name="period" value="month">' in html
     assert 'value="player_moves" selected' in html
-    for key in (
-        "requests",
+    assert [match.group(1) for match in re.finditer(r'<option value="([a-z_]+)"', html)] == [
+        "engaged_games",
+        "player_moves",
+        "returning_users",
+        "puzzle_attempts",
+        "games",
+        "sessions",
         "users",
         "new_users",
-        "returning_users",
-        "sessions",
-        "player_moves",
-        "games",
-        "engaged_games",
-        "puzzle_attempts",
-    ):
-        assert f'<option value="{key}"' in html
+        "requests",
+    ]
     assert 'href="/?period=year&amp;metric=player_moves#statistics"' in html
 
 
