@@ -430,8 +430,8 @@ def _menu(mode: HelpMode) -> HelpAnswer:
     other_titles = ", ".join(section.title for section in SECTIONS[4:]).capitalize()
     state, expected = _MODE_TAILS[mode]
     text = (
-        f"{SKILL_INTRO} {_HOW_TO_USE} Разделы справки. {first_titles}. {other_titles}. "
-        f"{_PUZZLE_INVITE} "
+        f"{SKILL_INTRO} {_HOW_TO_USE} {_PUZZLE_INVITE} "
+        f"Разделы справки. {first_titles}. {other_titles}. "
         f"Назовите раздел. Или скажите: «все команды». Тогда я прочитаю весь список. "
         f"{state} {_AFTER_HELP} {expected}"
     )

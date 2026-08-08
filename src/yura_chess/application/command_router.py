@@ -1069,7 +1069,10 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
     ),
     (
         PuzzleQuestion.SOLUTION,
-        re.compile(r"(покажи|какое|объясни|не знаю)\w* решение|сдаюсь в задаче|решение задачи"),
+        re.compile(
+            r"(покажи|какое|объясни|не знаю)\w* решение|сдаюсь в задаче|решение задачи|"
+            r"не (?:могу|мог|могла)(?: \w+){0,2} реши\w+"
+        ),
     ),
     (
         PuzzleQuestion.STREAK,
@@ -1080,13 +1083,13 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
         re.compile(
             r"какие (?:шахматн\w* )?задачи (?:я )?(?:решал|решила|проходил|проходила)|"
             r"сколько (?:всего )?(?:задач|головоломок) (?:я )?(?:решил|решила)|"
-            r"история (?:моих )?(?:задач|решений)"
+            r"(?:мои|моих)? ?решенн\w+ задач|история (?:моих )?(?:задач|решений)"
         ),
     ),
     (
         PuzzleQuestion.REPEAT,
         re.compile(
-            r"(повтори|напомни)( мне)? (задачу|позицию|условие)|еще раз (задачу|позицию|условие)|"
+            r"(повтор(?:и|ить)|напомн(?:и|ить))( мне)? (задачу|позицию|условие)|еще раз (задачу|позицию|условие)|"
             r"какая сейчас задача|что за задача сейчас|какие задачи сейчас открыты"
         ),
     ),
@@ -1109,6 +1112,9 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
         ),
     ),
 )
+
+# «не давай задачу» and «не хочу задачу» ask for no puzzle at all.
+_PUZZLE_REFUSED = re.compile(r"\bне\s+(?:\w+\s+){0,2}(?:дай|давай|хочу|надо|нужн|буду|открыв|открой|покажи)\w*")
 
 # Themes the shipped catalogue actually carries, named the way a player names them.
 _PUZZLE_THEMES: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -1374,6 +1380,8 @@ def parse_review(text: str) -> ReviewRequest | None:
 
 def parse_puzzle(text: str) -> PuzzleRequest | None:
     """Read a puzzle command, or return `None` when the phrase is not one."""
+    if _PUZZLE_REFUSED.search(text):
+        return None
     for question, pattern in _PUZZLE_PATTERNS:
         if pattern.search(text):
             if question not in {PuzzleQuestion.START, PuzzleQuestion.NEXT}:

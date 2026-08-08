@@ -1807,6 +1807,12 @@ def test_a_puzzle_is_asked_for_in_more_than_one_way(utterance: str, theme: str |
         ("темы задач", CommandKind.HELP),
         ("тема задач", CommandKind.HELP),
         ("какие у тебя есть задачи", CommandKind.HELP),
+        ("не давай задачу", CommandKind.UNKNOWN),
+        ("не дай задачу", CommandKind.UNKNOWN),
+        ("не хочу задачу", CommandKind.UNKNOWN),
+        ("не надо задачу", CommandKind.UNKNOWN),
+        ("не буду решать задачи", CommandKind.UNKNOWN),
+        ("не показывай решение", CommandKind.UNKNOWN),
     ],
 )
 def test_asking_about_puzzles_is_not_asking_for_one(utterance: str, kind: CommandKind) -> None:
@@ -1819,8 +1825,17 @@ def test_asking_about_puzzles_is_not_asking_for_one(utterance: str, kind: Comman
         ("выйти из задач", PuzzleQuestion.EXIT),
         ("следующая задача", PuzzleQuestion.NEXT),
         ("повтори задачу", PuzzleQuestion.REPEAT),
+        ("повторить задачу", PuzzleQuestion.REPEAT),
+        ("можно повторить задачу", PuzzleQuestion.REPEAT),
+        ("напомнить задачу", PuzzleQuestion.REPEAT),
         ("покажи решение", PuzzleQuestion.SOLUTION),
+        ("не знаю решение", PuzzleQuestion.SOLUTION),
+        ("не могу решить задачу", PuzzleQuestion.SOLUTION),
+        ("я не могу решить эту задачу", PuzzleQuestion.SOLUTION),
         ("какая у меня серия", PuzzleQuestion.STREAK),
+        ("какие задачи я решал", PuzzleQuestion.HISTORY),
+        ("решенные задачи", PuzzleQuestion.HISTORY),
+        ("открой мои решенные задачи", PuzzleQuestion.HISTORY),
     ],
 )
 def test_the_puzzle_commands_keep_their_own_question(utterance: str, question: PuzzleQuestion) -> None:
