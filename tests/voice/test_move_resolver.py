@@ -1845,6 +1845,8 @@ def test_asking_about_puzzles_is_not_asking_for_one(utterance: str, kind: Comman
         ("не давай новую задачу повтори условие", PuzzleQuestion.REPEAT),
         ("не могу решить эту задачу повтори условие", PuzzleQuestion.REPEAT),
         ("не надо решение следующую задачу", PuzzleQuestion.NEXT),
+        ("не хочу эту задачу другую давай", PuzzleQuestion.NEXT),
+        ("не хочу эту задачу дай другую", PuzzleQuestion.NEXT),
         ("скажи решение", PuzzleQuestion.SOLUTION),
         ("сдаюсь в задаче", PuzzleQuestion.SOLUTION),
         ("я сдаюсь в этой задаче", PuzzleQuestion.SOLUTION),

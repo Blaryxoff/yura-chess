@@ -1098,7 +1098,11 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
     ),
     (
         PuzzleQuestion.NEXT,
-        re.compile(r"следующ\w* задач|еще( одну)? задач|друг(ую|ая) задач|нов(ая|ую) задач"),
+        re.compile(
+            r"следующ\w* задач|еще( одну)? задач|друг(ую|ая) задач|нов(ая|ую) задач|"
+            # «эту задачу не хочу, другую давай» names the puzzle before the verb.
+            r"задач\w*( \w+){0,2} друг(ую|ая)"
+        ),
     ),
     (
         PuzzleQuestion.START,
