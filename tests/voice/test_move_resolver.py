@@ -11,6 +11,8 @@ import pytest
 
 from yura_chess.application.command_router import (
     CommandKind,
+    LevelIntent,
+    LevelRequest,
     PendingClarification,
     PreferenceChange,
     RematchColor,
@@ -809,6 +811,96 @@ def test_rematch_carries_the_colour_and_level_it_asks_for(utterance: str, expect
 @pytest.mark.parametrize(
     ("utterance", "expected"),
     [
+        ("уровень пять", LevelRequest(LevelIntent.SET, 5)),
+        ("поставь уровень 15", LevelRequest(LevelIntent.SET, 15)),
+        ("уровень номер ноль", LevelRequest(LevelIntent.SET, 0)),
+        ("нулевой уровень", LevelRequest(LevelIntent.SET, 0)),
+        ("1 уровень", LevelRequest(LevelIntent.SET, 1)),
+        ("пятнадцатый уровень", LevelRequest(LevelIntent.SET, 15)),
+        ("сложность 0", LevelRequest(LevelIntent.SET, 0)),
+        ("уровень сложности 2", LevelRequest(LevelIntent.SET, 2)),
+        ("можно уровень пять", LevelRequest(LevelIntent.SET, 5)),
+        ("можно мне пятый уровень", LevelRequest(LevelIntent.SET, 5)),
+        ("уровень пять пожалуйста", LevelRequest(LevelIntent.SET, 5)),
+        ("поставь уровень на пять", LevelRequest(LevelIntent.SET, 5)),
+        ("установи сложность на десять", LevelRequest(LevelIntent.SET, 10)),
+        ("изменить уровень на пять", LevelRequest(LevelIntent.SET, 5)),
+        ("поменяй на пятый уровень", LevelRequest(LevelIntent.SET, 5)),
+        ("давайте поставим уровень пять", LevelRequest(LevelIntent.SET, 5)),
+        ("прошу поставить уровень пять", LevelRequest(LevelIntent.SET, 5)),
+        ("поставь уровень игры пять", LevelRequest(LevelIntent.SET, 5)),
+        ("переключись на уровень пять", LevelRequest(LevelIntent.SET, 5)),
+        ("могу я изменить уровень на пять", LevelRequest(LevelIntent.SET, 5)),
+        ("уровень нуль", LevelRequest(LevelIntent.SET, 0)),
+        ("уровень пятьдесят", LevelRequest(LevelIntent.SET, 20)),
+        ("уровень 100", LevelRequest(LevelIntent.SET, 20)),
+        ("уровень сто", LevelRequest(LevelIntent.CAPABILITY)),
+        ("снизь уровень", LevelRequest(LevelIntent.CAPABILITY)),
+        ("а уровень 5 как сделать", LevelRequest(LevelIntent.CAPABILITY)),
+        ("уровень выше", LevelRequest(LevelIntent.CAPABILITY)),
+        ("15 уровень на шахматах это высокий или низкий", LevelRequest(LevelIntent.SCALE)),
+        ("сколько всего уровней", LevelRequest(LevelIntent.SCALE)),
+        ("какой самый сильный уровень", LevelRequest(LevelIntent.SCALE)),
+        ("что значит пятый уровень", LevelRequest(LevelIntent.SCALE)),
+        ("почему у меня пятый уровень", LevelRequest(LevelIntent.SCALE)),
+        ("пятый уровень это сложно", LevelRequest(LevelIntent.SCALE)),
+        ("на пятом уровне я сильный", LevelRequest(LevelIntent.SCALE)),
+    ],
+)
+def test_a_level_command_carries_the_difficulty_and_never_mutates_on_a_question(
+    utterance: str,
+    expected: LevelRequest,
+) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.LEVEL
+    assert routed.level == expected
+    assert routed.move is None
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("новая игра уровень 5", CommandKind.NEW_GAME),
+        ("новая партия белыми уровень 4", CommandKind.NEW_GAME),
+        ("алиса давай играть в нулевой уровень", CommandKind.START),
+        ("сыграем еще, только сложнее", CommandKind.REMATCH),
+        ("какой сейчас уровень", CommandKind.LEVEL_QUERY),
+        ("поменять уровень", CommandKind.LEVEL_QUERY),
+        ("изменить уровень", CommandKind.LEVEL_QUERY),
+        ("на каком уровне", CommandKind.LEVEL_QUERY),
+    ],
+)
+def test_naming_a_level_never_takes_a_phrase_from_the_commands_that_own_it(
+    utterance: str,
+    expected: CommandKind,
+) -> None:
+    assert route(utterance, chess.Board()).kind is expected
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["игра белыми уровень 5", "играть партию 1 уровень", "хочу играть пятый уровень", "поиграем уровень 3"],
+)
+def test_a_level_named_with_a_game_to_start_is_not_a_change_to_the_running_one(utterance: str) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert route(utterance).kind is CommandKind.UNKNOWN
+    assert routed.kind is not CommandKind.LEVEL
+    assert routed.level is None
+
+
+@pytest.mark.parametrize("utterance", ["поставь уровень громкости пять", "уровень звука пять", "уровень заряда"])
+def test_a_level_of_something_other_than_chess_is_not_a_difficulty(utterance: str) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is not CommandKind.LEVEL
+    assert routed.level is None
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
         ("я играю черными", RematchColor.BLACK),
         ("эту партию играю чёрными", RematchColor.BLACK),
         ("давай белыми", RematchColor.WHITE),
@@ -1021,9 +1113,16 @@ def test_politeness_after_the_promotion_piece_keeps_the_piece_that_was_named() -
     assert resolution.move == "a7a8q"
 
 
-@pytest.mark.parametrize("utterance", ["уровень 12", "мне 65 лет", "громкость 88", "и 24", "а 24", "мне б 24", "же 24"])
+@pytest.mark.parametrize("utterance", ["мне 65 лет", "громкость 88", "и 24", "а 24", "мне б 24", "же 24"])
 def test_a_two_digit_number_outside_a_move_is_not_read_as_two_ranks(utterance: str) -> None:
     assert route(utterance, chess.Board()).kind is CommandKind.UNKNOWN
+
+
+def test_a_two_digit_level_is_a_difficulty_and_never_two_ranks() -> None:
+    routed = route("уровень 12", chess.Board())
+
+    assert routed.kind is CommandKind.LEVEL
+    assert routed.level == LevelRequest(LevelIntent.SET, 12)
 
 
 def test_a_file_doubtful_before_a_glued_number_is_still_a_file_before_a_square() -> None:

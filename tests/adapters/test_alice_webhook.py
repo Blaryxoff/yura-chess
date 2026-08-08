@@ -505,7 +505,7 @@ async def test_a_corrupted_help_state_is_ignored_and_an_out_of_range_page_is_cla
     assert answered.get("session_state", {}).get("help") is None
     assert "Раздел" not in answered["response"]["text"]
     # A page past the end of a real topic is pulled back to the last one.
-    assert clamped["session_state"]["help"] == {"topic": "game", "page": 1}
+    assert clamped["session_state"]["help"] == {"topic": "game", "page": 2}
 
 
 async def test_a_help_answer_stays_inside_the_platform_limits_without_a_screen(
@@ -973,6 +973,37 @@ async def test_a_replay_cache_write_failure_does_not_discard_the_answer(
 
     assert response.status_code == 200
     assert "Новая партия" in response.json()["response"]["text"]
+
+
+async def test_a_level_change_survives_a_lost_response_cache_write(
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The outer cache is allowed to fail; the retry must still answer the change, not repeat it."""
+
+    def fail_store(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("cache unavailable")
+
+    async with build_client(session_factory) as client:
+        started = (await client.post("/alice/webhook", json=alice_request(1, command="новая игра уровень семь"))).json()
+        monkeypatch.setattr(ConversationService, "store_response", fail_store)
+        first = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(2, command="уровень двенадцать", state=started["user_state_update"]),
+            )
+        ).json()
+        monkeypatch.undo()
+        retry = (
+            await client.post(
+                "/alice/webhook",
+                json=alice_request(2, command="уровень двенадцать", state=started["user_state_update"]),
+            )
+        ).json()
+
+    assert first["response"]["text"] == "Установил уровень 12. Партия продолжается. Ваш ход."
+    assert retry["response"]["text"] == first["response"]["text"]
+    assert retry["session_state"] == first["session_state"]
 
 
 async def test_a_revision_race_returns_a_spoken_retry_instead_of_http_500(

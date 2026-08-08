@@ -313,6 +313,18 @@ class GameRepository:
         row.mode = mode.value
         return self._bump_revision(row)
 
+    def set_engine_level(
+        self,
+        game_id: str,
+        owner_key: str,
+        expected_revision: int,
+        skill_level: int,
+    ) -> GameState:
+        """Change how strongly the engine plays from here on; the position is untouched."""
+        row = self._load_row(game_id, owner_key, expected_revision)
+        row.engine_skill_level = skill_level
+        return self._bump_revision(row)
+
     def set_hint_stage(
         self,
         game_id: str,

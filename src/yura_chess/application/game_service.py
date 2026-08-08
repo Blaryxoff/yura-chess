@@ -15,9 +15,11 @@ debt recorded by A. The player's move is never applied twice.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Literal, Protocol
 
 import chess
@@ -39,6 +41,9 @@ from yura_chess.storage.models import RequestReplayRow
 
 logger = logging.getLogger(__name__)
 
+# A level change is not a turn, so nothing may later resume it as one.
+_LEVEL_CHANGE_KIND = "level_change"
+
 
 class MoveSearch(Protocol):
     """The engine capability this service needs; `StockfishPool` satisfies it."""
@@ -59,6 +64,41 @@ class PlayerMoveObserver(Protocol):
     """
 
     async def observe_player_move(self, owner_key: str, state: GameState, ply: int, move_uci: str) -> None: ...
+
+
+class LevelChangeStatus(StrEnum):
+    APPLIED = "applied"
+    UNCHANGED = "unchanged"
+    # The engine owes a move, including the opening one it makes for a black player.
+    ENGINE_TO_MOVE = "engine_to_move"
+    GAME_OVER = "game_over"
+
+
+@dataclass(frozen=True, slots=True)
+class LevelChange:
+    """What one request did to the engine's strength, and the state it left behind."""
+
+    status: LevelChangeStatus
+    level: int
+    game_id: str
+    revision: int
+
+    @classmethod
+    def from_state(cls, status: LevelChangeStatus, level: int, state: GameState) -> LevelChange:
+        return cls(status=status, level=level, game_id=state.id, revision=state.revision)
+
+    def to_payload(self) -> str:
+        return json.dumps(
+            {
+                "kind": _LEVEL_CHANGE_KIND,
+                "status": self.status.value,
+                "level": self.level,
+                "game_id": self.game_id,
+                "revision": self.revision,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +235,41 @@ class GameService:
             repository = GameRepository(session)
             replay, _ = self._claim(repository, request, owner_key, game_id)
             repository.store_alice_response(replay, response_payload, game_id)
+
+    def set_level(self, owner_key: str, game_id: str, skill_level: int, request: RequestContext) -> LevelChange:
+        """Change the engine's strength mid-game, once per request key."""
+        with session_scope(self._session_factory) as session:
+            repository = GameRepository(session)
+            replay, created = self._claim(repository, request, owner_key)
+            if not created:
+                stored = _stored_level_change(replay)
+                if stored is not None:
+                    return stored
+            state = repository.load(game_id, owner_key)
+            if state.status is not GameStatus.ACTIVE:
+                change = LevelChange.from_state(LevelChangeStatus.GAME_OVER, state.engine.skill_level, state)
+            elif self._engine_to_move(state):
+                # A revision bump now would make the running search abandon its move.
+                change = LevelChange.from_state(LevelChangeStatus.ENGINE_TO_MOVE, state.engine.skill_level, state)
+            elif state.engine.skill_level == skill_level:
+                change = LevelChange.from_state(LevelChangeStatus.UNCHANGED, skill_level, state)
+            else:
+                updated = repository.set_engine_level(game_id, owner_key, state.revision, skill_level)
+                change = LevelChange.from_state(LevelChangeStatus.APPLIED, skill_level, updated)
+            repository.store_response(replay, change.to_payload())
+            return change
+
+    def replayed_level_change(self, owner_key: str, request: RequestContext) -> LevelChange | None:
+        """Return an exact stored level answer before routing can reinterpret it."""
+        with session_scope(self._session_factory) as session:
+            replay = GameRepository(session).get_request_replay(
+                request.skill_id,
+                request.session_id,
+                request.message_id,
+                request.fingerprint,
+                owner_key,
+            )
+            return _stored_level_change(replay) if replay is not None else None
 
     async def resume_request(self, owner_key: str, request: RequestContext) -> TurnResult | None:
         """Resume a claimed turn before state-dependent speech routing can reinterpret it."""
@@ -524,3 +599,23 @@ class GameService:
         """Indexes of player moves; an undo keeps the prefix before its target."""
         player_moves_first = state.player_color.to_chess() == chess.Board(state.initial_fen).turn
         return tuple(ply for ply in range(len(state.moves)) if ((ply % 2 == 0) is player_moves_first))
+
+
+def _stored_level_change(replay: RequestReplayRow) -> LevelChange | None:
+    if replay.response_payload is None:
+        return None
+    try:
+        payload = json.loads(replay.response_payload)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or payload.get("kind") != _LEVEL_CHANGE_KIND:
+        return None
+    try:
+        return LevelChange(
+            status=LevelChangeStatus(payload["status"]),
+            level=int(payload["level"]),
+            game_id=str(payload["game_id"]),
+            revision=int(payload["revision"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None

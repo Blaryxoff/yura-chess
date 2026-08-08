@@ -12,7 +12,9 @@ import chess
 from sqlalchemy.orm import Session, sessionmaker
 
 from yura_chess.application.command_router import (
+    MAX_LEVEL,
     CommandKind,
+    LevelIntent,
     PendingClarification,
     PreferenceChange,
     PuzzleQuestion,
@@ -26,9 +28,16 @@ from yura_chess.application.command_router import (
     TrainingRequest,
     confirmation_answer,
     contains_multiple_moves,
+    parse_level_value,
     route,
 )
-from yura_chess.application.game_service import GameService, MoveSearch, RequestContext
+from yura_chess.application.game_service import (
+    GameService,
+    LevelChange,
+    LevelChangeStatus,
+    MoveSearch,
+    RequestContext,
+)
 from yura_chess.application.puzzle_service import OpenPuzzle, PuzzleService
 from yura_chess.application.review_service import ReviewService
 from yura_chess.application.training_service import PositionSearch, TrainingService
@@ -73,35 +82,17 @@ from yura_chess.storage.usage_repository import request_key as usage_request_key
 from yura_chess.voice.move_resolver import recognize
 from yura_chess.voice.normalizer import normalize
 
-MAX_SKILL_LEVEL = 20
+MAX_SKILL_LEVEL = MAX_LEVEL
 # One rematch step up is two of the twenty engine levels: less is not audible.
 REMATCH_LEVEL_STEP = 2
 
 _BLACK = re.compile(r"\bчерн")
-_LEVEL_WORDS = {
-    "ноль": 0,
-    "один": 1,
-    "два": 2,
-    "три": 3,
-    "четыре": 4,
-    "пять": 5,
-    "шесть": 6,
-    "семь": 7,
-    "восемь": 8,
-    "девять": 9,
-    "десять": 10,
-    "одиннадцать": 11,
-    "двенадцать": 12,
-    "тринадцать": 13,
-    "четырнадцать": 14,
-    "пятнадцать": 15,
-    "шестнадцать": 16,
-    "семнадцать": 17,
-    "восемнадцать": 18,
-    "девятнадцать": 19,
-    "двадцать": 20,
-}
-_LEVEL = re.compile(rf"\b(?:уровень|сложность)\s*(?P<value>\d{{1,2}}|{'|'.join(_LEVEL_WORDS)})\b")
+_LEVEL_SCALE_ANSWER = (
+    "Чем больше число, тем сильнее я играю. Ноль — самый легкий уровень, двадцать — самый сильный. "
+    "Чтобы поставить, скажите: «уровень пять»."
+)
+_LEVEL_NO_GAME = "Партии сейчас нет. Скажите: «новая игра, уровень пять»."
+_LEVEL_GAME_OVER = "Партия закончена. В новой партии скажите: «новая игра, уровень три»."
 _MONTHS = {
     1: "января",
     2: "февраля",
@@ -229,12 +220,26 @@ class ConversationService:
                 preferences,
             )
         else:
-            replayed = await self._games.resume_request(owner_key, request)
-            reply = (
-                self._replayed_turn_reply(owner_key, utterance, replayed, prior_state, preferences)
-                if replayed is not None
-                else await self._handle(owner_key, utterance, request, prior_state, preferences)
-            )
+            replayed_level = self._games.replayed_level_change(owner_key, request)
+            replayed = None if replayed_level is not None else await self._games.resume_request(owner_key, request)
+            if replayed_level is not None:
+                # The original request cleared these; a retry must hand back the same state.
+                reply = self._level_change_reply(
+                    replayed_level,
+                    replace(
+                        prior_state,
+                        last_heard=route(utterance).normalized.text or prior_state.last_heard,
+                        clarification=None,
+                        position_page=0,
+                        help=None,
+                        reviewing=False,
+                        pending_action=None,
+                    ),
+                )
+            elif replayed is not None:
+                reply = self._replayed_turn_reply(owner_key, utterance, replayed, prior_state, preferences)
+            else:
+                reply = await self._handle(owner_key, utterance, request, prior_state, preferences)
         if route(utterance).kind not in {CommandKind.REPEAT_REPLY, CommandKind.REPEAT_SLOW}:
             # Stored before the pauses are added, so a repeat reads words rather
             # than speech markup.
@@ -468,6 +473,7 @@ class ConversationService:
             CommandKind.REVIEW,
             CommandKind.TRAINING,
             CommandKind.LEVEL_QUERY,
+            CommandKind.LEVEL,
             CommandKind.GAME_FACT,
             CommandKind.POSITION_QUERY,
             CommandKind.REPEAT_HEARD,
@@ -679,6 +685,34 @@ class ConversationService:
                 preferences,
             )
 
+        if routed.kind is CommandKind.LEVEL and routed.level is not None:
+            if routed.level.intent is LevelIntent.SCALE:
+                return ConversationReply(
+                    Speech.of(_LEVEL_SCALE_ANSWER),
+                    self._with_game(next_state, game) if game is not None else next_state,
+                )
+            if open_puzzle is not None:
+                return ConversationReply(
+                    Speech.of("Сейчас открыта задача. Скажите «вернуться к партии», потом назовите уровень."),
+                    self._with_game(next_state, game) if game is not None else next_state,
+                )
+            if routed.level.level is None:
+                if game is None:
+                    return ConversationReply(Speech.of(_LEVEL_NO_GAME), next_state)
+                if game.status is not GameStatus.ACTIVE:
+                    return ConversationReply(Speech.of(_LEVEL_GAME_OVER), self._with_game(next_state, game))
+                return ConversationReply(
+                    Speech.of(
+                        "Да. Назовите уровень от нуля до двадцати, например: «уровень пять». "
+                        "Партия продолжится с той же позиции."
+                    ),
+                    self._with_game(next_state, game),
+                )
+            if game is None:
+                return await self._start(owner_key, utterance, request, next_state, preferences)
+            change = self._games.set_level(owner_key, game.id, routed.level.level, request)
+            return self._level_change_reply(change, next_state)
+
         if routed.kind is CommandKind.TRAINING and routed.training is not None:
             if game is None:
                 return ConversationReply(
@@ -728,7 +762,7 @@ class ConversationService:
                 )
             if routed.kind is CommandKind.LEVEL_QUERY:
                 level = self._settings.engine_skill_level
-                hint = _hint(preferences, "Чтобы выбрать другой, скажите «новая игра уровень десять».")
+                hint = _hint(preferences, "Чтобы выбрать другой, скажите: «новая игра, уровень пять».")
                 return ConversationReply(
                     Speech.of(f"Уровень сложности по умолчанию — {level} из 20.{hint}"),
                     next_state,
@@ -764,9 +798,11 @@ class ConversationService:
             return ConversationReply(Speech.of(f"Я услышал: {heard}."), self._with_game(next_state, game))
         if routed.kind is CommandKind.LEVEL_QUERY:
             level = game.engine.skill_level
-            hint = _hint(preferences, "Чтобы изменить его, скажите «новая игра уровень десять».")
+            hint = _hint(preferences, "Чтобы изменить уровень, скажите: «уровень пять».")
             return ConversationReply(
-                Speech.of(f"Сейчас установлен уровень сложности {level} из 20.{hint}"),
+                Speech.of(
+                    f"Сейчас уровень {level}. Шкала — от нуля до двадцати: чем больше число, тем сильнее я играю.{hint}"
+                ),
                 self._with_game(next_state, game),
             )
         if routed.kind is CommandKind.GAME_FACT:
@@ -972,13 +1008,8 @@ class ConversationService:
         # the ё is folded, and a missed colour silently starts the wrong game.
         spoken = normalize(utterance).text
         player_color = PlayerColor.BLACK if _BLACK.search(spoken) else PlayerColor.WHITE
-        level_match = _LEVEL.search(spoken)
-        level_value = level_match.group("value") if level_match else None
-        level = (
-            max(0, min(int(level_value), 20))
-            if level_value is not None and level_value.isdigit()
-            else _LEVEL_WORDS.get(level_value or "", self._settings.engine_skill_level)
-        )
+        named_level = parse_level_value(spoken)
+        level = named_level if named_level is not None else self._settings.engine_skill_level
         result = await self._games.start_game(
             owner_key,
             request,
@@ -1150,6 +1181,21 @@ class ConversationService:
             self._training.centipawn_losses(owner_key, state),
         )
         return comment.text if comment is not None else None
+
+    @staticmethod
+    def _level_change_reply(change: LevelChange, state: ConversationState) -> ConversationReply:
+        if change.status is LevelChangeStatus.APPLIED:
+            speech = f"Установил уровень {change.level}. Партия продолжается. Ваш ход."
+        elif change.status is LevelChangeStatus.UNCHANGED:
+            speech = f"Уровень {change.level} уже установлен. Назовите другой уровень — от нуля до двадцати."
+        elif change.status is LevelChangeStatus.ENGINE_TO_MOVE:
+            speech = "Сначала я сделаю свой ход. Скажите «продолжаем», потом повторите уровень."
+        else:
+            speech = _LEVEL_GAME_OVER
+        return ConversationReply(
+            Speech.of(speech),
+            replace(state, game_id=change.game_id, revision=change.revision),
+        )
 
     def _replayed_turn_reply(
         self,

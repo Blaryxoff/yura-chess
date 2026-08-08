@@ -40,6 +40,8 @@ class CommandKind(StrEnum):
     CLAIM_DRAW = "claim_draw"
     UNDO = "undo"
     LEVEL_QUERY = "level_query"
+    # Naming a difficulty, or asking how it is chosen, as opposed to asking which one is set.
+    LEVEL = "level"
     # A question about the game itself: colour, move number, captures, castling.
     GAME_FACT = "game_fact"
     POSITION_QUERY = "position_query"
@@ -187,6 +189,23 @@ class PuzzleRequest:
     theme: str | None = None
 
 
+class LevelIntent(StrEnum):
+    """What was asked about difficulty; only `SET` may change a running game."""
+
+    SET = "set"
+    # «как поменять уровень», «снизь уровень» — a request with no number in it.
+    CAPABILITY = "capability"
+    # «пятнадцатый уровень это высокий или низкий» — asks what the number means.
+    SCALE = "scale"
+
+
+@dataclass(frozen=True, slots=True)
+class LevelRequest:
+    intent: LevelIntent
+    # Set only for `SET`, already clamped to the engine's scale.
+    level: int | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class RematchRequest:
     color: RematchColor = RematchColor.SAME
@@ -216,6 +235,8 @@ class RoutedCommand:
     review: ReviewRequest | None = None
     # Which puzzle question was asked; set only for `PUZZLE`.
     puzzle: PuzzleRequest | None = None
+    # Which difficulty was named or asked about; set only for `LEVEL`.
+    level: LevelRequest | None = None
     # Number of complete player+engine turns requested by an undo command.
     undo_count: int = 1
 
@@ -340,6 +361,132 @@ _END_GAME_REQUEST = (
 )
 _END_GAME_STEM = r"(?:зак[оа]нч|заверш|прекра[тщ])"
 
+MAX_LEVEL = 20
+
+# Cardinal and ordinal stems of one number, longest first: «пят» must not answer for «пятнадцатый».
+_LEVEL_NUMBER_STEMS_LONGEST_FIRST: tuple[tuple[str, int], ...] = (
+    ("одиннадцат", 11),
+    ("двенадцат", 12),
+    ("тринадцат", 13),
+    ("четырнадцат", 14),
+    ("пятнадцат", 15),
+    ("шестнадцат", 16),
+    ("семнадцат", 17),
+    ("восемнадцат", 18),
+    ("девятнадцат", 19),
+    ("двадцат", 20),
+    ("тридцат", 30),
+    ("сорок", 40),
+    ("пятьдесят", 50),
+    ("пятидесят", 50),
+    ("шестьдесят", 60),
+    ("шестидесят", 60),
+    ("семьдесят", 70),
+    ("семидесят", 70),
+    ("восемьдесят", 80),
+    ("восьмидесят", 80),
+    ("девяност", 90),
+    ("четверт", 4),
+    ("четыре", 4),
+    ("нул", 0),
+    ("ноль", 0),
+    ("перв", 1),
+    ("один", 1),
+    ("втор", 2),
+    ("два", 2),
+    ("две", 2),
+    ("трет", 3),
+    ("три", 3),
+    ("пят", 5),
+    ("шест", 6),
+    ("седьм", 7),
+    ("сем", 7),
+    ("восьм", 8),
+    ("восем", 8),
+    ("девят", 9),
+    ("десят", 10),
+)
+_LEVEL_NUMBER = "|".join(rf"{stem}\w*" for stem, _ in _LEVEL_NUMBER_STEMS_LONGEST_FIRST)
+_LEVEL_NOUN = r"уровн\w*|уровен\w*|сложност\w*"
+# The number leads or follows: «уровень номер ноль», «нулевой уровень», «1 уровень», «уровень на пять».
+_LEVEL_VALUE_AFTER = re.compile(
+    rf"(?:{_LEVEL_NOUN})\s+(?:сложности\s+|игры\s+)?(?:номер\s+)?(?:на\s+)?(?P<value>\d{{1,3}}|{_LEVEL_NUMBER})\b"
+)
+_LEVEL_VALUE_BEFORE = re.compile(rf"\b(?P<value>\d{{1,3}}|{_LEVEL_NUMBER})\s+(?:{_LEVEL_NOUN})")
+_LEVEL_COMMAND = re.compile(rf"\b(?:{_LEVEL_NOUN})\b")
+_LEVEL_SCALE = re.compile(
+    r"(?:высок\w*|низк\w*|сильн\w*|слаб\w*|больш\w*|маленьк\w*|много|мало)\s+или\s+|"
+    r"это\s+(?:высок|низк|сильн|слаб|много|мало)|"
+    r"сколько\s+(?:всего\s+|у тебя\s+)?уровн|"
+    r"каки\w*\s+(?:бывают|есть|вообще)\s+уровн|"
+    r"(?:максимальн\w*|минимальн\w*|сам\w+\s+(?:высок|сильн|сложн|легк|прост)\w*)\s+уровен|"
+    r"что\s+(?:значит|означает|значат)\s+уровен"
+)
+# «игра белыми уровень пять» asks for a game at that level, not for a change to the running one.
+_LEVEL_STARTS_A_GAME = re.compile(
+    r"\b(?:бел|черн)(?:ыми|ых|ые)\b|\b(?:игр|сыгр|поигр)(?:ать|аем|аю|аешь|ай|айте)\b|"
+    r"\b(?:игра|сыгра)\w*\s+(?:парти|игр)\w*|\b(?:парти|игр)\w*\s+(?:игра|сыгра)\w*"
+)
+# Everything a bare setter may carry besides the level itself; anything else makes the phrase a question.
+_LEVEL_SETTER_WORDS = frozenset(
+    "а ну юра юр алиса пожалуйста прошу спасибо окей ок хорошо ладно давай давайте давай-ка "
+    "теперь сейчас тогда пусть будет вот на себе "
+    "можно можешь можете могу мне я ты хочу хотел хотела хотелось бы надо нужно нужен "
+    "поставь поставьте поставить поставим ставь ставить ставим "
+    "установи установите установить установим сделай сделайте сделать сделаем "
+    "поменяй поменяйте поменять поменяем смени смените сменить сменим "
+    "измени измените изменить изменим переключи переключить переключись переключимся "
+    "задай задать выстави выставить включи дай дайте".split()
+)
+# «уровень громкости» belongs to Alice, not to the chess engine.
+_LEVEL_NOT_CHESS = re.compile(r"\b(?:громкост|звук|сигнал|батаре|заряд|яркост|шум)\w*")
+_LEVEL_KINDS = frozenset({CommandKind.LEVEL, CommandKind.LEVEL_QUERY})
+# «а уровень пять как сделать» asks how, and outranks the number it happens to carry.
+_LEVEL_HOW = re.compile(
+    r"\bкак\b(?:\s+[а-я]+){0,4}?\s+"
+    r"(?:выбрать|выбираешь|поменять|изменить|сменить|поставить|установить|настроить|задать|сделать|"
+    r"повысить|понизить|снизить|уменьшить|увеличить)"
+)
+
+
+def _spoken_level(match: re.Match[str]) -> int | None:
+    spoken = match.group("value")
+    if spoken.isdigit():
+        return max(0, min(int(spoken), MAX_LEVEL))
+    for stem, value in _LEVEL_NUMBER_STEMS_LONGEST_FIRST:
+        if spoken.startswith(stem):
+            return min(value, MAX_LEVEL)
+    return None
+
+
+def parse_level_value(text: str) -> int | None:
+    """Read the difficulty a phrase names, in any of the forms it is spoken in."""
+    match = _LEVEL_VALUE_AFTER.search(text) or _LEVEL_VALUE_BEFORE.search(text)
+    return _spoken_level(match) if match is not None else None
+
+
+def parse_level(text: str) -> LevelRequest | None:
+    """Read a difficulty command, or return `None` when the phrase is not one.
+
+    A number only sets the level when nothing but polite or imperative words
+    surrounds it: «что значит пятый уровень» asks, and may never change a game.
+    """
+    if not _LEVEL_COMMAND.search(text) or _LEVEL_STARTS_A_GAME.search(text) or _LEVEL_NOT_CHESS.search(text):
+        return None
+    if _LEVEL_SCALE.search(text):
+        return LevelRequest(LevelIntent.SCALE)
+    if _LEVEL_HOW.search(text):
+        return LevelRequest(LevelIntent.CAPABILITY)
+    match = _LEVEL_VALUE_AFTER.search(text) or _LEVEL_VALUE_BEFORE.search(text)
+    if match is None:
+        return LevelRequest(LevelIntent.CAPABILITY)
+    value = _spoken_level(match)
+    remainder = f"{text[: match.start()]} {text[match.end() :]}".split()
+    if value is None or not all(word in _LEVEL_SETTER_WORDS for word in remainder):
+        return LevelRequest(LevelIntent.SCALE)
+    return LevelRequest(LevelIntent.SET, value)
+
+
 _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (CommandKind.REPEAT_HEARD, re.compile(r"что (ты )?(услышал[аи]?|понял[аи]?|разобрал[аи]?)|что я сказал")),
     (
@@ -422,6 +569,8 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"на каком уровне|^уровень сложности$|(?:поменять|изменить) уровень"
         ),
     ),
+    # After the query, and after the start and rematch phrases that name a level of their own.
+    (CommandKind.LEVEL, _LEVEL_COMMAND),
     # Before the position query: «какие фигуры съедены» is a fact about the
     # game, not the «какие фигуры» listing of the current board.
     (CommandKind.GAME_FACT, game_facts.QUESTION_PATTERN),
@@ -874,6 +1023,15 @@ def route(
             if kind is CommandKind.COLOR_CHOICE and colour_asked is None:
                 # A colour named without asking for it: let the later patterns read it.
                 continue
+            level_asked = parse_level(normalized.text) if kind in _LEVEL_KINDS else None
+            if kind is CommandKind.LEVEL and level_asked is None:
+                continue
+            if kind is CommandKind.LEVEL_QUERY:
+                # «изменить уровень на пять» names the level it wants; a bare question stays a question.
+                if level_asked is not None and level_asked.intent is LevelIntent.SET:
+                    kind = CommandKind.LEVEL
+                else:
+                    level_asked = None
             heard = last_heard if kind is CommandKind.REPEAT_HEARD else None
             # A control command answers the clarification by replacing it.
             return RoutedCommand(
@@ -882,6 +1040,7 @@ def route(
                 heard=heard,
                 clarification=None,
                 rematch=colour_asked,
+                level=level_asked,
                 undo_count=_undo_count(normalized.text) if kind is CommandKind.UNDO else 1,
             )
 

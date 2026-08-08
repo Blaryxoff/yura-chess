@@ -580,6 +580,38 @@ def test_mode_switch_keeps_the_position_and_the_hint(repository: GameRepository,
     assert switched.revision == hinted.revision + 1
 
 
+def test_engine_level_change_keeps_the_position_and_the_hint(
+    repository: GameRepository,
+    session: Session,
+) -> None:
+    game_id = _new_game(repository, session)
+    moved = repository.append_moves(game_id, OWNER, expected_revision=1, moves=("e2e4",))
+    hinted = repository.set_hint_stage(game_id, OWNER, expected_revision=moved.revision, stage=2)
+
+    stronger = repository.set_engine_level(game_id, OWNER, expected_revision=hinted.revision, skill_level=18)
+    session.commit()
+
+    assert stronger.engine.skill_level == 18
+    assert stronger.hint_stage == 2
+    assert stronger.moves == ("e2e4",)
+    assert stronger.revision == hinted.revision + 1
+    assert repository.load(game_id, OWNER).engine.skill_level == 18
+
+
+def test_another_owner_cannot_change_the_engine_level(repository: GameRepository, session: Session) -> None:
+    game_id = _new_game(repository, session)
+    session.commit()
+
+    with pytest.raises(GameNotFoundError):
+        repository.set_engine_level(game_id, OTHER_OWNER, expected_revision=1, skill_level=18)
+    session.rollback()
+    repository.append_moves(game_id, OWNER, expected_revision=1, moves=("e2e4",))
+    session.commit()
+
+    with pytest.raises(RevisionConflictError):
+        repository.set_engine_level(game_id, OWNER, expected_revision=1, skill_level=18)
+
+
 def test_hint_stage_is_set_by_value_and_survives_reload(repository: GameRepository, session: Session) -> None:
     game_id = _new_game(repository, session)
 

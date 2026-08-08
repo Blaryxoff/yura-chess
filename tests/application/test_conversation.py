@@ -508,7 +508,8 @@ async def test_current_engine_level_can_be_asked_in_natural_speech(
 
     assert reply.turn is None
     assert reply.speech.text == (
-        "Сейчас установлен уровень сложности 7 из 20. Чтобы изменить его, скажите «новая игра уровень десять»."
+        "Сейчас уровень 7. Шкала — от нуля до двадцати: чем больше число, тем сильнее я играю. "
+        "Чтобы изменить уровень, скажите: «уровень пять»."
     )
 
 
@@ -855,6 +856,7 @@ async def test_unplayed_game_is_not_described_as_played_today(
         ("восемнадцать", 18),
         ("девятнадцать", 19),
         ("двадцать", 20),
+        ("нуль", 0),
     ],
 )
 async def test_new_game_accepts_spoken_engine_levels(
@@ -1818,9 +1820,9 @@ async def test_detail_preference_shortens_or_extends_only_the_advice(
     detailed = await conversation.handle(OWNER, "какой уровень", context(5), brief.state)
     detailed_move = await conversation.handle(OWNER, "пешка е два е четыре", context(6), detailed.state)
 
-    assert "уровень сложности" in brief.speech.text
-    assert "новая игра уровень десять" not in brief.speech.text
-    assert "новая игра уровень десять" in detailed.speech.text
+    assert "Сейчас уровень" in brief.speech.text
+    assert "Чтобы изменить уровень" not in brief.speech.text
+    assert "Чтобы изменить уровень" in detailed.speech.text
     assert detailed_move.speech.text.endswith("Сейчас ваш ход.")
 
 
@@ -2256,3 +2258,192 @@ async def test_a_colour_named_after_the_session_forgot_the_game_asks_first(
     with session_scope(session_factory) as session:
         stored = GameRepository(session).load(started.state.game_id or "", OWNER)
     assert stored.status is GameStatus.ACTIVE
+
+
+async def test_the_level_changes_mid_game_without_touching_the_position(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра уровень семь", context(1))
+    moved = await conversation.handle(OWNER, "пешка е два е четыре", context(2), started.state)
+
+    changed = await conversation.handle(OWNER, "уровень двенадцать", context(3), moved.state)
+
+    assert changed.speech.text == "Установил уровень 12. Партия продолжается. Ваш ход."
+    assert changed.state.game_id == moved.state.game_id
+    with session_scope(session_factory) as session:
+        state = GameRepository(session).load(moved.state.game_id or "", OWNER)
+    assert state.engine.skill_level == 12
+    assert state.moves == moved.turn.moves if moved.turn else False
+    assert changed.state.revision == state.revision
+
+
+async def test_asking_about_the_level_never_changes_it(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра уровень семь", context(1))
+
+    scale = await conversation.handle(OWNER, "пятнадцатый уровень это высокий или низкий", context(2), started.state)
+    capability = await conversation.handle(OWNER, "а уровень 5 как сделать", context(3), scale.state)
+
+    assert scale.speech.text == (
+        "Чем больше число, тем сильнее я играю. Ноль — самый легкий уровень, двадцать — самый сильный. "
+        "Чтобы поставить, скажите: «уровень пять»."
+    )
+    assert capability.speech.text == (
+        "Да. Назовите уровень от нуля до двадцати, например: «уровень пять». Партия продолжится с той же позиции."
+    )
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).load(started.state.game_id or "", OWNER).engine.skill_level == 7
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "что значит пятый уровень",
+        "почему у меня пятый уровень",
+        "пятый уровень это сложно",
+        "на пятом уровне я сильный",
+    ],
+)
+async def test_a_question_that_names_a_level_explains_it_instead_of_setting_it(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра уровень семь", context(1))
+
+    asked = await conversation.handle(OWNER, utterance, context(2), started.state)
+
+    assert asked.speech.text == (
+        "Чем больше число, тем сильнее я играю. Ноль — самый легкий уровень, двадцать — самый сильный. "
+        "Чтобы поставить, скажите: «уровень пять»."
+    )
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).load(started.state.game_id or "", OWNER).engine.skill_level == 7
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["поставь уровень на пять", "изменить уровень на пять", "можно уровень пять", "уровень пять пожалуйста"],
+)
+async def test_a_polite_or_prepositional_level_command_is_still_a_command(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра уровень семь", context(1))
+
+    changed = await conversation.handle(OWNER, utterance, context(2), started.state)
+
+    assert changed.speech.text == "Установил уровень 5. Партия продолжается. Ваш ход."
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).load(started.state.game_id or "", OWNER).engine.skill_level == 5
+
+
+async def test_naming_the_same_level_again_asks_for_a_different_one(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра уровень семь", context(1))
+
+    reply = await conversation.handle(OWNER, "уровень семь", context(2), started.state)
+
+    assert reply.speech.text == "Уровень 7 уже установлен. Назовите другой уровень — от нуля до двадцати."
+
+
+async def test_the_level_waits_while_the_engine_still_owes_a_move(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра уровень семь", context(1))
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        state = repository.load(started.state.game_id or "", OWNER)
+        repository.append_moves(state.id, OWNER, state.revision, ("e2e4",))
+
+    reply = await conversation.handle(OWNER, "уровень двенадцать", context(2), started.state)
+
+    assert reply.speech.text == "Сначала я сделаю свой ход. Скажите «продолжаем», потом повторите уровень."
+
+
+async def test_the_level_command_starts_a_game_when_there_is_none(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    reply = await subject(session_factory, offline_settings).handle(OWNER, "нулевой уровень", context(1))
+
+    assert "Новая партия. Вы играете белыми, уровень 0." in reply.speech.text
+
+
+async def test_an_open_puzzle_owns_the_turn_before_a_level_command_does(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра уровень семь", context(1))
+    offered = await conversation.handle(OWNER, "дай задачу", context(2), started.state)
+
+    reply = await conversation.handle(OWNER, "уровень двенадцать", context(3), offered.state)
+
+    assert reply.speech.text == "Сейчас открыта задача. Скажите «вернуться к партии», потом назовите уровень."
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).load(started.state.game_id or "", OWNER).engine.skill_level == 7
+
+
+async def test_a_redelivered_level_command_repeats_its_answer_once(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра уровень семь", context(1))
+
+    first = await conversation.handle(OWNER, "уровень двенадцать", context(2), started.state)
+    again = await conversation.handle(OWNER, "уровень двенадцать", context(2), started.state)
+
+    assert again.speech.text == first.speech.text
+    assert again.state.revision == first.state.revision
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).load(started.state.game_id or "", OWNER).revision == first.state.revision
+
+
+async def test_a_redelivered_level_command_leaves_the_same_question_answered(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    """A retry must not resurrect the confirmation the original request cancelled."""
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра уровень семь", context(1))
+    asked = await conversation.handle(OWNER, "новая игра", context(2), started.state)
+
+    first = await conversation.handle(OWNER, "уровень двенадцать", context(3), asked.state)
+    again = await conversation.handle(OWNER, "уровень двенадцать", context(3), asked.state)
+
+    assert asked.state.pending_action is not None
+    assert first.state.pending_action is None
+    assert again.state == first.state
+
+
+async def test_a_redelivered_level_command_closes_help_and_paging_the_same_way(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра уровень семь", context(1))
+    read = await conversation.handle(OWNER, "какая позиция", context(2), started.state)
+    opened = await conversation.handle(OWNER, "что ты умеешь", context(3), read.state)
+
+    first = await conversation.handle(OWNER, "уровень двенадцать", context(4), opened.state)
+    again = await conversation.handle(OWNER, "уровень двенадцать", context(4), opened.state)
+
+    assert opened.state.help is not None
+    assert first.state.help is None
+    assert first.state.position_page == 0
+    assert again.state == first.state

@@ -8,8 +8,8 @@ import chess
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from yura_chess.application.game_service import GameService, RequestContext
-from yura_chess.domain.game import GameStatus, PlayerColor
+from yura_chess.application.game_service import GameService, LevelChangeStatus, RequestContext
+from yura_chess.domain.game import EngineSettings, GameStatus, PlayerColor
 from yura_chess.domain.results import GameEnd, TurnStatus
 from yura_chess.engine.stockfish import EngineSearchTimeoutError, EngineUnavailableError
 from yura_chess.storage.database import session_scope
@@ -48,6 +48,23 @@ class FakeEngine:
             raise self.error
         self.searches.append(board.fen())
         return self.script.pop(0) if self.script else next(iter(board.legal_moves)).uci()
+
+
+class LevelRecordingEngine(FakeEngine):
+    """Remembers the skill level every search was asked to play at."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.levels: list[int | None] = []
+
+    async def best_move(
+        self,
+        board: chess.Board,
+        search_time: float | None = None,
+        skill_level: int | None = None,
+    ) -> str:
+        self.levels.append(skill_level)
+        return await super().best_move(board, search_time, skill_level)
 
 
 class BlockingObserver:
@@ -518,3 +535,95 @@ async def test_games_of_two_players_advance_independently(session_factory: sessi
 
     assert load(session_factory, my_game, OWNER).moves == ("e2e4", "e7e5")
     assert load(session_factory, their_game, OTHER_OWNER).moves == ("d2d4", "c7c5")
+
+
+async def test_a_level_change_keeps_the_position_and_bumps_the_revision(
+    session_factory: sessionmaker[Session],
+) -> None:
+    engine = FakeEngine(("e7e5",))
+    subject = service(session_factory, engine)
+    game_id = (await subject.start_game(OWNER, request("m1"))).game_id
+    await subject.play_move(OWNER, game_id, "e2e4", request("m2"))
+    before = load(session_factory, game_id)
+
+    change = subject.set_level(OWNER, game_id, 12, request("m3"))
+
+    after = load(session_factory, game_id)
+    assert change.status is LevelChangeStatus.APPLIED
+    assert (change.level, change.revision) == (12, after.revision)
+    assert after.engine.skill_level == 12
+    assert after.revision > before.revision
+    assert (after.moves, after.mode, after.hint_stage) == (before.moves, before.mode, before.hint_stage)
+
+
+async def test_the_same_level_is_reported_rather_than_written_again(
+    session_factory: sessionmaker[Session],
+) -> None:
+    subject = service(session_factory, FakeEngine())
+    game_id = (await subject.start_game(OWNER, request("m1"), engine=EngineSettings(skill_level=7))).game_id
+    before = load(session_factory, game_id)
+
+    change = subject.set_level(OWNER, game_id, 7, request("m2"))
+
+    assert change.status is LevelChangeStatus.UNCHANGED
+    assert load(session_factory, game_id).revision == before.revision
+
+
+async def test_a_level_change_waits_for_the_engine_opening_it_would_abandon(
+    session_factory: sessionmaker[Session],
+) -> None:
+    subject = service(session_factory, FakeEngine(error=EngineUnavailableError("down")))
+    started = await subject.start_game(OWNER, request("m1"), PlayerColor.BLACK)
+    before = load(session_factory, started.game_id)
+    assert before.pending_engine_turn is None
+
+    change = subject.set_level(OWNER, started.game_id, 12, request("m2"))
+
+    assert change.status is LevelChangeStatus.ENGINE_TO_MOVE
+    assert load(session_factory, started.game_id).engine.skill_level == before.engine.skill_level
+
+
+async def test_a_level_change_is_refused_once_the_game_is_over(session_factory: sessionmaker[Session]) -> None:
+    subject = service(session_factory, FakeEngine())
+    game_id = (await subject.start_game(OWNER, request("m1"))).game_id
+    await subject.resign(OWNER, game_id, request("m2"))
+
+    change = subject.set_level(OWNER, game_id, 12, request("m3"))
+
+    assert change.status is LevelChangeStatus.GAME_OVER
+    assert load(session_factory, game_id).engine.skill_level != 12
+
+
+async def test_a_redelivered_level_change_returns_the_first_answer(
+    session_factory: sessionmaker[Session],
+) -> None:
+    subject = service(session_factory, FakeEngine())
+    game_id = (await subject.start_game(OWNER, request("m1"))).game_id
+    first = subject.set_level(OWNER, game_id, 12, request("m2"))
+
+    again = subject.set_level(OWNER, game_id, 12, request("m2"))
+
+    assert again == first
+    assert subject.replayed_level_change(OWNER, request("m2")) == first
+    assert load(session_factory, game_id).revision == first.revision
+
+
+async def test_a_level_change_belongs_to_the_owner_who_made_it(session_factory: sessionmaker[Session]) -> None:
+    subject = service(session_factory, FakeEngine())
+    game_id = (await subject.start_game(OWNER, request("m1"))).game_id
+
+    with pytest.raises(GameNotFoundError):
+        subject.set_level(OTHER_OWNER, game_id, 12, request("m2"))
+
+
+async def test_the_next_engine_move_is_searched_at_the_new_level(
+    session_factory: sessionmaker[Session],
+) -> None:
+    engine = LevelRecordingEngine()
+    subject = service(session_factory, engine)
+    game_id = (await subject.start_game(OWNER, request("m1"), engine=EngineSettings(skill_level=3))).game_id
+
+    subject.set_level(OWNER, game_id, 18, request("m2"))
+    await subject.play_move(OWNER, game_id, "e2e4", request("m3"))
+
+    assert engine.levels == [18]
