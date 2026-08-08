@@ -1285,6 +1285,105 @@ async def test_the_word_razbor_opens_the_help_topic_while_help_is_open(
     assert "Законченной партии еще нет" in outside.speech.text
 
 
+async def test_asking_to_enlarge_the_board_reads_the_position_instead(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    """A low-vision player gets the board read out, not another command to say."""
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    reply = await conversation.handle(OWNER, "увеличь вижу плохо", context(2), started.state)
+
+    assert reply.speech.text.startswith("На весь экран переключить не могу. Читаю доску.")
+    assert len(reply.speech.text) > len("На весь экран переключить не могу. Читаю доску.")
+    assert reply.card is None
+    assert reply.state.game_id == started.state.game_id
+
+
+async def test_asking_to_play_by_tapping_names_the_spoken_move_instead(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    reply = await conversation.handle(OWNER, "алиса а можно играть не голосом а визуально", context(2), started.state)
+
+    assert reply.speech.text == (
+        "Нажимать на клетки здесь нельзя, ходы я принимаю только голосом. Скажите, какая фигура и на какую клетку идет."
+    )
+
+
+async def test_asking_to_enlarge_the_board_during_a_puzzle_reads_the_puzzle(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    """The open puzzle owns the board; the saved game must not be read instead."""
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    playing = await conversation.handle(OWNER, "плохо вижу доску", context(2), started.state)
+    offered = await conversation.handle(OWNER, "дай задачу", context(3), playing.state)
+
+    reply = await conversation.handle(OWNER, "плохо вижу доску", context(4), offered.state)
+
+    assert reply.speech.text.startswith("На весь экран переключить не могу. Читаю доску.")
+    assert reply.speech.text != playing.speech.text
+    assert reply.card is not None
+    assert reply.card.title == "Задача"
+
+
+async def test_the_board_reading_continues_page_by_page_after_a_visibility_request(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    first = await conversation.handle(OWNER, "увеличь вижу плохо", context(2), started.state)
+    second = await conversation.handle(OWNER, "дальше", context(3), first.state)
+
+    assert first.state.position_page == 0
+    assert second.state.position_page == 1
+    assert second.speech.text != first.speech.text
+
+
+async def test_a_visibility_request_answers_a_waiting_confirmation_with_the_board(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    asked = await conversation.handle(OWNER, "новая игра", context(2), started.state)
+
+    reply = await conversation.handle(OWNER, "плохо вижу доску", context(3), asked.state)
+
+    assert asked.state.pending_action is not None
+    assert reply.state.pending_action is None
+    assert reply.speech.text.startswith("На весь экран переключить не могу.")
+
+
+async def test_asking_to_play_by_tapping_without_a_game_starts_nothing(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    reply = await subject(session_factory, offline_settings).handle(OWNER, "только визуально", context(1))
+
+    assert reply.speech.text == (
+        "Нажимать на клетки здесь нельзя, ходы я принимаю только голосом. Скажите «новая игра», и начнем."
+    )
+    assert reply.state.game_id is None
+
+
+async def test_asking_to_enlarge_the_board_without_a_game_offers_one(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    reply = await subject(session_factory, offline_settings).handle(OWNER, "увеличь картинку", context(1))
+
+    assert "новая игра" in reply.speech.text
+
+
 async def test_help_navigation_walks_the_catalogue_forward_back_and_to_the_start(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,

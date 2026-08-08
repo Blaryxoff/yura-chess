@@ -18,6 +18,7 @@ from yura_chess.application.command_router import (
     RematchColor,
     RematchRequest,
     ReviewQuestion,
+    ScreenWish,
     TrainingQuestion,
     confirmation_answer,
     route,
@@ -844,6 +845,63 @@ def test_a_question_about_the_running_game_is_not_a_review(utterance: str, expec
 )
 def test_a_sentence_that_merely_contains_the_word_is_not_a_review_request(utterance: str) -> None:
     assert route(utterance, chess.Board()).kind is not CommandKind.REVIEW
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("алис на полный экран я не вижу", ScreenWish.BIGGER),
+        ("алиса можешь увеличить шахматную доску", ScreenWish.BIGGER),
+        ("а ты не мог бы эту свою увеличить доску", ScreenWish.BIGGER),
+        ("алиса доску на полный экран", ScreenWish.BIGGER),
+        ("сделай больше экран", ScreenWish.BIGGER),
+        ("увеличь картинку", ScreenWish.BIGGER),
+        ("сделай картинку больше", ScreenWish.BIGGER),
+        ("увеличь вижу плохо", ScreenWish.BIGGER),
+        ("извини я не вижу не фига очень маленькие символы", ScreenWish.BIGGER),
+        ("да я не вижу букв никаких", ScreenWish.BIGGER),
+        ("алиса а можно играть не голосом а визуально", ScreenWish.TAP),
+        ("да визуально поставьте я не могу так", ScreenWish.TAP),
+        ("я не могу так чтобы я могу только визуально", ScreenWish.TAP),
+        ("доску мне дайте пальчиком я хочу ходить а не голосовым", ScreenWish.TAP),
+    ],
+)
+def test_a_request_about_the_picture_is_answered_about_the_picture(
+    utterance: str,
+    expected: ScreenWish,
+) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.SCREEN
+    assert routed.screen is not None
+    assert routed.screen.wish is expected
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("не вижу шаха", CommandKind.UNKNOWN),
+        ("не вижу куда ходить", CommandKind.UNKNOWN),
+        ("не вижу шаха покажи доску", CommandKind.POSITION_QUERY),
+        ("я буквально не вижу хорошего хода", CommandKind.TRAINING),
+        ("как увеличивается шахматный рейтинг", CommandKind.UNKNOWN),
+        ("как увеличить шахматный рейтинг", CommandKind.UNKNOWN),
+        ("я увеличу экран и посмотрю", CommandKind.UNKNOWN),
+        ("у меня болит пальчик", CommandKind.UNKNOWN),
+        ("алиса покажи поле на экране", CommandKind.POSITION_QUERY),
+        ("алиса покажи мне шахматное поле на экране", CommandKind.POSITION_QUERY),
+        ("я играл визуально теперь хочу голосом", CommandKind.UNKNOWN),
+        ("веду пальцем по доске прочитай позицию", CommandKind.POSITION_QUERY),
+        ("покажи доску", CommandKind.POSITION_QUERY),
+        ("где поле я ничего не вижу", CommandKind.POSITION_QUERY),
+        ("а картинка где", CommandKind.POSITION_QUERY),
+    ],
+)
+def test_not_seeing_something_on_the_board_is_not_a_request_about_the_screen(
+    utterance: str,
+    expected: CommandKind,
+) -> None:
+    assert route(utterance, chess.Board()).kind is expected
 
 
 def test_help_navigation_is_matched_before_the_new_game_command() -> None:

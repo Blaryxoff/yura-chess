@@ -65,6 +65,7 @@ class CommandKind(StrEnum):
     WHY = "why"
     DONT_KNOW = "dont_know"
     BOARD_SETUP = "board_setup"
+    SCREEN = "screen"
     # A durable presentation setting: how much is said, how, and from which side.
     PREFERENCE = "preference"
     # A new game that inherits colour and level from the previous one.
@@ -189,6 +190,20 @@ class PuzzleRequest:
     theme: str | None = None
 
 
+class ScreenWish(StrEnum):
+    """What a request about the picture actually wants."""
+
+    # «увеличь доску», «на полный экран я не вижу».
+    BIGGER = "bigger"
+    # «можно играть не голосом а визуально».
+    TAP = "tap"
+
+
+@dataclass(frozen=True, slots=True)
+class ScreenRequest:
+    wish: ScreenWish
+
+
 class LevelIntent(StrEnum):
     """What was asked about difficulty; only `SET` may change a running game."""
 
@@ -237,6 +252,7 @@ class RoutedCommand:
     puzzle: PuzzleRequest | None = None
     # Which difficulty was named or asked about; set only for `LEVEL`.
     level: LevelRequest | None = None
+    screen: ScreenRequest | None = None
     # Number of complete player+engine turns requested by an undo command.
     undo_count: int = 1
 
@@ -489,6 +505,33 @@ def parse_level(text: str) -> LevelRequest | None:
     return LevelRequest(LevelIntent.SET, value)
 
 
+# Two different needs, and the skill grants neither: the card is drawn to Alice's
+# own shape, and a move can only be spoken.
+_SCREEN_CANNOT_SEE = re.compile(
+    r"увелич(?:ь|ьте|ить|им)\b\s+(?:\w+\s+)?(?:доск|картинк|экран)|"
+    r"(?:сделай|поставь)\s+(?:доску|картинку|экран)\s+больше|"
+    r"(?:больше|крупнее|побольше)\s+(?:доск|картинк|экран)|"
+    r"(?:на|во)\s+весь\s+экран|на полный экран|"
+    r"(?:не вижу|плохо вижу|не видно|вижу плохо)\s+(?:\w+\s+)?(?:доск|картинк|экран|символ|букв[ыуаео]?\b)|"
+    r"^увелич\w*\s+(?:вижу плохо|плохо вижу)$|"
+    r"маленьк\w+\s+(?:символ|букв|доск|картинк)"
+)
+_SCREEN_WANTS_TO_TAP = re.compile(
+    r"игра(?:ть|ем)?\s+(?:не голосом|визуально)|только визуально|визуально\s+постав\w*|"
+    r"не голосовым|нажим\w*\s+на клетк"
+)
+_SCREEN_REQUEST = re.compile(f"{_SCREEN_CANNOT_SEE.pattern}|{_SCREEN_WANTS_TO_TAP.pattern}")
+
+
+def parse_screen(text: str) -> ScreenRequest | None:
+    """Read a request about the picture, or `None` when the phrase is not one."""
+    if _SCREEN_WANTS_TO_TAP.search(text):
+        return ScreenRequest(ScreenWish.TAP)
+    if _SCREEN_CANNOT_SEE.search(text):
+        return ScreenRequest(ScreenWish.BIGGER)
+    return None
+
+
 _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (CommandKind.REPEAT_HEARD, re.compile(r"что (ты )?(услышал[аи]?|понял[аи]?|разобрал[аи]?)|что я сказал")),
     (
@@ -576,10 +619,12 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     # Before the position query: «какие фигуры съедены» is a fact about the
     # game, not the «какие фигуры» listing of the current board.
     (CommandKind.GAME_FACT, game_facts.QUESTION_PATTERN),
+    # Before the position query: «покажи доску на весь экран» asks about the picture, not the pieces.
+    (CommandKind.SCREEN, _SCREEN_REQUEST),
     (
         CommandKind.POSITION_QUERY,
         re.compile(
-            r"кака(я|ю) позици|позици(я|ю)|расстановк|\bгде\b|что на|покажи доску|"
+            r"кака(я|ю) позици|позици(я|ю)|расстановк|\bгде\b|что на|покажи (?:мне\s+)?(?:\w+\s+)?(?:доску|поле)\b|"
             r"какие (?:у меня )?фигуры|сколько фигур|прочитай|"
             # A rank only when one is named: «мат по последней горизонтали» is a
             # term, and «ходить по горизонтали» a rule, neither reads the board.
@@ -1056,6 +1101,7 @@ def route(
             if kind is CommandKind.COLOR_CHOICE and colour_asked is None:
                 # A colour named without asking for it: let the later patterns read it.
                 continue
+            screen_asked = parse_screen(normalized.text) if kind is CommandKind.SCREEN else None
             level_asked = parse_level(normalized.text) if kind in _LEVEL_KINDS else None
             if kind is CommandKind.LEVEL and level_asked is None:
                 continue
@@ -1074,6 +1120,7 @@ def route(
                 clarification=None,
                 rematch=colour_asked,
                 level=level_asked,
+                screen=screen_asked,
                 undo_count=_undo_count(normalized.text) if kind is CommandKind.UNDO else 1,
             )
 

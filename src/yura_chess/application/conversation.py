@@ -24,6 +24,7 @@ from yura_chess.application.command_router import (
     ReviewQuestion,
     ReviewRequest,
     RoutedCommand,
+    ScreenWish,
     TrainingQuestion,
     TrainingRequest,
     confirmation_answer,
@@ -91,6 +92,14 @@ _LEVEL_SCALE_ANSWER = (
     "Чем больше число, тем сильнее я играю. Ноль — самый легкий уровень, двадцать — самый сильный. "
     "Чтобы поставить, скажите: «уровень пять»."
 )
+_SCREEN_BIGGER_ANSWER = "На весь экран переключить не могу. Читаю доску."
+_SCREEN_BIGGER_NO_GAME = (
+    "На весь экран переключить не могу. Зато я читаю доску вслух. Скажите «новая игра», и я буду называть каждый ход."
+)
+_SCREEN_TAP_ANSWER = (
+    "Нажимать на клетки здесь нельзя, ходы я принимаю только голосом. Скажите, какая фигура и на какую клетку идет."
+)
+_SCREEN_TAP_NO_GAME = "Нажимать на клетки здесь нельзя, ходы я принимаю только голосом. Скажите «новая игра», и начнем."
 _TRAINER_OFFER = (
     "Сейчас играем без подсказок. Включить режим тренера и ответить на ваш вопрос? "
     "Это уже не честная партия. Скажите «да» или «нет»."
@@ -485,6 +494,7 @@ class ConversationService:
             CommandKind.REPEAT_HEARD,
             CommandKind.REPEAT_SLOW,
             CommandKind.BOARD_SETUP,
+            CommandKind.SCREEN,
         }
         if pending_action is not None and routed.kind in pending_overrides:
             next_state = replace(next_state, pending_action=None)
@@ -756,6 +766,21 @@ class ConversationService:
                 self._with_game(next_state, game) if game is not None else next_state,
             )
 
+        if routed.kind is CommandKind.SCREEN and routed.screen is not None:
+            if routed.screen.wish is ScreenWish.TAP:
+                playable = game is not None and game.status is GameStatus.ACTIVE
+                return ConversationReply(
+                    Speech.of(_SCREEN_TAP_ANSWER if playable else _SCREEN_TAP_NO_GAME),
+                    self._with_game(next_state, game) if game is not None else next_state,
+                )
+            if board is None or game is None:
+                return ConversationReply(Speech.of(_SCREEN_BIGGER_NO_GAME), next_state)
+            read = answer_position_query("какая позиция", board, 0)
+            return ConversationReply(
+                Speech.of(f"{_SCREEN_BIGGER_ANSWER} {read.speech.text}"),
+                replace(self._with_game(next_state, game), position_page=read.page),
+            )
+
         if routed.kind is CommandKind.WHY:
             if game is not None and game.mode is GameMode.TRAINING and game.moves:
                 speech = await self._training.answer(
@@ -960,6 +985,14 @@ class ConversationService:
         if routed.kind is CommandKind.POSITION_QUERY:
             answer = answer_position_query(utterance, board, prior.position_page)
             return ConversationReply(answer.speech, replace(state, position_page=answer.page))
+        if routed.kind is CommandKind.SCREEN and routed.screen is not None:
+            if routed.screen.wish is ScreenWish.TAP:
+                return ConversationReply(Speech.of(_SCREEN_TAP_ANSWER), state)
+            read = answer_position_query("какая позиция", board, 0)
+            return ConversationReply(
+                Speech.of(f"{_SCREEN_BIGGER_ANSWER} {read.speech.text}"),
+                replace(state, position_page=read.page),
+            )
         if routed.kind is CommandKind.UNKNOWN:
             return ConversationReply(
                 Speech.of("Не понял. Назовите ход, скажите «подскажи» или «покажи решение»."),
