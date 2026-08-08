@@ -1708,7 +1708,11 @@ def test_a_question_about_yura_is_told_from_a_question_about_the_board(utterance
         ("а четыре", CommandKind.MOVE),
         ("а конь эф три", CommandKind.MOVE),
         ("ну и что дальше", CommandKind.GAME_FACT),
-        ("все хорошо", CommandKind.BACKCHANNEL),
+        ("все хорошо", CommandKind.UNKNOWN),
+        # A filler is only an address when a name follows it; alone it stays part of the phrase.
+        ("а стоп", CommandKind.UNKNOWN),
+        ("ну хватит", CommandKind.UNKNOWN),
+        ("ладно все", CommandKind.UNKNOWN),
         ("ладно сдаюсь", CommandKind.RESIGN),
         ("огромное спасибо", CommandKind.SOCIAL),
         ("спасибо вам", CommandKind.SOCIAL),

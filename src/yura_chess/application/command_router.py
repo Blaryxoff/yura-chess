@@ -1319,15 +1319,20 @@ _RELAY_TO_YURA = re.compile(r"(?:скажи|передай) юр[еы]\s+(?:то
 
 
 def _without_vocative(words: tuple[str, ...]) -> str | None:
-    """The utterance with the name it was addressed to removed, or `None` if that leaves nothing.
+    """The utterance with the name it was addressed to removed, or `None` if no name was said.
 
     «юра пока» and «твой ход юра» are the commands the skill already answers,
-    said to the player's opponent by name.
+    said to the player's opponent by name. A filler is dropped only when a name
+    follows it: «ну юра, твой ход» is addressed, «ну хватит» is not.
     """
-    trimmed = words[1:] if words and words[0] in _ADDRESS_FILLERS | _VOCATIVES else words
+    opening = 0
+    while opening < len(words) and words[opening] in _ADDRESS_FILLERS:
+        opening += 1
+    named = opening < len(words) and words[opening] in _VOCATIVES
+    trimmed = words[opening + 1 :] if named else words
     if trimmed and trimmed[-1] in _VOCATIVES:
-        trimmed = trimmed[:-1]
-    return " ".join(trimmed) if trimmed and trimmed != words else None
+        trimmed, named = trimmed[:-1], True
+    return " ".join(trimmed) if named and trimmed else None
 
 
 def parse_preference(text: str) -> PreferenceChange | None:
