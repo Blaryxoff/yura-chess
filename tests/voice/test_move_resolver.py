@@ -1820,6 +1820,7 @@ def test_a_puzzle_is_asked_for_in_more_than_one_way(utterance: str, theme: str |
         ("напомнить позицию", CommandKind.POSITION_QUERY),
         ("повторить позицию", CommandKind.POSITION_QUERY),
         ("не могу решить какой ход лучше", CommandKind.TRAINING),
+        ("в этой задаче другая позиция покажи доску", CommandKind.POSITION_QUERY),
         ("не могу решить стоит ли мне ходить конем", CommandKind.TRAINING),
     ],
 )
@@ -1847,6 +1848,7 @@ def test_asking_about_puzzles_is_not_asking_for_one(utterance: str, kind: Comman
         ("не надо решение следующую задачу", PuzzleQuestion.NEXT),
         ("не хочу эту задачу другую давай", PuzzleQuestion.NEXT),
         ("не хочу эту задачу дай другую", PuzzleQuestion.NEXT),
+        ("не хочу эту задачу дай новую", PuzzleQuestion.NEXT),
         ("скажи решение", PuzzleQuestion.SOLUTION),
         ("сдаюсь в задаче", PuzzleQuestion.SOLUTION),
         ("я сдаюсь в этой задаче", PuzzleQuestion.SOLUTION),
