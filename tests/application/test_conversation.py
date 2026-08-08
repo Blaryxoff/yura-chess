@@ -1724,6 +1724,32 @@ async def _finished_game(
     return resigned.state
 
 
+async def test_the_new_game_offered_when_the_game_ends_starts_without_another_question(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    finished = await _finished_game(conversation, "новая игра", 1)
+
+    started = await conversation.handle(OWNER, "новая игра", context(4), finished)
+
+    assert "Новая партия." in started.speech.text
+    assert started.state.game_id != finished.game_id
+
+
+async def test_a_new_game_while_one_is_running_still_asks_to_end_it(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    running = await conversation.handle(OWNER, "новая игра", context(1))
+
+    asked = await conversation.handle(OWNER, "новая игра", context(2), running.state)
+
+    assert asked.speech.text == "Начать новую партию и закончить текущую? Скажите «да» или «нет»."
+    assert asked.state.game_id == running.state.game_id
+
+
 async def test_settings_command_is_stored_and_never_played_as_a_move(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,

@@ -746,6 +746,8 @@ class ConversationService:
             result = await self._games.continue_game(owner_key, game.id, request)
             return self._turn_reply(owner_key, result, next_state, preferences)
         if routed.kind in {CommandKind.START, CommandKind.NEW_GAME}:
+            if game.status is not GameStatus.ACTIVE:
+                return await self._start(owner_key, utterance, request, next_state, preferences)
             return ConversationReply(
                 Speech.of("Начать новую партию и закончить текущую? Скажите «да» или «нет»."),
                 replace(
