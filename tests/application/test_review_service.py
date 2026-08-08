@@ -636,3 +636,26 @@ async def test_a_review_of_another_owners_game_reads_nothing(
     with session_scope(session_factory) as session:
         assert ReviewRepository(session).find(game.id, stranger) is None
         assert AnalysisRepository(session).list_for_game(game.id, stranger) == ()
+
+
+async def test_the_puzzle_offered_when_the_game_ends_does_not_take_the_review_away(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = ConversationService(session_factory, FakeEngine(), offline_settings)
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).create_game(OWNER, PlayerColor.WHITE, initial_fen=MATE_IN_ONE_FEN)
+
+    mated = await conversation.handle(
+        OWNER,
+        "ладья а один а восемь",
+        context(1),
+        ConversationState(game_id=game.id, revision=game.revision),
+    )
+    puzzle = await conversation.handle(OWNER, "решить задачу", context(2), mated.state)
+    summary = await conversation.handle(OWNER, "разобрать партию", context(3), puzzle.state)
+
+    assert "решить задачу" in mated.speech.text
+    assert puzzle.card is not None
+    assert puzzle.card.title == "Задача"
+    assert "Вы выиграли." in summary.speech.text

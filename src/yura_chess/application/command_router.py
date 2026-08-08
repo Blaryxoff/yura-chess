@@ -1070,7 +1070,7 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
     (
         PuzzleQuestion.SOLUTION,
         re.compile(
-            r"(покажи|скажи|какое|объясни|не знаю)\w* решение|сдаюсь в (?:эт\w+ )?задач\w*|решение задачи|"
+            r"(покажи|скажи|какое|объясни|не знаю)\w*(?: мне)? решение|сдаюсь в (?:эт\w+ )?задач\w*|решение задачи|"
             # Anchored: «не могу решить, какой ход лучше» asks the trainer, not the puzzle.
             r"(?:не (?:могу|мог|могла)|не получается)(?: \w+){0,2} реши\w+(?: эту)?(?: задач\w*)?$"
         ),
@@ -1116,7 +1116,7 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
 
 # «не надо решение, следующую задачу» refuses one puzzle command and asks for another.
 _START_REFUSED = re.compile(r"\bне\s+(?:\w+\s+){0,2}(?:дай|давай|хочу|надо|нужн|буду|открыв|открой)\w*")
-_SOLUTION_REFUSED = re.compile(r"\bне\s+(?:показыв|говор|читай|озвуч|объясняй)\w*")
+_SOLUTION_REFUSED = re.compile(r"\bне\s+(?:показыв|говор|читай|озвуч|объясняй)\w*(?:\s+\w+){0,2}\s+решени")
 
 # Themes the shipped catalogue actually carries, named the way a player names them.
 _PUZZLE_THEMES: tuple[tuple[str, re.Pattern[str]], ...] = (
