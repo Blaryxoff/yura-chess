@@ -1813,6 +1813,8 @@ def test_a_puzzle_is_asked_for_in_more_than_one_way(utterance: str, theme: str |
         ("не надо задачу", CommandKind.UNKNOWN),
         ("не буду решать задачи", CommandKind.UNKNOWN),
         ("не показывай решение", CommandKind.UNKNOWN),
+        ("не могу решить какой ход лучше", CommandKind.TRAINING),
+        ("не могу решить стоит ли мне ходить конем", CommandKind.TRAINING),
     ],
 )
 def test_asking_about_puzzles_is_not_asking_for_one(utterance: str, kind: CommandKind) -> None:
@@ -1832,6 +1834,11 @@ def test_asking_about_puzzles_is_not_asking_for_one(utterance: str, kind: Comman
         ("не знаю решение", PuzzleQuestion.SOLUTION),
         ("не могу решить задачу", PuzzleQuestion.SOLUTION),
         ("я не могу решить эту задачу", PuzzleQuestion.SOLUTION),
+        ("не знаю покажи решение", PuzzleQuestion.SOLUTION),
+        ("не хочу подсказку покажи решение", PuzzleQuestion.SOLUTION),
+        ("не давай новую задачу повтори условие", PuzzleQuestion.REPEAT),
+        ("не могу решить эту задачу повтори условие", PuzzleQuestion.REPEAT),
+        ("не надо решение следующую задачу", PuzzleQuestion.NEXT),
         ("какая у меня серия", PuzzleQuestion.STREAK),
         ("какие задачи я решал", PuzzleQuestion.HISTORY),
         ("решенные задачи", PuzzleQuestion.HISTORY),

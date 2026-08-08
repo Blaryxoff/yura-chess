@@ -1071,7 +1071,8 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
         PuzzleQuestion.SOLUTION,
         re.compile(
             r"(покажи|какое|объясни|не знаю)\w* решение|сдаюсь в задаче|решение задачи|"
-            r"не (?:могу|мог|могла)(?: \w+){0,2} реши\w+"
+            # Anchored: «не могу решить, какой ход лучше» asks the trainer, not the puzzle.
+            r"не (?:могу|мог|могла)(?: \w+){0,2} реши\w+(?: эту)?(?: задач\w*)?$"
         ),
     ),
     (
@@ -1113,8 +1114,9 @@ _PUZZLE_PATTERNS: tuple[tuple[PuzzleQuestion, re.Pattern[str]], ...] = (
     ),
 )
 
-# «не давай задачу» and «не хочу задачу» ask for no puzzle at all.
-_PUZZLE_REFUSED = re.compile(r"\bне\s+(?:\w+\s+){0,2}(?:дай|давай|хочу|надо|нужн|буду|открыв|открой|покажи)\w*")
+# «не надо решение, следующую задачу» refuses one puzzle command and asks for another.
+_START_REFUSED = re.compile(r"\bне\s+(?:\w+\s+){0,2}(?:дай|давай|хочу|надо|нужн|буду|открыв|открой)\w*")
+_SOLUTION_REFUSED = re.compile(r"\bне\s+(?:показыв|говор|читай|озвуч|объясняй)\w*")
 
 # Themes the shipped catalogue actually carries, named the way a player names them.
 _PUZZLE_THEMES: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -1380,13 +1382,16 @@ def parse_review(text: str) -> ReviewRequest | None:
 
 def parse_puzzle(text: str) -> PuzzleRequest | None:
     """Read a puzzle command, or return `None` when the phrase is not one."""
-    if _PUZZLE_REFUSED.search(text):
-        return None
     for question, pattern in _PUZZLE_PATTERNS:
-        if pattern.search(text):
-            if question not in {PuzzleQuestion.START, PuzzleQuestion.NEXT}:
-                return PuzzleRequest(question)
-            return PuzzleRequest(question, theme=_puzzle_theme(text))
+        if not pattern.search(text):
+            continue
+        if question is PuzzleQuestion.SOLUTION and _SOLUTION_REFUSED.search(text):
+            continue
+        if question is PuzzleQuestion.START and _START_REFUSED.search(text):
+            return None
+        if question not in {PuzzleQuestion.START, PuzzleQuestion.NEXT}:
+            return PuzzleRequest(question)
+        return PuzzleRequest(question, theme=_puzzle_theme(text))
     return None
 
 
