@@ -34,7 +34,7 @@ from yura_chess.presentation.position_speech import (
     answer_position_query,
     read_board,
 )
-from yura_chess.presentation.response_composer import compose_turn
+from yura_chess.presentation.response_composer import NEXT_STEP_PROMPT, compose_turn
 from yura_chess.voice.normalizer import normalize
 from yura_chess.voice.types import TokenKind
 
@@ -345,7 +345,55 @@ def test_checkmate_names_the_winner_from_the_player_side() -> None:
         )
     )
 
-    assert speech.text == "Мат. Черные выиграли. Вы проиграли."
+    assert speech.text == f"Мат. Черные выиграли. Вы проиграли. {NEXT_STEP_PROMPT}"
+
+
+def test_a_finished_game_ends_by_naming_what_to_do_next() -> None:
+    speech = compose_turn(
+        _result(
+            TurnStatus.GAME_OVER,
+            outcome=GameOutcome(GameEnd.RESIGNATION, PlayerColor.BLACK),
+            game_status=GameStatus.RESIGNED,
+        )
+    )
+
+    assert speech.text == f"Вы сдались. Партия окончена. {NEXT_STEP_PROMPT}"
+
+
+def test_a_game_still_being_played_is_not_told_what_to_do_next() -> None:
+    speech = compose_turn(_result(TurnStatus.OK))
+
+    assert NEXT_STEP_PROMPT not in speech.text
+
+
+def test_what_to_do_next_is_named_after_every_sound_of_the_answer() -> None:
+    library = SoundLibrary(
+        "alice-sounds-start.opus",
+        "alice-sounds-move.opus",
+        "alice-sounds-check.opus",
+        "alice-sounds-mate.opus",
+        "alice-sounds-win.opus",
+    )
+    board = chess.Board(MATE_IN_ONE_FEN)
+    move = chess.Move.from_uci("a1a8")
+    after = board.copy(stack=False)
+    after.push(move)
+    speech = compose_turn(
+        _result(
+            TurnStatus.GAME_OVER,
+            engine_move=move.uci(),
+            fen=after.fen(),
+            player_color=PlayerColor.BLACK,
+            game_status=GameStatus.FINISHED,
+            outcome=GameOutcome(GameEnd.CHECKMATE, PlayerColor.WHITE),
+        ),
+        board,
+    )
+
+    sounded = add_move_sounds(speech, None, SoundEvent.MOVE, SoundEvent.CHECKMATE, True, library)
+
+    assert sounded.spoken().count("<speaker") == 1
+    assert sounded.spoken().endswith(NEXT_STEP_PROMPT)
 
 
 def test_engine_check_is_not_announced_twice_by_commentary() -> None:
@@ -395,7 +443,7 @@ def test_engine_checkmate_is_not_announced_twice() -> None:
 def test_draws_are_named_by_their_rule(end: GameEnd, expected: str) -> None:
     speech = compose_turn(_result(TurnStatus.GAME_OVER, outcome=GameOutcome(end), game_status=GameStatus.FINISHED))
 
-    assert speech.text == expected
+    assert speech.text == f"{expected} {NEXT_STEP_PROMPT}"
 
 
 @pytest.mark.parametrize(

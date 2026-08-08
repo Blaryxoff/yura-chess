@@ -48,6 +48,8 @@ _DRAW_TEXTS: dict[GameEnd, str] = {
     GameEnd.THREEFOLD_REPETITION: "Троекратное повторение позиции. Ничья.",
 }
 
+NEXT_STEP_PROMPT = "Скажите «разбери партию» или «новая игра»."
+
 
 def compose_turn(
     result: TurnResult,
@@ -57,8 +59,9 @@ def compose_turn(
 ) -> Speech:
     """Say what the turn did; `board_before` is the position the engine moved in.
 
-    `commentary` is the optional remark about the move and always comes last: it
-    is an aside, never part of what happened.
+    `commentary` is the optional remark about the move and comes after what
+    happened: it is an aside, never part of it. A finished game closes by naming
+    the commands that carry on from it.
     """
     move_text = _move_text(result, board_before, notation)
     outcome_text = _outcome_text(result)
@@ -66,7 +69,8 @@ def compose_turn(
         move_text = move_text.removesuffix(" Мат.")
     if commentary is not None and "Шах." in move_text and "шах" in commentary.lower():
         commentary = None
-    parts = [text for text in (move_text, outcome_text, commentary) if text]
+    prompt = NEXT_STEP_PROMPT if result.outcome is not None else None
+    parts = [text for text in (move_text, outcome_text, commentary, prompt) if text]
     if not parts:
         return Speech.of(_STATUS_TEXTS.get(result.status, "Ваш ход."))
     return Speech.of(" ".join(parts))

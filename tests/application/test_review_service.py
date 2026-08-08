@@ -19,6 +19,7 @@ from yura_chess.domain.game import EngineSettings, GameMode, GameState, GameStat
 from yura_chess.domain.review import ReviewSection
 from yura_chess.engine.stockfish import EngineSearchTimeoutError, EngineUnavailableError
 from yura_chess.presentation import pgn
+from yura_chess.presentation.response_composer import NEXT_STEP_PROMPT
 from yura_chess.settings import Settings
 from yura_chess.storage.analysis_repository import AnalysisRepository
 from yura_chess.storage.database import session_scope
@@ -31,6 +32,8 @@ OWNER = "r" * 64
 
 # 1. f3 e5 2. g4 Qh4#: White's two moves are the losses the review must find.
 FOOLS_MATE = ("f2f3", "e7e5", "g2g4", "d8h4")
+
+MATE_IN_ONE_FEN = "6k1/5ppp/8/8/8/8/8/R5RK w - - 0 1"
 
 
 class FakeEngine:
@@ -562,6 +565,26 @@ async def test_declining_the_branch_starts_nothing(
     with session_scope(session_factory) as session:
         assert GameRepository(session).find_latest(OWNER) is not None
     assert load(session_factory, game.id).revision == game.revision
+
+
+async def test_the_summary_offered_when_the_game_ends_answers_the_next_utterance(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = ConversationService(session_factory, FakeEngine(), offline_settings)
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).create_game(OWNER, PlayerColor.WHITE, initial_fen=MATE_IN_ONE_FEN)
+
+    mated = await conversation.handle(
+        OWNER,
+        "ладья а один а восемь",
+        context(1),
+        ConversationState(game_id=game.id, revision=game.revision),
+    )
+    summary = await conversation.handle(OWNER, "разбери партию", context(2), mated.state)
+
+    assert NEXT_STEP_PROMPT in mated.speech.text
+    assert "Вы выиграли." in summary.speech.text
 
 
 async def test_a_review_of_another_owners_game_reads_nothing(
