@@ -29,6 +29,8 @@ Before implementation, read the active product and dev plans under `docs/plans/`
 - Tests run automatically after code changes: focused tests first, then the full configured suite.
 - Add tests with every voice phrase, state transition, rule diagnostic, and regression.
 - Prefer captured Alice ASR transcripts over invented synonyms.
+- `asr_transcripts.outcome` records how the build deployed at the time routed the phrase, not how HEAD routes it. Read
+  the corpus for what players say; re-measure routing through `route()` before concluding anything about today.
 - Never commit `.env`, credentials, Yandex tokens, certificates, databases, generated board images, or Stockfish binaries.
 
 ## Local verification
