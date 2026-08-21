@@ -12,6 +12,7 @@ import logging
 import threading
 from collections.abc import Callable
 from functools import partial
+from time import monotonic
 from typing import Protocol, TypeVar
 
 import chess
@@ -192,12 +193,21 @@ class StockfishPool:
         search_time: float | None = None,
         skill_level: int | None = None,
     ) -> str:
-        """Return the engine reply, or raise a controlled error well inside the Alice budget."""
+        """Return the engine reply, or raise a controlled error well inside the Alice budget.
+
+        `engine_move_deadline_seconds` bounds acquisition and search together, so
+        waiting for a busy worker shortens the search instead of extending the turn.
+        """
         deadline = self._settings.engine_move_deadline_seconds
         limit = min(search_time if search_time is not None else self._settings.engine_move_time_seconds, deadline)
+        started = monotonic()
         worker = await self._acquire()
+        remaining = deadline - (monotonic() - started)
+        if remaining <= 0:
+            self._idle.put_nowait(worker)
+            raise EngineUnavailableError(f"no engine worker within {deadline} s")
         position = board.copy(stack=False)
-        return await self._guarded(worker, deadline, partial(worker.run, position, limit, skill_level))
+        return await self._guarded(worker, remaining, partial(worker.run, position, min(limit, remaining), skill_level))
 
     async def analyse(
         self,

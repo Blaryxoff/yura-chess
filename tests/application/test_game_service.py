@@ -211,6 +211,22 @@ async def test_engine_failure_keeps_a_resumable_pending_turn(session_factory: se
     assert state.pending_engine_turn.player_move_uci == "e2e4"
 
 
+async def test_an_illegal_engine_move_never_reaches_the_canonical_history(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Pushing it would corrupt the move list and leave the game unloadable."""
+    engine = FakeEngine(moves=("d1h5",))  # a white move, offered while the engine is to move as black
+    subject = service(session_factory, engine)
+    game_id = (await subject.start_game(OWNER, request("m1"))).game_id
+
+    result = await subject.play_move(OWNER, game_id, "e2e4", request("m2"))
+
+    assert result.status is TurnStatus.ENGINE_UNAVAILABLE
+    state = load(session_factory, game_id)
+    assert state.moves == ("e2e4",)
+    assert state.pending_engine_turn is not None
+
+
 async def test_optional_observation_never_delays_the_engine_reply(
     session_factory: sessionmaker[Session],
 ) -> None:

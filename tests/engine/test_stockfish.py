@@ -117,7 +117,9 @@ async def test_search_time_is_capped_by_the_deadline() -> None:
     finally:
         await pool.stop()
 
-    assert registry.searches == [0.2]
+    # Acquiring the worker is spent from the same budget, so the cap is a ceiling.
+    assert len(registry.searches) == 1
+    assert 0.15 < registry.searches[0] <= 0.2
 
 
 async def test_saturated_pool_fails_fast_without_queueing() -> None:

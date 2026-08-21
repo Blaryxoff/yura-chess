@@ -18,7 +18,9 @@ Before implementation, read the active product and dev plans under `docs/plans/`
 - Runtime code lives under `src/yura_chess/`.
 - Alice protocol adapters, application services, chess domain, storage, engine, voice, and presentation stay separate.
 - Keep a modular monolith and a bounded pool of persistent Stockfish processes (two by default), each with its own lock.
-- A search runs off the event loop under a hard deadline of at most 3 s; pool exhaustion returns a controlled answer instead of queueing.
+- A search runs off the event loop under a hard deadline of at most 3 s that covers acquiring a worker and searching
+  together; a busy pool waits at most `engine_acquire_timeout_seconds` inside that budget and then returns a controlled
+  answer, and past one waiter per worker it fails immediately instead of queueing.
 - Keep full game state server-side; Alice state contains only identifiers, revision, and replay metadata.
 - Render board images in memory. Any byte cache must be bounded and disposable.
 - Do not copy code or vocabulary verbatim from `axtrace/alisa_chess` until licensing is explicit.

@@ -532,7 +532,21 @@ class GameService:
                 return self._finalize(repository, replay, result)
 
             board = current.board()
-            board.push(chess.Move.from_uci(engine_move))
+            move = _legal_move(board, engine_move)
+            if move is None:
+                logger.error(
+                    "engine returned a move that is not legal here",
+                    extra={"game": state.id, "engine_move": engine_move},
+                )
+                result = TurnResult.from_state(
+                    current,
+                    TurnStatus.ENGINE_UNAVAILABLE,
+                    player_move=player_move,
+                    detail="illegal engine move",
+                    settles_owed_reply=settles_owed_reply,
+                )
+                return self._finalize(repository, replay, result)
+            board.push(move)
             outcome = automatic_outcome(board)
             current = repository.finish_engine_turn(
                 state.id,
@@ -619,3 +633,11 @@ def _stored_level_change(replay: RequestReplayRow) -> LevelChange | None:
         )
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def _legal_move(board: chess.Board, uci: str) -> chess.Move | None:
+    try:
+        move = chess.Move.from_uci(uci)
+    except ValueError:
+        return None
+    return move if move in board.legal_moves else None
