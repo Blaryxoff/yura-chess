@@ -796,6 +796,14 @@ def test_deployed_smoke_identifiers_are_separated_from_real_traffic() -> None:
     assert traffic_source(USER_A, "ordinary-yandex-session") == "real"
 
 
+def test_a_player_cannot_mark_their_own_traffic_as_synthetic() -> None:
+    """Alice picks these session ids and a player speaks these words; test games get purged."""
+    assert traffic_source(USER_A, "first-visit") == "real"
+    assert traffic_source(USER_A, "return-456") == "real"
+    assert traffic_source(USER_A, "ordinary-session", "тест") == "real"
+    assert traffic_source(USER_A, "ordinary-session", "test") == "real"
+
+
 async def test_monitor_ping_does_not_create_a_game(session_factory: sessionmaker[Session]) -> None:
     async with build_client(session_factory) as client:
         response = await client.post("/alice/webhook", json=alice_request(1, command="ping", new=True))

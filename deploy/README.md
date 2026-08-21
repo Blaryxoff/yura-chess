@@ -29,7 +29,7 @@ docker build --tag "ghcr.io/blaryxoff/yura-chess:$TAG" .
 docker push "ghcr.io/blaryxoff/yura-chess:$TAG"
 ```
 
-Pushes to `main` also publish `ghcr.io/blaryxoff/yura-chess:<40-character-git-sha>`
+Pushes to `master` also publish `ghcr.io/blaryxoff/yura-chess:<40-character-git-sha>`
 through `.github/workflows/publish.yml`.
 
 Only immutable tags are deployable. `deploy.sh` refuses `latest`.

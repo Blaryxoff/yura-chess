@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
+from time import monotonic
 from typing import Literal
 
 from fastapi import FastAPI, Request, Response, status
@@ -57,6 +58,9 @@ from yura_chess.storage.transcript_repository import TranscriptRepository
 from yura_chess.storage.usage_repository import UsageRepository
 
 logger = logging.getLogger(__name__)
+
+# Matches the public Cache-Control max-age the page already advertises.
+DASHBOARD_CACHE_SECONDS = 60.0
 
 
 class HealthResponse(BaseModel):
@@ -136,6 +140,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings or get_settings()
 
+    # Bounded by the two enumerated query parameters, so it needs no eviction.
+    rendered: dict[tuple[str, str], tuple[float, str]] = {}
+    rendering = asyncio.Lock()
+
     @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
     async def landing_page(
         period: Literal["month", "year", "all"] = "month",
@@ -146,8 +154,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 snapshot = UsageRepository(session).dashboard("real", period=period)
                 return render_landing_page(render_dashboard(snapshot, metric))
 
+        def fresh() -> str | None:
+            cached = rendered.get((period, metric))
+            if cached is None or monotonic() - cached[0] >= DASHBOARD_CACHE_SECONDS:
+                return None
+            return cached[1]
+
+        html = fresh()
+        if html is None:
+            async with rendering:
+                html = fresh()
+                if html is None:
+                    html = await run_in_threadpool(load)
+                    rendered[(period, metric)] = (monotonic(), html)
+
         return HTMLResponse(
-            await run_in_threadpool(load),
+            html,
             headers={"Cache-Control": "public, max-age=60, stale-while-revalidate=300"},
         )
 

@@ -42,7 +42,7 @@ they appear.
 
 `/srv/yura-chess/repo` is an extracted snapshot of the repository, not a git
 checkout: `git fetch` and `git checkout` fail there. A release changes the image
-tag only, so the snapshot does not have to track `main` — but `deploy.sh`,
+tag only, so the snapshot does not have to track `master` — but `deploy.sh`,
 `rollback.sh` and the Compose file are read from it, and a change to any of those
 reaches production only when the snapshot is replaced.
 
@@ -119,10 +119,12 @@ Secrets that exist only on Firebat and never in git:
   aggregate `usage_users` and `usage_requests` rows remain available for release diagnostics.
 - MariaDB and persisted timestamps stay in UTC. Public usage reports shift UTC
   timestamps to Moscow time before applying day, month and period boundaries.
-- Health checks: the application polls `/health/ready` (database connection,
-  schema and ready worker count); MariaDB uses `healthcheck.sh --connect
-  --innodb_initialized`. The engine pool count is reported by readiness without
-  ever starting a search.
+- Health checks: the container healthcheck polls `/health/live` (liveness only —
+  a restart cannot repair a degraded pool or a down database), while
+  `/health/ready` (database connection, schema and ready worker count) is polled
+  by `deploy.sh` and `rollback.sh` and gates the release; MariaDB uses
+  `healthcheck.sh --connect --innodb_initialized`. The engine pool count is
+  reported by readiness without ever starting a search.
 
 ## Deploy and rollback
 
@@ -191,6 +193,8 @@ sudo -n incus list yura-chess
 sudo -n incus config device show yura-chess
 ```
 
-`/health/ready` returns 503 while the database or schema check fails and reports
-`engine: degraded: 0/2 workers` when Stockfish cannot start — a degraded engine
-does not fail readiness, because the skill still answers position questions.
+`/health/ready` returns 503 while the database or schema check fails **or** while
+no Stockfish worker is ready (`engine: degraded: 0/2 workers`): an instance that
+cannot search has to leave rotation instead of accepting traffic. `deploy.sh` and
+`rollback.sh` poll this endpoint, so a degraded engine fails the release smoke and
+triggers the automatic rollback.

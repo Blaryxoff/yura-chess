@@ -379,7 +379,8 @@ def test_public_landing_page_uses_real_traffic_and_accepts_period_filters(
 
     assert default.status_code == test.status_code == head.status_code == 200
     assert default.headers["cache-control"] == "public, max-age=60, stale-while-revalidate=300"
-    assert queries == [("real", "month"), ("real", "year"), ("real", "month"), ("real", "month")]
+    # One render per (period, metric) within the TTL: the webhook shares this pool.
+    assert queries == [("real", "month"), ("real", "year")]
     assert '<link rel="canonical" href="https://yurachess.ru/">' in test.text
     assert invalid.status_code == 200
     assert invalid_period.status_code == 422

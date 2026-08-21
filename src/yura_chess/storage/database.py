@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
+from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, create_engine, inspect, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from yura_chess.settings import Settings
 from yura_chess.storage.models import Base
+
+logger = logging.getLogger(__name__)
 
 REQUIRED_TABLES = frozenset(Base.metadata.tables)
 _MARIADB_DEADLOCK_CODE = 1213
@@ -80,3 +85,34 @@ def check_schema(engine: Engine) -> None:
     missing = sorted(REQUIRED_TABLES - present)
     if missing:
         raise SchemaMismatchError(f"missing tables: {', '.join(missing)}")
+    _check_revision(engine)
+
+
+def _check_revision(engine: Engine) -> None:
+    """Every table can be present while a column-adding migration is still unapplied."""
+    directory = _migrations()
+    if directory is None:
+        return
+    head = directory.get_current_head()
+    if head is None:
+        return
+    try:
+        with engine.connect() as connection:
+            applied = list(connection.execute(text("SELECT version_num FROM alembic_version")).scalars().all())
+    except DatabaseError as error:
+        raise SchemaMismatchError("alembic_version is unreadable") from error
+    if applied == [head]:
+        return
+    known = {revision.revision for revision in directory.walk_revisions()}
+    if applied and not known.issuperset(applied):
+        # A rollback swaps only the image, so the database stays one release ahead.
+        logger.warning("database is at %s, ahead of this image at %s", applied, head)
+        return
+    raise SchemaMismatchError(f"schema revision {applied or 'none'} is behind {head}")
+
+
+def _migrations() -> ScriptDirectory | None:
+    directory = Path(__file__).resolve().parents[3] / "migrations"
+    if not directory.is_dir():
+        return None
+    return ScriptDirectory(str(directory))
