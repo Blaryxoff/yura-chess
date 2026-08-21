@@ -137,7 +137,7 @@ DASHBOARD_CSS = """
     .stats-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
     .stats-card { position: relative; min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: #171613; }
     .stats-value { color: var(--gold); font-size: clamp(28px, 4vw, 42px); font-weight: 850; line-height: 1; }
-    .stats-label { margin-top: 8px; color: var(--muted); overflow-wrap: anywhere; }
+    .stats-label { margin-top: 8px; color: var(--muted); overflow-wrap: break-word; }
     .stats-chart {
       height: 260px;
       display: flex;
@@ -278,10 +278,11 @@ DASHBOARD_CSS = """
       .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 520px) {
+      .stats-panel { padding: 14px; }
       .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-      .stats-card { padding: 12px; }
-      .stats-value { font-size: 28px; }
-      .stats-label { font-size: 14px; line-height: 1.4; }
+      .stats-card { padding: 11px; }
+      .stats-value { font-size: clamp(22px, 7vw, 28px); }
+      .stats-label { font-size: 13px; line-height: 1.35; }
       .stats-chart { height: 230px; padding-right: 18px; }
     }
 """

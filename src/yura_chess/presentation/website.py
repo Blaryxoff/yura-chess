@@ -373,7 +373,7 @@ SITE_CSS = (
       .hero-actions { gap: 18px; }
       .launch { width: min(100%, 320px); padding-left: 14px; }
       .launch-action { width: min(100%, 320px); }
-      section { padding: 24px; }
+      section { padding: 18px; }
       .grid { grid-template-columns: 1fr; }
       .faq { grid-template-columns: 1fr; }
       .voice-demo { grid-template-columns: 1fr; gap: 12px; text-align: left; }
@@ -381,6 +381,12 @@ SITE_CSS = (
       .command-list { columns: 1; }
       footer { grid-template-columns: 1fr; gap: 24px; margin-top: 28px; padding-inline: 2px; }
       .footer-nav { gap: 12px 18px; }
+    }
+    @media (max-width: 520px) {
+      main { width: min(1080px, calc(100% - 20px)); }
+      section { padding: 14px; margin-bottom: 18px; }
+      .feature { padding: 16px; }
+      .support { padding: 18px 14px; }
     }
 """
     + DASHBOARD_CSS
