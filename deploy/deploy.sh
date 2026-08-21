@@ -56,6 +56,17 @@ smoke() {
   return 1
 }
 
+rollback() {
+  # A migration that already ran stays applied: every migration is backwards compatible by one release.
+  [[ -n "$RUNNING_IMAGE" && "$RUNNING_IMAGE" != "$YURA_CHESS_IMAGE" ]] || return 0
+  echo "==> rolling back to $RUNNING_IMAGE" >&2
+  YURA_CHESS_IMAGE="$RUNNING_IMAGE" compose pull --quiet app
+  YURA_CHESS_IMAGE="$RUNNING_IMAGE" compose up --detach --wait app || true
+  if ! smoke; then
+    echo "automatic rollback also failed health checks" >&2
+  fi
+}
+
 echo "==> deploying $YURA_CHESS_IMAGE to $ENVIRONMENT"
 compose config --quiet
 
@@ -89,21 +100,16 @@ for attempt in $(seq 1 10); do
 done
 
 echo "==> starting application"
-compose up --detach --wait app
+if ! compose up --detach --wait app; then
+  echo "the new application container never became healthy" >&2
+  rollback
+  exit 1
+fi
 
 echo "==> health smoke: $HEALTH_URL"
 if ! smoke; then
   echo "health smoke failed" >&2
-  if [[ -n "$RUNNING_IMAGE" && "$RUNNING_IMAGE" != "$YURA_CHESS_IMAGE" ]]; then
-    # Only the application goes back: a migration that already ran stays applied,
-    # which is why every migration must be backwards compatible by one release.
-    echo "==> rolling back to $RUNNING_IMAGE" >&2
-    YURA_CHESS_IMAGE="$RUNNING_IMAGE" compose pull --quiet app
-    YURA_CHESS_IMAGE="$RUNNING_IMAGE" compose up --detach --wait app
-    if ! smoke; then
-      echo "automatic rollback also failed health checks" >&2
-    fi
-  fi
+  rollback
   exit 1
 fi
 
