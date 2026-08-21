@@ -811,6 +811,53 @@ def test_castling_is_never_read_as_a_notation_or_brevity_setting(utterance: str)
     assert route(utterance, chess.Board(CASTLING_FEN)).kind is not CommandKind.PREFERENCE
 
 
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("рокировка", "e1g1"),
+        ("короткая рокировка", "e1g1"),
+        ("длинная рокировка", "e1c1"),
+        ("рокировка не длинная", "e1g1"),
+        ("рокировка в длинную сторону", "e1c1"),
+        ("рокирую в короткую сторону", "e1g1"),
+        ("рокировка, большое спасибо", "e1g1"),
+        ("0-0", "e1g1"),
+        ("0-0-0", "e1c1"),
+        ("0 0", "e1g1"),
+    ],
+)
+def test_castling_is_played_when_it_is_the_command(utterance: str, expected: str) -> None:
+    routed = route(utterance, chess.Board(CASTLING_FEN))
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == expected
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "я не хочу рокировку",
+        "что такое рокировка",
+        "рокировка это что",
+        "отмени рокировку",
+        "без рокировки",
+        "счет 0 0",
+    ],
+)
+def test_mentioning_castling_never_castles(utterance: str) -> None:
+    """Naming the move is not asking for it, and a wrong castle is unplayable back."""
+    assert route(utterance, chess.Board(CASTLING_FEN)).move is None
+
+
+def test_a_move_named_instead_of_castling_is_the_move_that_is_played() -> None:
+    board = chess.Board("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1")
+
+    routed = route("вместо рокировки д2 д4", board)
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == "d2d4"
+
+
 @pytest.mark.parametrize("utterance", ["покажи нотацию", "партию в нотации"])
 def test_asking_for_the_written_game_is_not_a_notation_setting(utterance: str) -> None:
     assert route(utterance, chess.Board()).kind is CommandKind.REVIEW

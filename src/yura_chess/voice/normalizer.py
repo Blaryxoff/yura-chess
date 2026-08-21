@@ -53,6 +53,11 @@ _PIECES: dict[str, str] = {
     "королем": "K",
 }
 
+# Yandex ASR writes the final /f/ of «конь эф» the way Russian spells that sound
+# at the end of a word, gluing the piece and the file into «конев». Only a rank
+# right after it makes the word a move; on its own it is a surname.
+_GLUED_PIECE_FILES: dict[str, tuple[str, str]] = {"конев": ("N", "f")}
+
 _RANKS: dict[str, str] = {
     "1": "1",
     "один": "1",
@@ -194,6 +199,10 @@ _CASTLE_NOTATION = re.compile(r"(?<!\w)(?:0|о|o)\s*(?:-|тире)?\s*(?:0|о|o)
 # opens "большое спасибо", and a stray match castles to the side nobody asked for.
 # Only the feminine forms agree with "рокировка".
 _CASTLE_LONG = re.compile(r"^(?:длинн|ферзев)|^больш(?:ая|ую|ой)$")
+# A frame that mentions castling instead of asking for it.
+_CASTLE_MENTIONED = re.compile(
+    r"\bне (?:хочу|надо|буду|нужно|стоит)\b|\bчто такое\b|\bэто что\b|\bвместо\b|\bбез\b|\bотмени\w*\b"
+)
 # Letters and digits are separate runs, so ASR output glued as "е4" or "e4" still
 # tokenises into a file and a rank instead of one unrecognised word.
 _WORD = re.compile(r"[а-я]+|[a-z]+|[0-9]+")
@@ -213,22 +222,28 @@ def normalize(text: str) -> Normalized:
     return Normalized(text=" ".join(words), words=words, signature=signature, unknown_words=unknown)
 
 
+def _notation_meant(match: str, lowered: str) -> bool:
+    """A separator makes «0-0» notation anywhere; a spaced «0 0» only alone, so «счет 0 0» stays a score."""
+    if "-" in match or "тире" in match:
+        return True
+    return match.strip() == lowered.strip()
+
+
 def _tokenize(words: tuple[str, ...], lowered: str) -> tuple[Signature, tuple[str, ...]]:
     words, recovered = _split_glued_ranks(words)
     notation = _CASTLE_NOTATION.search(lowered)
-    if notation is not None:
+    if notation is not None and _notation_meant(notation.group(), lowered):
         marker_count = sum(character in "0оo" for character in notation.group())
         kind = TokenKind.CASTLE_LONG if marker_count >= 3 else TokenKind.CASTLE_SHORT
         return (Token(kind),), ()
 
     castle_word = max((index for index, word in enumerate(words) if _CASTLE.search(word)), default=-1)
     suffix = words[castle_word + 1 :]
-    later_piece = any(word in _PIECES for word in suffix)
     later_square = any(
         word in _FILES_STRICT | _FILES_WEAK and index + 1 < len(suffix) and suffix[index + 1] in _RANKS
         for index, word in enumerate(suffix)
     )
-    if castle_word >= 0 and not (later_piece and later_square):
+    if castle_word >= 0 and not later_square and not _CASTLE_MENTIONED.search(lowered):
         long_side = any(
             _CASTLE_LONG.match(word) and (index == 0 or words[index - 1] != "не") for index, word in enumerate(words)
         )
@@ -241,6 +256,10 @@ def _tokenize(words: tuple[str, ...], lowered: str) -> tuple[Signature, tuple[st
     for index, word in enumerate(words):
         if word in _PIECES:
             tokens.append(Token(TokenKind.PIECE, _PIECES[word]))
+        elif word in _GLUED_PIECE_FILES and index + 1 < len(words) and words[index + 1] in _RANKS:
+            piece, file = _GLUED_PIECE_FILES[word]
+            tokens.append(Token(TokenKind.PIECE, piece))
+            tokens.append(Token(TokenKind.FILE, file))
         elif word in _RANKS:
             kind = TokenKind.DESTINATION_RANK if index in recovered else TokenKind.RANK
             tokens.append(Token(kind, _RANKS[word]))
