@@ -444,6 +444,7 @@ class ConversationService:
             CommandKind.PERSONA,
             CommandKind.PAUSE,
             CommandKind.AMBIGUOUS_TURN,
+            CommandKind.AMBIGUOUS_LEARNING,
             CommandKind.ORIENTATION_QUERY,
             CommandKind.NAVIGATE_BACK,
         }:
@@ -1521,6 +1522,10 @@ def _conversational_reply(
         return Speech.of(f"Хорошо, подожду.{saved}")
     if kind is CommandKind.AMBIGUOUS_TURN:
         return Speech.of("Что вы хотите: сделать ход, услышать последний ход или открыть помощь?")
+    if kind is CommandKind.AMBIGUOUS_LEARNING:
+        if game is not None and game.status is GameStatus.ACTIVE:
+            return Speech.of("Объяснить правила или подсказать ход?")
+        return Speech.of("Объяснить правила или начать партию?")
     if kind is CommandKind.ORIENTATION_QUERY:
         return Speech.of("Как показать доску: за белых или за черных?")
     if kind is CommandKind.NAVIGATE_BACK:

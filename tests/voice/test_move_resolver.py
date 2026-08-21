@@ -2008,3 +2008,144 @@ def test_the_puzzle_commands_keep_their_own_question(utterance: str, question: P
 def test_every_phrase_the_game_over_prompt_names_is_a_command(utterance: str, kind: CommandKind) -> None:
     assert utterance in NEXT_STEP_PROMPT
     assert route(utterance, chess.Board()).kind is kind
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        # Yandex ASR glues «конь эф» into one word and spells the final /f/ with «в».
+        ("конев 3", "g1f3"),
+        ("конев три", "g1f3"),
+    ],
+)
+def test_a_knight_glued_to_its_file_is_still_resolved_against_the_board(utterance: str, expected: str) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == expected
+
+
+def test_a_glued_knight_on_an_unreachable_square_is_asked_about_not_played() -> None:
+    routed = route("конев 6", chess.Board())
+
+    assert routed.kind is CommandKind.CLARIFY
+    assert routed.move is None
+
+
+@pytest.mark.parametrize("utterance", ["конев", "маршал конев", "улица конева", "конев играл в шахматы"])
+def test_the_surname_konev_is_never_read_as_a_move(utterance: str) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.move is None
+    assert normalize(utterance).signature == ()
+
+
+def test_a_repeated_glued_knight_never_plays_a_second_move() -> None:
+    board = chess.Board()
+    first = route("конев 3", board)
+    board.push_uci(first.move or "")
+
+    assert route("конев 3", board).move is None
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "правила",
+        "правило",
+        "правила игры",
+        "расскажи правила",
+        "объясни правила",
+        "напомни правила",
+        "какие правила",
+        "расскажи мне про правила",
+        "алиса правила",
+        "научи играть",
+        "научи меня играть",
+        "научите играть",
+        "научи игре",
+        "не умею играть",
+        "я не умею играть",
+    ],
+)
+def test_a_beginner_asking_for_the_rules_reaches_the_help(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.HELP
+
+
+@pytest.mark.parametrize("utterance", ["правильно", "верно", "точно", "подтверждаю"])
+def test_confirming_a_move_is_never_read_as_a_request_for_the_rules(utterance: str) -> None:
+    pending = PendingClarification(heard="конь эф три", candidates=("g1f3",))
+    routed = route(utterance, chess.Board(), pending=pending)
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == "g1f3"
+
+
+def test_learning_to_play_something_else_is_not_a_chess_command() -> None:
+    assert route("научи играть на гитаре", chess.Board()).kind is CommandKind.UNKNOWN
+
+
+@pytest.mark.parametrize("utterance", ["как ходить", "как ходят", "как мне ходить", "а как ходить"])
+def test_an_unclear_learning_question_is_asked_back_instead_of_guessed(utterance: str) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.AMBIGUOUS_LEARNING
+    assert routed.move is None
+
+
+def test_naming_a_piece_keeps_the_move_reading_of_a_learning_question() -> None:
+    assert route("как ходить конем", chess.Board()).kind is CommandKind.CLARIFY
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "какой у тебя голос",
+        "какой голос",
+        "чей это голос",
+        "что за голос у тебя",
+        "мужской голос",
+        "женский голос",
+        "можно женский голос",
+        "хочу мужской голос",
+        "у тебя мужской голос",
+        "а голос у тебя мужской",
+        "а голос можно поменять",
+    ],
+)
+def test_a_question_about_the_voice_reaches_the_answer_that_already_exists(utterance: str) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.PERSONA
+    assert routed.persona is not None
+    assert routed.persona.wish is PersonaWish.VOICE
+
+
+@pytest.mark.parametrize(
+    ("utterance", "kind"),
+    [
+        ("играть не голосом", CommandKind.SCREEN),
+        ("не голосовым", CommandKind.SCREEN),
+        ("можно играть не голосом а визуально", CommandKind.SCREEN),
+        ("громче", CommandKind.PLATFORM),
+        ("включи музыку", CommandKind.PLATFORM),
+        ("почему мой голос не слышно", CommandKind.UNKNOWN),
+    ],
+)
+def test_the_voice_patterns_leave_the_device_and_the_screen_alone(utterance: str, kind: CommandKind) -> None:
+    assert route(utterance, chess.Board()).kind is kind
+
+
+@pytest.mark.parametrize("utterance", ["сделать ход", "сделай ход", "хочу сделать ход"])
+def test_asking_to_move_without_naming_one_is_answered_with_a_question(utterance: str) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.CLARIFY
+    assert routed.move is None
+
+
+def test_a_move_that_names_its_square_is_still_played_after_the_same_opening_words() -> None:
+    routed = route("сделай ход пешкой е четыре", chess.Board())
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == "e2e4"

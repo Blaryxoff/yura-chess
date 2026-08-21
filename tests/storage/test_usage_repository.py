@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
+from yura_chess.application.command_router import CommandKind
 from yura_chess.domain.game import GameStatus, PlayerColor
 from yura_chess.storage.game_repository import GameRepository
 from yura_chess.storage.models import (
@@ -209,3 +210,11 @@ def test_dashboard_groups_utc_timestamps_by_moscow_day_and_month(session: Sessio
     assert month[-1].day == date(2026, 7, 24)
     assert (daily_requests[date(2026, 7, 23)], daily_requests[date(2026, 7, 24)]) == (1, 1)
     assert (monthly_requests[date(2026, 6, 1)], monthly_requests[date(2026, 7, 1)]) == (1, 3)
+
+
+def test_every_recordable_command_kind_fits_the_column() -> None:
+    """A longer command value would fail the insert, not shorten the usage row."""
+    limit = UsageRequestRow.__table__.columns["command_kind"].type.length
+    recordable = [kind.value for kind in CommandKind]
+
+    assert [value for value in recordable if len(value) > limit] == []

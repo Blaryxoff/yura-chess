@@ -60,6 +60,8 @@ class CommandKind(StrEnum):
     BACKCHANNEL = "backchannel"
     PAUSE = "pause"
     AMBIGUOUS_TURN = "ambiguous_turn"
+    # «как ходить» — the rules of movement, or advice on this position; answered with a question.
+    AMBIGUOUS_LEARNING = "learning_query"
     ORIENTATION_QUERY = "orientation"
     NAVIGATE_BACK = "navigate_back"
     WHY = "why"
@@ -319,6 +321,20 @@ _HELP_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"^что (?:мне )?делать$|как (?:с тобой )?играть|как (?:сделать|назвать) ход"
         ),
     ),
+    (
+        CommandKind.HELP,
+        # Inside a chess skill the rules need no «шахматы» beside them, unlike
+        # `is_rules_request`, which also reads phrases that name another topic.
+        # Full forms only: «правильно» confirms a move and must never open help.
+        re.compile(
+            r"^(?:(?:алиса|юра|а|ну|и)\s+)*"
+            r"(?:(?:расскажи|объясни|напомни|назови|какие|какая|что за)\s+)?"
+            r"(?:(?:мне|нам)\s+)?(?:(?:про|о|об)\s+)?правил(?:а|о|ах|ам|ами)?(?:\s+игры)?$|"
+            r"^(?:(?:алиса|юра|пожалуйста)\s+)*(?:научи(?:те)?|обучи(?:те)?)"
+            r"(?:\s+(?:меня|нас|пожалуйста))*\s+(?:играть|игре)$|"
+            r"^(?:я\s+)?(?:совсем\s+|вообще\s+)?не умею играть$"
+        ),
+    ),
 )
 
 # The skill is named after a man who never introduces himself, so players look for
@@ -328,7 +344,15 @@ _PERSONA_VOICE = re.compile(
     r"(?:ты|вы)\b(?:\s+\w+){0,2}\s+(?:мужск|женск)\w+\s+голос\w*|"
     r"(?:помен|измен|смен)\w+\s+(?:\w+\s+){0,2}голос|"
     r"нужен (?:мужской|женский)\w*\s*(?:не \w+\s*)?голос|"
-    r"^вы девушк\w+ или (?:мальчик|мужчин)\w*$|куда делась алиса девушка"
+    r"^вы девушк\w+ или (?:мальчик|мужчин)\w*$|куда делась алиса девушка|"
+    # Anchored, all of them: «играть не голосом» asks for the screen, not for Yura.
+    r"^(?:а |ну )?(?:какой|чей|что за)\b(?:\s+\w+){0,3}\s+голос\w*(?:\s+у (?:тебя|вас|юры|алисы))?$|"
+    r"^(?:а |ну )?(?:мужск|женск)\w+\s+голос\w*$|"
+    r"^(?:а |ну )?(?:у тебя|у вас)\b(?:\s+\w+){0,2}\s+(?:мужск|женск)\w+\s+голос\w*$|"
+    r"^(?:а |ну )?голос\w*(?:\s+\w+){0,3}\s+(?:мужск|женск)\w+$|"
+    r"^(?:а |ну )?(?:можно|хочу|хотел\w+|дай|дайте|включи|поставь|нужен|нужно)"
+    r"\b(?:\s+\w+){0,3}\s+(?:мужск|женск)\w+\s+голос\w*$|"
+    r"^(?:а |ну )?голос\w*(?:\s+\w+){0,2}\s+(?:помен|измен|смен)\w+$"
 )
 _PERSONA_PRESENCE = re.compile(
     r"^(?:а |ну )?(?:где|куда)\b(?:\s+(?:сейчас|же|там|тут|дел[ася]+|пропал\w*))*\s+юр\w+$|"
@@ -421,6 +445,12 @@ _CONVERSATION_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         ),
     ),
     (CommandKind.AMBIGUOUS_TURN, re.compile(r"^ходы?$")),
+    # After the help table, which owns «как сделать ход»: that one asks how a move
+    # is spoken, while «как ходить» asks either the rules or what to play here.
+    (
+        CommandKind.AMBIGUOUS_LEARNING,
+        re.compile(r"^(?:а |ну )?как (?:мне |тут |здесь |правильно )?(?:ходить|ходят|двигать фигуры)$"),
+    ),
     (CommandKind.ORIENTATION_QUERY, re.compile(r"^(?:разверни|поверни) доску$")),
     (CommandKind.NAVIGATE_BACK, re.compile(r"^вернись$")),
     (
@@ -777,7 +807,7 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
 )
 
 _RULES_FRAME = re.compile(r"\bкак (?:с?делать|играть|ходит|пойти)\b|\bможно ли\b|\bможет ли\b|\bчто такое\b")
-_INCOMPLETE_MOVE = re.compile(r"^(мой ход|я хожу|я буду ходить)$")
+_INCOMPLETE_MOVE = re.compile(r"^(мой ход|я хожу|я буду ходить|сделать ход|сделай ход|хочу сделать ход)$")
 _MOVE_SEQUENCE = re.compile(r"\b(?:потом|затем|после этого)\b")
 # Words that retract what was just said. They are read off the raw utterance
 # because the normaliser drops the punctuation a correction leans on.

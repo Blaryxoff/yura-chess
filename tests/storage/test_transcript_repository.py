@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
+from yura_chess.application.command_router import CommandKind
 from yura_chess.storage.models import AsrTranscriptRow
 from yura_chess.storage.transcript_repository import TranscriptRepository
 from yura_chess.voice.types import ResolutionStatus
@@ -101,3 +102,11 @@ def test_purge_removes_only_rows_past_retention(session: Session, transcripts: T
     assert removed == 1
     surviving = session.scalars(select(AsrTranscriptRow.id)).all()
     assert surviving == [fresh.id]
+
+
+def test_every_recordable_outcome_fits_the_column() -> None:
+    """A longer command value would fail the insert, not shorten the corpus row."""
+    limit = AsrTranscriptRow.__table__.columns["outcome"].type.length
+    recordable = [kind.value for kind in CommandKind] + [status.value for status in ResolutionStatus]
+
+    assert [value for value in recordable if len(value) > limit] == []

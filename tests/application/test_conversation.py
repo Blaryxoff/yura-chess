@@ -749,6 +749,8 @@ async def test_a_farewell_ends_the_session_and_keeps_the_game(
         ("как дела", "Все хорошо, готов играть. Ваш ход."),
         ("понятно", "Хорошо. Ваш ход."),
         ("ход", "Что вы хотите: сделать ход, услышать последний ход или открыть помощь?"),
+        ("как ходить", "Объяснить правила или подсказать ход?"),
+        ("какой у тебя голос", "Я говорю голосом Алисы. Другой голос выбрать нельзя. Ваш ход."),
         ("подожди", "Хорошо, подожду. Партия сохранена."),
     ],
 )
@@ -767,6 +769,48 @@ async def test_short_conversational_turns_are_human_and_do_not_change_the_game(
     with session_scope(session_factory) as session:
         game = GameRepository(session).load(started.state.game_id or "", OWNER)
     assert game.moves == ()
+
+
+async def test_a_short_request_for_the_rules_opens_the_rules_section(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    reply = await conversation.handle(OWNER, "расскажи правила", context(2), started.state)
+
+    assert "Раздел «правила»" in reply.speech.text
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert game.moves == ()
+
+
+async def test_asking_to_move_without_naming_one_asks_for_the_piece_and_the_square(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    reply = await conversation.handle(OWNER, "сделай ход", context(2), started.state)
+
+    assert reply.speech.text == "Назовите ваш ход: фигуру и поле назначения."
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert game.moves == ()
+
+
+async def test_an_unclear_learning_question_before_any_game_offers_the_rules_or_a_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, "как ходить", context(1))
+
+    assert reply.speech.text == "Объяснить правила или начать партию?"
+    assert reply.state.game_id is None
 
 
 async def test_bare_repeat_replays_the_previous_reply_without_replacing_it(
