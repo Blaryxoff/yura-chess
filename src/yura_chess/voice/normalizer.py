@@ -199,10 +199,13 @@ _CASTLE_NOTATION = re.compile(r"(?<!\w)(?:0|о|o)\s*(?:-|тире)?\s*(?:0|о|o)
 # opens "большое спасибо", and a stray match castles to the side nobody asked for.
 # Only the feminine forms agree with "рокировка".
 _CASTLE_LONG = re.compile(r"^(?:длинн|ферзев)|^больш(?:ая|ую|ой)$")
-# A frame that mentions castling instead of asking for it.
-_CASTLE_MENTIONED = re.compile(
-    r"\bне (?:хочу|надо|буду|нужно|стоит)\b|\bчто такое\b|\bэто что\b|\bвместо\b|\bбез\b|\bотмени\w*\b"
-)
+# Asking what castling is, never asking for it.
+_CASTLE_ASKED_ABOUT = re.compile(r"\bчто такое\b|\bчто значит\b|\bэто что\b|\bобъясни\w*\b|\bрасскажи\w*\b")
+# Only right before the word: «без рокировки» refuses it, «рокируй без лишних слов» does not.
+_CASTLE_REFUSED_BY = re.compile(r"^(?:без|вместо|отмен)")
+# «не» belongs to a castling command only when it picks the side, as in «рокировка не длинная».
+_CASTLE_SIDE = re.compile(r"^(?:длинн|коротк|больш|мал|ферзев|королевск)")
+_NOTATION_WORDS = frozenset({"0", "о", "o"})
 # Letters and digits are separate runs, so ASR output glued as "е4" or "e4" still
 # tokenises into a file and a rank instead of one unrecognised word.
 _WORD = re.compile(r"[а-я]+|[a-z]+|[0-9]+")
@@ -222,28 +225,45 @@ def normalize(text: str) -> Normalized:
     return Normalized(text=" ".join(words), words=words, signature=signature, unknown_words=unknown)
 
 
-def _notation_meant(match: str, lowered: str) -> bool:
-    """A separator makes «0-0» notation anywhere; a spaced «0 0» only alone, so «счет 0 0» stays a score."""
+def _notation_meant(match: str, words: tuple[str, ...]) -> bool:
+    """«0-0» is notation anywhere; unseparated, only filler may surround it, so «счет 0 0» stays a score."""
     if "-" in match or "тире" in match:
         return True
-    return match.strip() == lowered.strip()
+    return all(set(word) <= _NOTATION_WORDS or word in _FILLER for word in words)
+
+
+def _castle_commanded(words: tuple[str, ...], lowered: str, castle_word: int) -> bool:
+    """Whether the utterance asks to castle, rather than refusing, questioning or naming the move."""
+    if _CASTLE_ASKED_ABOUT.search(lowered):
+        return False
+    if castle_word > 0 and _CASTLE_REFUSED_BY.match(words[castle_word - 1]):
+        return False
+    return all(
+        _CASTLE_SIDE.match(words[index + 1] if index + 1 < len(words) else "")
+        for index, word in enumerate(words)
+        if word == "не"
+    )
 
 
 def _tokenize(words: tuple[str, ...], lowered: str) -> tuple[Signature, tuple[str, ...]]:
     words, recovered = _split_glued_ranks(words)
+    castle_word = max((index for index, word in enumerate(words) if _CASTLE.search(word)), default=-1)
     notation = _CASTLE_NOTATION.search(lowered)
-    if notation is not None and _notation_meant(notation.group(), lowered):
+    if (
+        notation is not None
+        and _notation_meant(notation.group(), words)
+        and _castle_commanded(words, lowered, castle_word)
+    ):
         marker_count = sum(character in "0оo" for character in notation.group())
         kind = TokenKind.CASTLE_LONG if marker_count >= 3 else TokenKind.CASTLE_SHORT
         return (Token(kind),), ()
 
-    castle_word = max((index for index, word in enumerate(words) if _CASTLE.search(word)), default=-1)
     suffix = words[castle_word + 1 :]
     later_square = any(
         word in _FILES_STRICT | _FILES_WEAK and index + 1 < len(suffix) and suffix[index + 1] in _RANKS
         for index, word in enumerate(suffix)
     )
-    if castle_word >= 0 and not later_square and not _CASTLE_MENTIONED.search(lowered):
+    if castle_word >= 0 and not later_square and _castle_commanded(words, lowered, castle_word):
         long_side = any(
             _CASTLE_LONG.match(word) and (index == 0 or words[index - 1] != "не") for index, word in enumerate(words)
         )

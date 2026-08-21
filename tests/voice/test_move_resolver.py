@@ -824,6 +824,11 @@ def test_castling_is_never_read_as_a_notation_or_brevity_setting(utterance: str)
         ("0-0", "e1g1"),
         ("0-0-0", "e1c1"),
         ("0 0", "e1g1"),
+        ("ход 0 0", "e1g1"),
+        ("мой ход 0 0", "e1g1"),
+        ("давай 0 0", "e1g1"),
+        ("рокируй пожалуйста без лишних слов", "e1g1"),
+        ("сделай рокировку вместо хода королем", "e1g1"),
     ],
 )
 def test_castling_is_played_when_it_is_the_command(utterance: str, expected: str) -> None:
@@ -842,6 +847,13 @@ def test_castling_is_played_when_it_is_the_command(utterance: str, expected: str
         "отмени рокировку",
         "без рокировки",
         "счет 0 0",
+        "не рокируй",
+        "не делай рокировку",
+        "рокировка не нужна",
+        "объясни рокировку",
+        "расскажи про рокировку",
+        "что значит 0-0",
+        "не делай 0-0",
     ],
 )
 def test_mentioning_castling_never_castles(utterance: str) -> None:
