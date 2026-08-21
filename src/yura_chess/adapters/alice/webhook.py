@@ -129,6 +129,9 @@ def build_router() -> APIRouter:
             # Whatever was committed stays committed; the next request resumes it.
             logger.warning("alice request exceeded the webhook deadline", extra={"session": payload.session.session_id})
             return _plain(payload, "Мне нужно чуть больше времени. Скажите «продолжаем».")
+        except Exception:  # noqa: BLE001 - Alice renders a 500 as a broken skill instead of speech
+            logger.exception("alice request failed", extra={"session": payload.session.session_id})
+            return _plain(payload, "Что-то пошло не так. Повторите, пожалуйста.")
 
     return router
 

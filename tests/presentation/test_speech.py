@@ -423,9 +423,17 @@ def test_engine_move_is_described_without_the_previous_position() -> None:
 
 
 def test_pending_engine_reply_tells_the_player_the_move_is_kept() -> None:
-    speech = compose_turn(_result(TurnStatus.ENGINE_UNAVAILABLE))
+    speech = compose_turn(_result(TurnStatus.ENGINE_UNAVAILABLE, player_move="e2e4"))
 
     assert "записан" in speech.text
+    assert "продолжаем" in speech.text
+
+
+def test_pending_engine_opening_does_not_claim_a_move_the_player_never_made() -> None:
+    speech = compose_turn(_result(TurnStatus.ENGINE_UNAVAILABLE))
+
+    assert "записан" not in speech.text
+    assert "первым ходом" in speech.text
     assert "продолжаем" in speech.text
 
 

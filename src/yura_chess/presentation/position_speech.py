@@ -19,6 +19,7 @@ from enum import StrEnum
 
 import chess
 
+from yura_chess.domain.preferences import NotationStyle
 from yura_chess.presentation.move_speech import (
     COLOUR_GENITIVE,
     COLOUR_PLURAL,
@@ -301,8 +302,14 @@ def answer_position_query(
             return PositionAnswer(PositionQuery.CHECK, Speech.of("Сейчас шаха нет."))
         side = "белому" if board.turn == chess.WHITE else "черному"
         return PositionAnswer(PositionQuery.CHECK, Speech.of(f"Шах {side} королю."))
-    if square is not None and _SLOWLY.search(normalized.text):
-        return PositionAnswer(PositionQuery.SLOW_SQUARE, spell_slowly(square))
+    if _SLOWLY.search(normalized.text):
+        spelled = square or _last_named_square(board)
+        if spelled is None:
+            return PositionAnswer(
+                PositionQuery.SLOW_SQUARE,
+                Speech.of("Пока нечего произносить по буквам. Назовите поле, например «что на е четыре»."),
+            )
+        return PositionAnswer(PositionQuery.SLOW_SQUARE, spell_slowly(spelled))
     if square is not None and piece_type is None:
         return PositionAnswer(PositionQuery.SQUARE, describe_square(board, square))
     if piece_type is not None:
@@ -316,6 +323,13 @@ def answer_position_query(
     if WHOLE_BOARD_REQUEST.search(normalized.text):
         return read_board(board, complete=True)
     return read_board(board)
+
+
+def _last_named_square(board: chess.Board) -> str | None:
+    """The square the last answer ended on, which is what «по буквам» asks to spell."""
+    if not board.move_stack:
+        return None
+    return chess.square_name(board.peek().to_square)
 
 
 def describe_last_move(board: chess.Board) -> Speech:
@@ -391,13 +405,13 @@ def describe_full_move(board: chess.Board, index: int) -> Speech:
     return Speech.of(f"{ordinal} полный ход. {' '.join(parts)}")
 
 
-def describe_recent_moves(board: chess.Board, count: int = 2) -> Speech:
+def describe_recent_moves(board: chess.Board, count: int = 2, notation: NotationStyle = NotationStyle.FULL) -> Speech:
     """Read the last individual actions in chronological order."""
     history = _move_history(board)
     if not history:
         return Speech.of("Ходов еще не было.")
     parts = [
-        f"{COLOUR_PLURAL[colour].capitalize()} — {describe_move(before, move).text}"
+        f"{COLOUR_PLURAL[colour].capitalize()} — {describe_move(before, move, notation).text}"
         for before, move, colour in history[-count:]
     ]
     return Speech.of(" ".join(parts))

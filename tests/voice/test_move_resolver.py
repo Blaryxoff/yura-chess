@@ -606,6 +606,27 @@ def test_yes_never_picks_one_of_several_candidates() -> None:
     assert routed.clarification == pending
 
 
+def test_a_bare_piece_name_answers_a_promotion_clarification() -> None:
+    """«В кого превратить» is answered with a piece, not by repeating the whole move."""
+    board = chess.Board(PROMOTION_FEN)
+    pending = PendingClarification(heard="а семь а восемь", candidates=("a7a8q", "a7a8r", "a7a8b", "a7a8n"))
+
+    for spoken, expected in (("ферзя", "a7a8q"), ("ладью", "a7a8r"), ("слона", "a7a8b"), ("коня", "a7a8n")):
+        routed = route(spoken, board, pending=pending)
+
+        assert routed.kind is CommandKind.MOVE
+        assert routed.move == expected
+
+
+def test_a_piece_name_does_not_answer_an_ordinary_clarification() -> None:
+    board = chess.Board(TWO_KNIGHTS_FEN)
+    pending = PendingClarification(heard="конь дэ два", candidates=("b1d2", "f3d2"))
+
+    routed = route("ферзя", board, pending=pending)
+
+    assert routed.move is None
+
+
 def test_no_cancels_the_clarification() -> None:
     pending = PendingClarification(heard="пешка е два е четыре", candidates=("e2e4",))
 

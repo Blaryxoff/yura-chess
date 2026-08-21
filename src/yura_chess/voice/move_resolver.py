@@ -33,6 +33,16 @@ _UNKNOWN_WORD_PENALTY = 0.05
 _MAX_UNKNOWN_PENALTY = 0.15
 
 
+def promotion_choice(candidates: tuple[str, ...]) -> str | None:
+    """The pawn move all `candidates` promote, when only the new piece is still open."""
+    if len(candidates) < 2 or any(len(candidate) != 5 for candidate in candidates):
+        return None
+    move = candidates[0][:4]
+    if any(candidate[:4] != move for candidate in candidates):
+        return None
+    return move
+
+
 def resolve(normalized: Normalized, board: chess.Board) -> MoveResolution:
     """Resolve one utterance against `board`; never mutates the board."""
     recognized = recognize(normalized.signature)

@@ -58,6 +58,7 @@ from yura_chess.presentation.commentary import comment_on
 from yura_chess.presentation.game_facts import answer_game_fact
 from yura_chess.presentation.help_speech import HelpAnswer, HelpMode, HelpState
 from yura_chess.presentation.move_speech import (
+    PIECE_NAMES_ACCUSATIVE,
     PLAYER_MOVE_PREFIX,
     SoundEvent,
     SoundLibrary,
@@ -65,6 +66,7 @@ from yura_chess.presentation.move_speech import (
     add_move_sounds,
     add_pauses,
     describe_move,
+    spell_square,
 )
 from yura_chess.presentation.position_speech import answer_position_query, describe_recent_moves
 from yura_chess.presentation.response_composer import (
@@ -82,7 +84,7 @@ from yura_chess.storage.review_repository import ReviewRepository
 from yura_chess.storage.transcript_repository import TranscriptRepository
 from yura_chess.storage.usage_repository import UsageRepository
 from yura_chess.storage.usage_repository import request_key as usage_request_key
-from yura_chess.voice.move_resolver import recognize
+from yura_chess.voice.move_resolver import promotion_choice, recognize
 from yura_chess.voice.normalizer import normalize
 
 MAX_SKILL_LEVEL = MAX_LEVEL
@@ -353,7 +355,7 @@ class ConversationService:
                     pending_action=PendingAction(CommandKind.CONTINUE, ""),
                 )
                 return ConversationReply(
-                    _new_session_welcome(self._resume_prompt(candidate, request.timezone)),
+                    _new_session_welcome(self._resume_prompt(candidate, request.timezone, preferences.notation_style)),
                     prompt_state,
                 )
 
@@ -1324,7 +1326,7 @@ class ConversationService:
         return reply
 
     @staticmethod
-    def _resume_prompt(game: GameState, timezone_name: str | None) -> Speech:
+    def _resume_prompt(game: GameState, timezone_name: str | None, notation: NotationStyle) -> Speech:
         if game.last_player_move_at is None:
             opening = "У вас есть незаконченная партия, в которой вы еще не сделали ход."
         else:
@@ -1335,11 +1337,12 @@ class ConversationService:
         if not board.move_stack:
             history = "Ходов еще не было."
         elif len(board.move_stack) == 1:
-            history = f"Последний ход: {describe_recent_moves(board, 1).text}"
+            history = f"Последний ход: {describe_recent_moves(board, 1, notation).text}"
         else:
-            history = f"Последние два хода: {describe_recent_moves(board, 2).text}"
+            history = f"Последние два хода: {describe_recent_moves(board, 2, notation).text}"
         # The engine still owes an answer, so the next word is not a move.
-        tail = "Чтобы продолжить, назовите ход." if game.pending_engine_turn is None else "Скажите «продолжаем»."
+        engine_to_move = game.pending_engine_turn is not None or board.turn != game.player_color.to_chess()
+        tail = "Скажите «продолжаем»." if engine_to_move else "Чтобы продолжить, назовите ход."
         return Speech.of(f"{opening} {history} {tail}")
 
     def _reload(self, owner_key: str, game: GameState) -> GameState:
@@ -1400,6 +1403,14 @@ class ConversationService:
             return Speech.of("Назовите ваш ход: фигуру и поле назначения.")
         if len(pending.candidates) == 1:
             return Speech.of(f"Я услышал «{pending.heard}». Подтвердите ход {_display_uci(pending.candidates[0])}.")
+        promotion = promotion_choice(pending.candidates)
+        if promotion is not None:
+            pieces = _promotion_choices(pending.candidates)
+            square = promotion[2:4]
+            return Speech(
+                text=f"Пешка идет на {square}. Превратить {pieces}?",
+                tts=f"Пешка идет на {spell_square(square)}. Превратить {pieces}?",
+            )
         choices = ", или ".join(_display_uci(candidate) for candidate in pending.candidates[:6])
         return Speech.of(f"Ход неоднозначен. Уточните: {choices}.")
 
@@ -1547,6 +1558,15 @@ def _display_uci(uci: str) -> str:
     """Separate UCI squares so Alice spells each one instead of reading a word."""
     promotion = f" {uci[4]}" if len(uci) == 5 else ""
     return f"{uci[:2]} {uci[2:4]}{promotion}"
+
+
+def _promotion_choices(candidates: tuple[str, ...]) -> str:
+    order = ("q", "r", "b", "n")
+    named = [candidate[4] for candidate in candidates]
+    names = [PIECE_NAMES_ACCUSATIVE[chess.Piece.from_symbol(letter).piece_type] for letter in order if letter in named]
+    if len(names) == 1:
+        return f"в {names[0]}"
+    return f"в {', '.join(names[:-1])} или {names[-1]}"
 
 
 def _spoken_piece(piece: str) -> str:

@@ -25,7 +25,7 @@ from yura_chess.presentation import game_facts
 from yura_chess.presentation.help_speech import is_rules_request
 from yura_chess.presentation.position_speech import LAST_MOVE, NUMBERED_MOVE, RANK_LINE, WHOLE_BOARD_ONLY
 from yura_chess.voice.illegal_move import Explanation, IllegalReason, explain
-from yura_chess.voice.move_resolver import resolve
+from yura_chess.voice.move_resolver import promotion_choice, resolve
 from yura_chess.voice.normalizer import MAX_UTTERANCE_LENGTH, normalize
 from yura_chess.voice.types import MoveResolution, Normalized, ResolutionStatus, TokenKind
 
@@ -1494,14 +1494,30 @@ def parse_rematch(text: str) -> RematchRequest | None:
 
 
 def _answer_clarification(normalized: Normalized, pending: PendingClarification) -> RoutedCommand | None:
-    """Handle only an explicit yes/no; anything else is re-read as a fresh utterance."""
+    """Handle an explicit yes/no or a named promotion piece; anything else is re-read as a fresh utterance."""
     if _DECLINE.match(normalized.text):
         return RoutedCommand(CommandKind.CANCEL_CLARIFY, normalized, clarification=None)
+    promoted = _answer_promotion(normalized, pending)
+    if promoted is not None:
+        return RoutedCommand(CommandKind.MOVE, normalized, move=promoted, clarification=None)
     if _AFFIRM_EXPLICIT.match(normalized.text):
         if len(pending.candidates) == 1:
             return RoutedCommand(CommandKind.MOVE, normalized, move=pending.candidates[0], clarification=None)
         # «да» cannot pick between several candidates; keep waiting.
         return RoutedCommand(CommandKind.CLARIFY, normalized, clarification=pending)
+    return None
+
+
+def _answer_promotion(normalized: Normalized, pending: PendingClarification) -> str | None:
+    """The candidate a bare piece name picks when only the promotion is still open."""
+    if promotion_choice(pending.candidates) is None:
+        return None
+    if len(normalized.signature) != 1 or normalized.signature[0].kind is not TokenKind.PIECE:
+        return None
+    letter = normalized.signature[0].value.lower()
+    for candidate in pending.candidates:
+        if candidate[4] == letter:
+            return candidate
     return None
 
 

@@ -39,6 +39,8 @@ _STATUS_TEXTS: dict[TurnStatus, str] = {
     TurnStatus.ILLEGAL_MOVE: "Так пойти нельзя.",
 }
 
+ENGINE_UNAVAILABLE_FIRST_MOVE_TEXT = "Я ещё думаю над первым ходом. Скажите «продолжаем»."
+
 _DRAW_TEXTS: dict[GameEnd, str] = {
     GameEnd.STALEMATE: "Пат. Ничья.",
     GameEnd.INSUFFICIENT_MATERIAL: "Недостаточно материала для мата. Ничья.",
@@ -72,8 +74,16 @@ def compose_turn(
     prompt = NEXT_STEP_PROMPT if result.outcome is not None else None
     parts = [text for text in (move_text, outcome_text, commentary, prompt) if text]
     if not parts:
+        if result.status is TurnStatus.ENGINE_UNAVAILABLE:
+            return Speech.of(_engine_unavailable_text(result))
         return Speech.of(_STATUS_TEXTS.get(result.status, "Ваш ход."))
     return Speech.of(" ".join(parts))
+
+
+def _engine_unavailable_text(result: TurnResult) -> str:
+    if not result.moves and result.player_move is None:
+        return ENGINE_UNAVAILABLE_FIRST_MOVE_TEXT
+    return _STATUS_TEXTS[TurnStatus.ENGINE_UNAVAILABLE]
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,7 +178,7 @@ def _chess_color(color: PlayerColor) -> chess.Color:
 
 def _move_text(result: TurnResult, board_before: chess.Board | None, notation: NotationStyle) -> str:
     if result.status is TurnStatus.ENGINE_UNAVAILABLE:
-        return _STATUS_TEXTS[TurnStatus.ENGINE_UNAVAILABLE]
+        return _engine_unavailable_text(result)
     if result.engine_move is None:
         return ""
     move = chess.Move.from_uci(result.engine_move)
