@@ -533,6 +533,53 @@ def test_incomplete_and_compound_moves_require_clarification() -> None:
     assert route("рокировка потом конь эф три", chess.Board()).kind is CommandKind.CLARIFY
 
 
+@pytest.mark.parametrize(
+    ("partial", "remainder", "expected"),
+    [
+        ("пешка", "е четыре", "e2e4"),
+        ("пешка е два", "е четыре", "e2e4"),
+        ("е два", "е четыре", "e2e4"),
+        ("конь", "эф три", "g1f3"),
+    ],
+)
+def test_an_incomplete_move_can_be_finished_on_the_next_turn(
+    partial: str,
+    remainder: str,
+    expected: str,
+) -> None:
+    board = chess.Board()
+    started = route(partial, board, confidence_threshold=0.8)
+
+    completed = route(remainder, board, pending=started.clarification, confidence_threshold=0.8)
+
+    assert started.kind is CommandKind.CLARIFY
+    assert completed.kind is CommandKind.MOVE
+    assert completed.move == expected
+
+
+def test_completing_an_incomplete_move_never_picks_between_legal_candidates() -> None:
+    board = chess.Board(TWO_KNIGHTS_FEN)
+    started = route("конь", board, confidence_threshold=0.8)
+
+    completed = route("дэ два", board, pending=started.clarification, confidence_threshold=0.8)
+
+    assert completed.kind is CommandKind.CLARIFY
+    assert completed.clarification is not None
+    assert set(completed.clarification.candidates) == {"b1d2", "f3d2"}
+
+
+@pytest.mark.parametrize("utterance", ["жэ три", "дэ два дэ четыре"])
+def test_a_standalone_move_can_replace_an_incomplete_move(utterance: str) -> None:
+    board = chess.Board()
+    started = route("конь жэ один", board, confidence_threshold=0.8)
+    standalone = route(utterance, board, confidence_threshold=0.8)
+
+    replacement = route(utterance, board, pending=started.clarification, confidence_threshold=0.8)
+
+    assert started.kind is CommandKind.CLARIFY
+    assert replacement == standalone
+
+
 def test_undo_command_carries_the_requested_full_move_count() -> None:
     routed = route("откати прошлые два полных хода", chess.Board())
 

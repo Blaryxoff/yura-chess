@@ -88,8 +88,6 @@ from yura_chess.voice.move_resolver import promotion_choice, recognize
 from yura_chess.voice.normalizer import normalize
 
 MAX_SKILL_LEVEL = MAX_LEVEL
-# The level the greeting offers a beaten player; below it there is nothing easier to suggest.
-EASY_SKILL_LEVEL = 5
 # One rematch step up is two of the twenty engine levels: less is not audible.
 REMATCH_LEVEL_STEP = 2
 
@@ -314,6 +312,22 @@ class ConversationService:
         game_id: str | None,
     ) -> None:
         self._games.store_alice_response(owner_key, request, response_payload, game_id)
+
+    def store_response_with_review_prompt(
+        self,
+        owner_key: str,
+        request: RequestContext,
+        response_payload: str,
+        prompted_response_payload: str,
+        game_id: str | None,
+    ) -> bool:
+        return self._games.store_alice_response_with_review_prompt(
+            owner_key,
+            request,
+            response_payload,
+            prompted_response_payload,
+            game_id,
+        )
 
     async def _handle(
         self,
@@ -899,7 +913,7 @@ class ConversationService:
         if routed.kind is CommandKind.CLARIFY:
             pending = routed.clarification or state.clarification
             return ConversationReply(
-                self._clarification_speech(pending),
+                self._clarification_speech(pending, board),
                 replace(self._with_game(next_state, game), clarification=pending),
             )
         if routed.kind is CommandKind.ILLEGAL_MOVE:
@@ -1008,7 +1022,7 @@ class ConversationService:
             return ConversationReply(Speech.of(text), state)
         if routed.kind is CommandKind.CLARIFY:
             pending = routed.clarification or prior.clarification
-            return ConversationReply(self._clarification_speech(pending), replace(state, clarification=pending))
+            return ConversationReply(self._clarification_speech(pending, board), replace(state, clarification=pending))
         if routed.kind is CommandKind.POSITION_QUERY:
             answer = answer_position_query(routed.addressed or utterance, board, prior.position_page, board.turn)
             return ConversationReply(answer.speech, replace(state, position_page=answer.page))
@@ -1108,16 +1122,13 @@ class ConversationService:
         side = "черными" if player_color is PlayerColor.BLACK else "белыми"
         reply = self._turn_reply(owner_key, result, state, preferences)
         if request.is_new_session and not utterance.strip():
-            easier = "Если хотите играть полегче, скажите «уровень пять». " if level > EASY_SKILL_LEVEL else ""
             return replace(
                 reply,
-                speech=_new_session_welcome(
-                    Speech.of(
-                        f"Партия уже началась: вы играете {side}. "
-                        f"Назовите ход, например «пешка е два е четыре». "
-                        f"Мой уровень — {level} из {MAX_SKILL_LEVEL}. Чем больше число, тем сильнее я играю. "
-                        f"{easier}Если что-то непонятно, скажите «помощь». {reply.speech.text}"
-                    )
+                speech=Speech.of(
+                    f"Здравствуйте! Это «Шахматы с Юрой». Вы играете {side}. "
+                    "Назовите ход полностью, например «пешка е два е четыре», "
+                    "или по частям: «пешка е два», затем «е четыре». "
+                    f"Нужна помощь — скажите «помощь». {reply.speech.text}"
                 ),
                 sound=_opening_sound(reply),
             )
@@ -1389,7 +1400,7 @@ class ConversationService:
         return replace(state, game_id=result.game_id, revision=result.revision, clarification=None)
 
     @staticmethod
-    def _clarification_speech(pending: PendingClarification | None) -> Speech:
+    def _clarification_speech(pending: PendingClarification | None, board: chess.Board) -> Speech:
         if pending is None:
             return Speech.of("Уточните ход.")
         if not pending.candidates:
@@ -1400,7 +1411,23 @@ class ConversationService:
             if recognized.piece is not None and recognized.destination is None:
                 return Speech.of(f"Куда пойти {_spoken_piece(recognized.piece)}? Назовите поле.")
             if recognized.destination is not None:
-                return Speech.of(f"Какой фигурой вы хотите пойти на {recognized.destination}?")
+                square_index = chess.parse_square(recognized.destination)
+                piece = board.piece_at(square_index)
+                if (
+                    piece is not None
+                    and piece.color == board.turn
+                    and (recognized.piece is None or piece.symbol().casefold() == recognized.piece.casefold())
+                ):
+                    return Speech.of(
+                        f"Куда пойти {_spoken_piece(piece.symbol().upper())} с {recognized.destination}? "
+                        "Назовите поле назначения."
+                    )
+                if recognized.piece is not None:
+                    return Speech.of(
+                        f"Для хода {_spoken_piece(recognized.piece)} вы назвали поле {recognized.destination}. "
+                        "Назовите второе поле."
+                    )
+                return Speech.of(f"Вы назвали поле {recognized.destination}. Назовите начальное и конечное поля хода.")
             return Speech.of("Назовите ваш ход: фигуру и поле назначения.")
         if len(pending.candidates) == 1:
             return Speech.of(f"Я услышал «{pending.heard}». Подтвердите ход {_display_uci(pending.candidates[0])}.")

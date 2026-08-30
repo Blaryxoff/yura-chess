@@ -38,6 +38,7 @@ from yura_chess.engine.stockfish import EngineSearchTimeoutError, EngineUnavaila
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
 from yura_chess.storage.models import RequestReplayRow
+from yura_chess.storage.usage_repository import UsageRepository
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +236,25 @@ class GameService:
             repository = GameRepository(session)
             replay, _ = self._claim(repository, request, owner_key, game_id)
             repository.store_alice_response(replay, response_payload, game_id)
+
+    def store_alice_response_with_review_prompt(
+        self,
+        owner_key: str,
+        request: RequestContext,
+        response_payload: str,
+        prompted_response_payload: str,
+        game_id: str | None,
+    ) -> bool:
+        with session_scope(self._session_factory) as session:
+            repository = GameRepository(session)
+            replay, _ = self._claim(repository, request, owner_key, game_id)
+            prompted = UsageRepository(session).claim_review_prompt(owner_key)
+            repository.store_alice_response(
+                replay,
+                prompted_response_payload if prompted else response_payload,
+                game_id,
+            )
+            return prompted
 
     def set_level(self, owner_key: str, game_id: str, skill_level: int, request: RequestContext) -> LevelChange:
         """Change the engine's strength mid-game, once per request key."""

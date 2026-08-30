@@ -14,6 +14,7 @@ from yura_chess.storage.models import (
     GameMoveRow,
     GameRow,
     PuzzleAttemptRow,
+    PuzzleProfileRow,
     UsageRequestRow,
     UsageUserRow,
 )
@@ -27,7 +28,13 @@ def test_usage_schema_cannot_store_raw_identifiers_or_conversation_data() -> Non
     user_columns = {column.name for column in inspect(UsageUserRow).columns}
     request_columns = {column.name for column in inspect(UsageRequestRow).columns}
 
-    assert user_columns == {"owner_key", "traffic_source", "first_seen_at", "last_seen_at"}
+    assert user_columns == {
+        "owner_key",
+        "traffic_source",
+        "first_seen_at",
+        "last_seen_at",
+        "review_prompted_at",
+    }
     assert request_columns == {
         "request_key",
         "owner_key",
@@ -82,6 +89,47 @@ def test_request_quality_fields_upgrade_an_existing_idempotent_event(session: Se
     assert row.created_at == now
     assert row.release_id == "ghcr.io/example/yura-chess:abc123"
     assert (row.command_kind, row.resolution_status, row.routing_outcome) == ("move", "resolved", "handled")
+
+
+def test_review_prompt_is_claimed_once_after_an_engaged_game_finishes(session: Session) -> None:
+    repository = UsageRepository(session)
+    now = datetime(2026, 8, 30, 12, 0, 0)
+    repository.record_request(REAL_OWNER, "skill", "session", "1", "real", now)
+    game = GameRepository(session).create_game(REAL_OWNER, PlayerColor.WHITE)
+    GameRepository(session).append_moves(
+        game.id,
+        REAL_OWNER,
+        game.revision,
+        ("e2e4", "e7e5"),
+        GameStatus.FINISHED,
+    )
+
+    assert repository.claim_review_prompt(REAL_OWNER, now) is True
+    assert repository.claim_review_prompt(REAL_OWNER, now + timedelta(minutes=1)) is False
+    assert session.get(UsageUserRow, REAL_OWNER).review_prompted_at == now
+
+
+def test_review_prompt_requires_real_traffic_and_a_value_milestone(session: Session) -> None:
+    repository = UsageRepository(session)
+    now = datetime(2026, 8, 30, 12, 0, 0)
+    repository.record_request(REAL_OWNER, "skill", "session", "1", "real", now)
+    for index in range(3):
+        repository.record_request(TEST_OWNER, "skill", f"session-{index}", "1", "test", now)
+    game = GameRepository(session).create_game(TEST_OWNER, PlayerColor.WHITE)
+    GameRepository(session).append_moves(game.id, TEST_OWNER, game.revision, ("e2e4", "e7e5"))
+
+    assert repository.claim_review_prompt(REAL_OWNER, now) is False
+    assert repository.claim_review_prompt(TEST_OWNER, now) is False
+
+
+def test_three_clean_puzzles_unlock_the_review_prompt(session: Session) -> None:
+    repository = UsageRepository(session)
+    now = datetime(2026, 8, 30, 12, 0, 0)
+    repository.record_request(REAL_OWNER, "skill", "session", "1", "real", now)
+    session.add(PuzzleProfileRow(owner_key=REAL_OWNER, clean_streak=3))
+    session.flush()
+
+    assert repository.claim_review_prompt(REAL_OWNER, now) is True
 
 
 def test_dashboard_separates_real_test_and_all_traffic(session: Session) -> None:

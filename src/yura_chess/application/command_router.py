@@ -25,7 +25,7 @@ from yura_chess.presentation import game_facts
 from yura_chess.presentation.help_speech import is_rules_request
 from yura_chess.presentation.position_speech import LAST_MOVE, NUMBERED_MOVE, RANK_LINE, WHOLE_BOARD_ONLY
 from yura_chess.voice.illegal_move import Explanation, IllegalReason, explain
-from yura_chess.voice.move_resolver import promotion_choice, resolve
+from yura_chess.voice.move_resolver import promotion_choice, recognize, resolve
 from yura_chess.voice.normalizer import MAX_UTTERANCE_LENGTH, normalize
 from yura_chess.voice.types import MoveResolution, Normalized, ResolutionStatus, TokenKind
 
@@ -1365,6 +1365,11 @@ def _route_once(
     if board is None:
         return RoutedCommand(CommandKind.UNKNOWN, normalized)
 
+    if pending is not None:
+        completed = _complete_pending_move(normalized, pending, board, confidence_threshold)
+        if completed is not None:
+            return completed
+
     corrected = _corrected_move(utterance, normalized, board, confidence_threshold)
     if corrected is not None:
         return corrected
@@ -1548,6 +1553,42 @@ def _answer_promotion(normalized: Normalized, pending: PendingClarification) -> 
     for candidate in pending.candidates:
         if candidate[4] == letter:
             return candidate
+    return None
+
+
+def _complete_pending_move(
+    normalized: Normalized,
+    pending: PendingClarification,
+    board: chess.Board,
+    confidence_threshold: float,
+) -> RoutedCommand | None:
+    if pending.candidates or not normalized.has_move_tokens:
+        return None
+    prior = normalize(pending.heard)
+    prior_move = recognize(prior.signature)
+    current_move = recognize(normalized.signature)
+    if prior_move.piece is not None and current_move.piece is not None and prior_move.piece != current_move.piece:
+        return None
+    combined = normalize(f"{prior.text} {normalized.text}")
+    if contains_multiple_moves(combined):
+        return None
+    resolution = resolve(combined, board)
+    if (
+        resolution.status is ResolutionStatus.RESOLVED
+        and resolution.move is not None
+        and resolution.confidence >= confidence_threshold
+    ):
+        return RoutedCommand(CommandKind.MOVE, normalized, move=resolution.move, resolution=resolution)
+    if resolution.status is ResolutionStatus.AMBIGUOUS and resolution.candidates:
+        return RoutedCommand(
+            CommandKind.CLARIFY,
+            normalized,
+            resolution=resolution,
+            clarification=PendingClarification(
+                heard=combined.text[:255],
+                candidates=resolution.candidates,
+            ),
+        )
     return None
 
 

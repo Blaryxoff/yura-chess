@@ -320,6 +320,7 @@ class UsageUserRow(Base):
     traffic_source: Mapped[str] = mapped_column(Enum("real", "test", name="traffic_source"))
     first_seen_at: Mapped[datetime] = mapped_column(DateTime)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    review_prompted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class UsageRequestRow(Base):

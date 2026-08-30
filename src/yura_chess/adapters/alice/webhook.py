@@ -40,6 +40,7 @@ from yura_chess.adapters.alice.models import (
     PendingActionState,
     RematchState,
     ResponseBody,
+    ResponseButton,
     TrainingState,
 )
 from yura_chess.adapters.yandex_images import BoardImageService
@@ -56,8 +57,9 @@ from yura_chess.application.command_router import (
 from yura_chess.application.conversation import ConversationReply, ConversationService, ConversationState, PendingAction
 from yura_chess.application.game_service import RequestContext
 from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key, traffic_source
-from yura_chess.domain.results import TurnResult
+from yura_chess.domain.results import TurnResult, TurnStatus
 from yura_chess.presentation import help_speech
+from yura_chess.presentation.move_speech import SoundEvent
 from yura_chess.presentation.response_composer import (
     CARD_DESCRIPTION_LIMIT,
     CARD_ITEMS_LIMIT,
@@ -65,6 +67,7 @@ from yura_chess.presentation.response_composer import (
     TextCard,
     compose_board_card,
 )
+from yura_chess.presentation.website import YANDEX_REVIEW_URL
 from yura_chess.storage.game_repository import (
     PendingTurnConflictError,
     PendingTurnMismatchError,
@@ -79,6 +82,8 @@ logger = logging.getLogger(__name__)
 
 # What the card path leaves the webhook for serialising the answer it already has.
 CARD_DEADLINE_MARGIN_SECONDS = 0.2
+REVIEW_PROMPT_TEXT = "Если вам нравится навык, оставьте, пожалуйста, отзыв — кнопка на экране."
+REVIEW_BUTTON_TITLE = "Оставить отзыв"
 
 # The two speech directives the presentation layer emits; each is atomic to Alice.
 _MARKUP = re.compile(r'<speaker audio="[^"]*">|sil <\[\d+\]>')
@@ -108,6 +113,7 @@ def build_router() -> APIRouter:
         try:
             async with asyncio.timeout(settings.webhook_deadline_seconds):
                 response, reply, owner, context = await _handle(payload, conversation, settings.identity_salt)
+                review_prompt_moment = reply is not None and _review_prompt_moment(payload, reply)
                 # The answer is already complete; the card is added only if the
                 # rest of the budget can pay for it.
                 remaining = settings.webhook_deadline_seconds - (monotonic() - started)
@@ -116,12 +122,20 @@ def build_router() -> APIRouter:
                 if owner is not None and context is not None:
                     turn = reply.turn if reply is not None else None
                     try:
-                        conversation.store_response(
-                            owner,
-                            context,
-                            response.model_dump_json(exclude_none=True),
-                            turn.game_id if turn is not None else _response_game_id(response),
-                        )
+                        game_id = turn.game_id if turn is not None else _response_game_id(response)
+                        response_payload = response.model_dump_json(exclude_none=True)
+                        if review_prompt_moment:
+                            prompted_response = _attach_review_prompt(response.model_copy(deep=True))
+                            if conversation.store_response_with_review_prompt(
+                                owner,
+                                context,
+                                response_payload,
+                                prompted_response.model_dump_json(exclude_none=True),
+                                game_id,
+                            ):
+                                response = prompted_response
+                        else:
+                            conversation.store_response(owner, context, response_payload, game_id)
                     except Exception:  # noqa: BLE001 - the answer and chess mutation already succeeded
                         logger.warning("alice replay response cache write failed", exc_info=True)
                 return response
@@ -134,6 +148,35 @@ def build_router() -> APIRouter:
             return _plain(payload, "Что-то пошло не так. Повторите, пожалуйста.")
 
     return router
+
+
+def _review_prompt_moment(payload: AliceRequest, reply: ConversationReply) -> bool:
+    if not payload.has_screen or reply.end_session:
+        return False
+    if payload.session.new and not payload.request.command.strip():
+        return True
+    turn = reply.turn
+    if turn is not None and not turn.replayed and turn.status in {TurnStatus.OK, TurnStatus.GAME_OVER}:
+        return turn.player_move is not None or turn.outcome is not None
+    return reply.sound is SoundEvent.SUCCESS
+
+
+def _attach_review_prompt(response: AliceResponse) -> AliceResponse:
+    text = response.response.text
+    spoken = response.response.tts or text
+    response.response.text = _append_review_prompt(text, TEXT_LIMIT)
+    prompted_spoken = _append_review_prompt(spoken, TTS_LIMIT, tts=True)
+    response.response.tts = prompted_spoken if prompted_spoken != response.response.text else None
+    response.response.buttons = [
+        ResponseButton(title=REVIEW_BUTTON_TITLE, url=YANDEX_REVIEW_URL, hide=True),
+    ]
+    return response
+
+
+def _append_review_prompt(text: str, limit: int, *, tts: bool = False) -> str:
+    prefix_limit = limit - len(REVIEW_PROMPT_TEXT) - 1
+    prefix = _clip_tts(text, prefix_limit) if tts else _clip(text, prefix_limit)
+    return f"{prefix} {REVIEW_PROMPT_TEXT}"
 
 
 async def _handle(
@@ -513,15 +556,15 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _clip_tts(pronunciation: str) -> str:
+def _clip_tts(pronunciation: str, limit: int = TTS_LIMIT) -> str:
     """Clip the pronunciation without leaving half a markup directive behind.
 
     Alice reads a broken `<speaker audio="dialogs-uplo` or `sil <[40` aloud, so a
     cut landing inside one is moved back to where that directive starts.
     """
-    if len(pronunciation) <= TTS_LIMIT:
+    if len(pronunciation) <= limit:
         return pronunciation
-    cut = TTS_LIMIT - 1
+    cut = limit - 1
     for directive in _MARKUP.finditer(pronunciation):
         if directive.start() < cut < directive.end():
             cut = directive.start()

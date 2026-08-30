@@ -260,6 +260,24 @@ async def test_incomplete_and_compound_moves_get_specific_non_mutating_clarifica
         assert GameRepository(session).load(started.state.game_id or "", OWNER).moves == ()
 
 
+async def test_partial_opening_coordinates_get_a_specific_next_step(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    piece_and_square = await conversation.handle(OWNER, "пешка е два", context(2), started.state)
+    square_only = await conversation.handle(OWNER, "е два", context(3), started.state)
+    black_started = await conversation.handle("d" * 64, "новая игра черными", context(4))
+    black_square = await conversation.handle("d" * 64, "е семь", context(5), black_started.state)
+
+    expected = "Куда пойти пешкой с e2? Назовите поле назначения."
+    assert piece_and_square.speech.text == expected
+    assert square_only.speech.text == expected
+    assert black_square.speech.text == "Куда пойти пешкой с e7? Назовите поле назначения."
+
+
 async def test_physical_board_setup_and_exit_phrases_are_voice_complete(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
@@ -513,7 +531,7 @@ async def test_current_engine_level_can_be_asked_in_natural_speech(
     )
 
 
-async def test_new_session_greeting_explains_the_skill_and_next_commands(
+async def test_new_session_greeting_leads_with_the_first_move(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
 ) -> None:
@@ -521,16 +539,17 @@ async def test_new_session_greeting_explains_the_skill_and_next_commands(
 
     assert reply.turn is not None
     assert "Шахматы с Юрой" in reply.speech.text
-    assert "Я Юра, ваш соперник в шахматах." in reply.speech.text
     assert "пешка е два е четыре" in reply.speech.text
+    assert "по частям: «пешка е два», затем «е четыре»" in reply.speech.text
     assert "скажите «помощь»" in reply.speech.text
+    assert "Я Юра, ваш соперник в шахматах." not in reply.speech.text
+    assert "уровень" not in reply.speech.text
     assert reply.speech.text.index("пешка е два е четыре") < reply.speech.text.index("скажите «помощь»")
 
 
-@pytest.mark.parametrize(("level", "offered"), [(15, True), (5, False), (0, False)])
-async def test_the_greeting_offers_an_easier_level_only_when_there_is_one(
+@pytest.mark.parametrize("level", [15, 5, 0])
+async def test_the_greeting_defers_level_details_until_the_player_asks(
     level: int,
-    offered: bool,
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
 ) -> None:
@@ -538,15 +557,15 @@ async def test_the_greeting_offers_an_easier_level_only_when_there_is_one(
 
     reply = await subject(session_factory, settings).handle(OWNER, "", context(1, new=True))
 
-    assert f"уровень — {level} из {MAX_SKILL_LEVEL}" in reply.speech.text
-    assert ("скажите «уровень пять»" in reply.speech.text) is offered
+    assert "уровень" not in reply.speech.text
 
 
 @pytest.mark.parametrize(
     ("utterance", "kind"),
     [
         ("пешка е два е четыре", CommandKind.MOVE),
-        ("уровень пять", CommandKind.LEVEL),
+        ("пешка е два", CommandKind.CLARIFY),
+        ("е четыре", CommandKind.MOVE),
         ("помощь", CommandKind.HELP),
     ],
 )

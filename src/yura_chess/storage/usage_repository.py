@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from hashlib import sha256
 from typing import Literal
 
@@ -137,6 +137,41 @@ class UsageRepository:
                 ),
             )
         )
+
+    def claim_review_prompt(self, owner_key: str, claimed_at: datetime | None = None) -> bool:
+        result = self._session.execute(
+            text(
+                """
+                UPDATE usage_users u
+                SET u.review_prompted_at = :claimed_at
+                WHERE u.owner_key = :owner_key
+                  AND u.traffic_source = 'real'
+                  AND u.review_prompted_at IS NULL
+                  AND (
+                    EXISTS (
+                      SELECT 1
+                      FROM games g
+                      JOIN game_moves m ON m.game_id = g.id AND m.actor = 'player'
+                      WHERE g.owner_key = u.owner_key
+                        AND g.status IN ('finished', 'resigned')
+                    )
+                    OR (
+                      (SELECT COUNT(DISTINCT r.session_key)
+                       FROM usage_requests r
+                       WHERE r.owner_key = u.owner_key) >= 3
+                    )
+                    OR EXISTS (
+                      SELECT 1
+                      FROM puzzle_profiles p
+                      WHERE p.owner_key = u.owner_key
+                        AND p.clean_streak >= 3
+                    )
+                  )
+                """
+            ),
+            {"owner_key": owner_key, "claimed_at": claimed_at or datetime.now(UTC).replace(tzinfo=None)},
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
 
     def dashboard(
         self,

@@ -113,10 +113,17 @@ class ItemsListCard(_AliceModel):
     items: list[CardItem] = Field(min_length=1, max_length=CARD_ITEMS_LIMIT)
 
 
+class ResponseButton(_AliceModel):
+    title: str = Field(max_length=64)
+    url: str = Field(max_length=1024)
+    hide: bool = True
+
+
 class ResponseBody(_AliceModel):
     text: str
     tts: str | None = None
     card: BigImageCard | ItemsListCard | None = Field(default=None, discriminator="type")
+    buttons: list[ResponseButton] | None = None
     end_session: bool = False
 
 
