@@ -304,7 +304,7 @@ _PUZZLE_HELP_QUERY = re.compile(
 )
 
 _HELP_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
-    (CommandKind.HELP_EXIT, re.compile(r"(выйти|выход|закрой|закрыть|хватит|стоп)\w*( из)? справк")),
+    (CommandKind.HELP_EXIT, re.compile(r"(выйти|выход|закрой|закрыть|хватит|стоп)\w*( из)? (справк|помощ)")),
     (CommandKind.HELP, _PUZZLE_HELP_QUERY),
     (
         CommandKind.HELP,
@@ -992,7 +992,7 @@ _TRAINING_PATTERNS: tuple[tuple[TrainingQuestion, re.Pattern[str]], ...] = (
     (
         TrainingQuestion.ENABLE,
         re.compile(
-            r"(включи|запусти|давай)\w*( режим)? тренер|режим тренера|будь тренером|тренируй|"
+            r"(включи|запусти|давай)\w*( режим)? тренер|^режим тренера$|будь тренером|тренируй|"
             r"^включи режим трения$"
         ),
     ),

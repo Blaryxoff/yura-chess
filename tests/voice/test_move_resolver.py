@@ -78,6 +78,26 @@ def test_full_coordinates_outrank_a_piece_and_destination() -> None:
     assert coordinates.confidence > named.confidence
 
 
+@pytest.mark.parametrize("piece_word", ["конь", "ладья", "ферзь", "слон"])
+def test_a_piece_named_by_a_square_it_does_not_occupy_does_not_resolve(piece_word: str) -> None:
+    resolution = resolve(normalize(f"{piece_word} е два е четыре"), chess.Board())
+
+    assert resolution.status is ResolutionStatus.UNMATCHED
+
+
+def test_a_correctly_named_piece_still_resolves() -> None:
+    resolution = resolve(normalize("конь бэ один це три"), chess.Board())
+
+    assert resolution.status is ResolutionStatus.RESOLVED
+    assert resolution.move == "b1c3"
+
+
+def test_two_different_named_pieces_for_one_move_do_not_resolve() -> None:
+    resolution = resolve(normalize("конь пешка е четыре"), chess.Board())
+
+    assert resolution.status is ResolutionStatus.UNMATCHED
+
+
 def test_unknown_words_lower_confidence() -> None:
     clean = resolve(normalize("пешка е два е четыре"), chess.Board())
     noisy = resolve(normalize("пешка е два е четыре тарарам"), chess.Board())
@@ -718,6 +738,8 @@ def test_normalisation_keeps_no_original_casing_or_punctuation() -> None:
         ("выйти из справки", CommandKind.HELP_EXIT),
         ("закрой справку", CommandKind.HELP_EXIT),
         ("хватит справки", CommandKind.HELP_EXIT),
+        ("выйти из помощи", CommandKind.HELP_EXIT),
+        ("выход из помощи", CommandKind.HELP_EXIT),
     ],
 )
 def test_help_commands_never_reach_move_resolution(utterance: str, expected: CommandKind) -> None:
@@ -1760,6 +1782,18 @@ def test_a_short_go_on_is_answered_instead_of_ignored(utterance: str, expected: 
 )
 def test_leaving_and_asking_alice_are_told_apart(utterance: str, kind: CommandKind) -> None:
     assert route(utterance, chess.Board()).kind is kind
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["выключи режим тренера", "отключи режим тренера"],
+)
+def test_disabling_the_trainer_is_not_heard_as_enabling_it(utterance: str) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.TRAINING
+    assert routed.training is not None
+    assert routed.training.question is TrainingQuestion.DISABLE
 
 
 @pytest.mark.parametrize(

@@ -176,7 +176,8 @@ uv run yura-chess-shell --script scenario.txt --show-fen
 | `YURA_CHESS_STOCKFISH_PATH`           | Путь к бинарнику движка                                                            |
 | `YURA_CHESS_ENGINE_POOL_SIZE`         | Число постоянных процессов Stockfish                                               |
 | `YURA_CHESS_WEBHOOK_DEADLINE_SECONDS` | Общий дедлайн ответа Алисе                                                         |
-| `YURA_CHESS_YANDEX_SKILL_ID`, `YURA_CHESS_YANDEX_OAUTH_TOKEN` | Загрузка картинок в Яндекс Диалоги; без них навык остаётся полностью голосовым |
+| `YURA_CHESS_YANDEX_SKILL_ID`                                  | Отбрасывает запросы с чужим `skill_id`; также используется для загрузки картинок |
+| `YURA_CHESS_YANDEX_OAUTH_TOKEN`                                | Загрузка картинок в Яндекс Диалоги; без него навык остаётся полностью голосовым |
 | `YURA_CHESS_ALICE_SOUND_*`            | Свои звуки вместо встроенной библиотеки Alice sounds                               |
 | `YURA_CHESS_TEST_DATABASE_URL`        | Отдельная база для интеграционных тестов; без неё они пропускаются                 |
 

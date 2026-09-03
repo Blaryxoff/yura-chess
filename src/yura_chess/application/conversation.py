@@ -340,9 +340,12 @@ class ConversationService:
         state = state or ConversationState()
         game = self._load(owner_key, state.game_id)
         if state.game_id is not None and game is None:
-            # A game id the owner cannot load is someone else's or long gone; the
-            # player keeps their own running game instead of silently getting a new one.
+            # A stale or foreign game id must not carry over state from that game.
             state = ConversationState(last_heard=state.last_heard)
+            game = self._games.find_latest_active_game(owner_key)
+            if game is not None:
+                state = self._with_game(state, game)
+        elif game is None:
             game = self._games.find_latest_active_game(owner_key)
             if game is not None:
                 state = self._with_game(state, game)
@@ -856,7 +859,9 @@ class ConversationService:
                     return ConversationReply(Speech.of("Незаконченных партий нет. Скажите «новая игра»."), next_state)
                 result = await self._games.continue_game(owner_key, candidate.id, request)
                 return self._turn_reply(owner_key, result, next_state, preferences)
-            return await self._start(owner_key, utterance, request, next_state, preferences)
+            if routed.kind in {CommandKind.START, CommandKind.NEW_GAME} or not utterance.strip():
+                return await self._start(owner_key, utterance, request, next_state, preferences)
+            return ConversationReply(Speech.of("Партии сейчас нет. Скажите «новая игра»."), next_state)
 
         assert board is not None
         if not utterance.strip():

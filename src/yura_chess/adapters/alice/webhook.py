@@ -68,6 +68,7 @@ from yura_chess.presentation.response_composer import (
     compose_board_card,
 )
 from yura_chess.presentation.website import YANDEX_REVIEW_URL
+from yura_chess.settings import Settings
 from yura_chess.storage.game_repository import (
     PendingTurnConflictError,
     PendingTurnMismatchError,
@@ -112,6 +113,8 @@ def build_router() -> APIRouter:
         started = monotonic()
         try:
             async with asyncio.timeout(settings.webhook_deadline_seconds):
+                if not _skill_id_matches(settings, payload):
+                    return _plain(payload, "Не удалось определить пользователя. Попробуйте открыть навык ещё раз.")
                 response, reply, owner, context = await _handle(payload, conversation, settings.identity_salt)
                 review_prompt_moment = reply is not None and _review_prompt_moment(payload, reply)
                 # The answer is already complete; the card is added only if the
@@ -326,6 +329,10 @@ def _compose(payload: AliceRequest, reply: ConversationReply, salt: SecretStr) -
         session_state=None if reply.end_session else _session_state_update(reply.state, payload, salt),
         version=payload.version,
     )
+
+
+def _skill_id_matches(settings: Settings, payload: AliceRequest) -> bool:
+    return settings.yandex_skill_id is None or payload.session.skill_id == settings.yandex_skill_id
 
 
 def _plain(payload: AliceRequest, text: str) -> AliceResponse:

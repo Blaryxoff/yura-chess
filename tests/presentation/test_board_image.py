@@ -177,10 +177,12 @@ class TestCardComposition:
         assert card.position_hash != own_side.position_hash
         assert card.title == own_side.title
 
-    def test_speech_is_identical_with_and_without_a_screen(self) -> None:
+    def test_card_for_dispatch_also_withholds_the_board_card_without_a_screen(self) -> None:
         result = _result(fen=MATE_FEN, engine_move="a1a8")
+        reply = ConversationReply(compose_turn(result), ConversationState(), result)
 
-        assert compose_turn(result).text == compose_turn(replace(result)).text
+        assert _card_for(reply, has_screen=True) is not None
+        assert _card_for(reply, has_screen=False) is None
 
     def test_screen_interface_is_read_from_meta(self) -> None:
         base = {"session": {"message_id": 1, "session_id": "s", "skill_id": "k"}, "version": "1.0"}

@@ -1,6 +1,7 @@
 """Smoke the public production webhook over HTTP when explicitly requested.
 
     YURA_CHESS_DEPLOYED_URL=https://yurachess.ru \
+      YURA_CHESS_YANDEX_SKILL_ID=<the deployment's real skill id> \
       uv run pytest tests/e2e/test_deployed_webhook.py
 
 The tests use throwaway Alice identities and only create disposable games. They

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import re
 from hashlib import sha256
 from typing import Any
 
@@ -83,6 +84,7 @@ def build_client(
     session_factory: sessionmaker[Session],
     engine: FakeEngine | None = None,
     deadline: float = 4.5,
+    skill_id: str | None = None,
 ) -> httpx.AsyncClient:
     """Wire the app by hand: the lifespan would open its own database engine."""
     settings = Settings(  # type: ignore[call-arg]
@@ -90,6 +92,7 @@ def build_client(
         database_url=UNREACHABLE_DATABASE_URL,
         identity_salt=TEST_IDENTITY_SALT,
         webhook_deadline_seconds=deadline,
+        yandex_skill_id=skill_id,
     )
     app = create_app(settings)
     app.state.session_factory = session_factory
@@ -146,6 +149,37 @@ async def test_a_new_session_opens_a_game_and_returns_minimal_state(
     assert "скажите «помощь»" in body["response"]["text"]
     assert len(body["response"]["text"]) <= TEXT_LIMIT
     assert len(str(body["user_state_update"]).encode("utf-8")) <= STATE_LIMIT_BYTES
+
+
+async def test_a_matching_skill_id_is_let_through(session_factory: sessionmaker[Session]) -> None:
+    async with build_client(session_factory, skill_id=SKILL) as client:
+        response = await client.post("/alice/webhook", json=alice_request(1, new=True))
+
+    assert response.status_code == 200
+    assert "user_state_update" in response.json()
+
+
+async def test_a_mismatched_skill_id_is_refused_without_touching_any_game(
+    session_factory: sessionmaker[Session],
+    database_engine: Engine,
+) -> None:
+    async with build_client(session_factory, skill_id="a-different-skill") as client:
+        response = await client.post("/alice/webhook", json=alice_request(1, new=True))
+
+    body = response.json()
+    assert "user_state_update" not in body
+    assert "Не удалось определить пользователя" in body["response"]["text"]
+    assert games_count(database_engine) == 0
+
+
+async def test_an_absent_skill_id_setting_lets_any_skill_id_through(
+    session_factory: sessionmaker[Session],
+) -> None:
+    async with build_client(session_factory, skill_id=None) as client:
+        response = await client.post("/alice/webhook", json=alice_request(1, new=True))
+
+    assert response.status_code == 200
+    assert "user_state_update" in response.json()
 
 
 async def test_third_screen_session_offers_the_catalogue_review_once(
@@ -1051,8 +1085,10 @@ async def test_a_help_card_is_optional_and_the_voice_answer_is_unchanged(
     assert card["type"] == "ItemsList"
     assert card["header"]["text"] == "Справка"
     assert 1 <= len(card["items"]) <= CARD_ITEMS_LIMIT
-    # Every listed topic was already offered by the spoken menu.
-    assert all(item["description"] for item in card["items"])
+    titles = [title for item in card["items"] for title in re.findall(r"«([^»]+)»", item["description"])]
+    spoken_text = spoken["response"]["text"].casefold()
+    assert titles
+    assert all(title.casefold() in spoken_text for title in titles)
 
 
 def test_the_review_page_flag_survives_the_alice_session_state() -> None:

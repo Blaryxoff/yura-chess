@@ -8,6 +8,7 @@ depend on is a real Stockfish process or a real Yandex account.
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 import chess
@@ -22,7 +23,8 @@ from yura_chess.engine.stockfish import EngineSearchTimeoutError, EngineUnavaila
 from yura_chess.main import create_app
 from yura_chess.settings import Settings
 
-SKILL = "e2e-skill"
+# Set YURA_CHESS_YANDEX_SKILL_ID when running test_deployed_webhook.py against a real deployment.
+SKILL = os.environ.get("YURA_CHESS_YANDEX_SKILL_ID") or "e2e-skill"
 USER_A = "e2e-user-a"
 USER_B = "e2e-user-b"
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import chess
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -38,7 +38,7 @@ from yura_chess.presentation.response_composer import BoardCard
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
-from yura_chess.storage.models import AsrTranscriptRow, UsageRequestRow
+from yura_chess.storage.models import AsrTranscriptRow, GameRow, UsageRequestRow
 from yura_chess.storage.preferences_repository import PreferencesRepository
 from yura_chess.storage.review_repository import ReviewRepository
 from yura_chess.storage.usage_repository import request_key
@@ -693,6 +693,22 @@ async def test_start_like_phrase_never_confirms_resignation(
     with session_scope(session_factory) as session:
         game = GameRepository(session).load(started.state.game_id or "", OWNER)
     assert game.status is GameStatus.ACTIVE
+
+
+async def test_a_stateless_request_recovers_the_active_game_instead_of_resigning_it(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+
+    await conversation.handle(OWNER, "", context(2), ConversationState())
+
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).load(started.state.game_id or "", OWNER)
+        games_count = session.scalar(select(func.count()).select_from(GameRow).where(GameRow.owner_key == OWNER))
+    assert game.status is GameStatus.ACTIVE
+    assert games_count == 1
 
 
 @pytest.mark.parametrize("utterance", ["поехали", "погнали", "начали", "начинаем"])
@@ -1602,14 +1618,16 @@ async def test_unknown_help_topic_lists_the_real_sections_and_keeps_help_open(
     assert reply.state.help == HelpState(topic=None, page=0)
 
 
+@pytest.mark.parametrize("utterance", ["закрой справку", "выйти из помощи", "выход из помощи"])
 async def test_leaving_help_closes_it(
+    utterance: str,
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
 ) -> None:
     conversation = subject(session_factory, offline_settings)
     opened = await conversation.handle(OWNER, "справка по ходам", context(1))
 
-    reply = await conversation.handle(OWNER, "закрой справку", context(2), opened.state)
+    reply = await conversation.handle(OWNER, utterance, context(2), opened.state)
 
     assert "Закрываю справку" in reply.speech.text
     assert reply.state.help is None

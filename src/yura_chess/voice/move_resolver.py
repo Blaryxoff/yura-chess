@@ -68,6 +68,15 @@ def resolve(normalized: Normalized, board: chess.Board) -> MoveResolution:
                 previous = focused.get(move_uci)
                 if previous is None or tier > previous[1]:
                     focused[move_uci] = (signature, tier)
+        named_pieces = {token.value for token in normalized.signature if token.kind is TokenKind.PIECE}
+        if len(named_pieces) == 1:
+            named_piece = next(iter(named_pieces))
+            focused = {
+                move_uci: value for move_uci, value in focused.items() if _moving_piece(board, move_uci) == named_piece
+            }
+        elif named_pieces:
+            # Two different piece names for one move contradict each other outright.
+            focused = {}
         if not focused:
             return MoveResolution(ResolutionStatus.UNMATCHED, recognized=recognized)
         if len(focused) > 1:
@@ -129,6 +138,11 @@ def recognize(signature: Signature) -> RecognizedMove:
 
 def _has_destination_rank(signature: Signature) -> bool:
     return any(token.kind is TokenKind.DESTINATION_RANK for token in signature)
+
+
+def _moving_piece(board: chess.Board, move_uci: str) -> str | None:
+    piece = board.piece_at(chess.parse_square(move_uci[:2]))
+    return piece.symbol().upper() if piece is not None else None
 
 
 def _focused_signatures(signature: Signature) -> tuple[Signature, ...]:

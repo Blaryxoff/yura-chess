@@ -106,6 +106,23 @@ async def test_trainer_is_switched_on_only_by_an_explicit_command(
     assert load(session_factory, started.state.game_id or "").mode is GameMode.TRAINING
 
 
+@pytest.mark.parametrize("utterance", ["выключи режим тренера", "отключи режим тренера"])
+async def test_disabling_the_trainer_turns_it_off_rather_than_on(
+    utterance: str,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = ConversationService(session_factory, FakeEngine(), offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    enabled = await conversation.handle(OWNER, "включи режим тренера", context(2), started.state)
+    assert load(session_factory, started.state.game_id or "").mode is GameMode.TRAINING
+
+    reply = await conversation.handle(OWNER, utterance, context(3), enabled.state)
+
+    assert "тренера" in reply.speech.text
+    assert load(session_factory, started.state.game_id or "").mode is GameMode.GAME
+
+
 async def test_advice_in_an_honest_game_offers_the_trainer_without_answering(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
