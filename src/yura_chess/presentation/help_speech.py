@@ -237,7 +237,8 @@ _MODE_TAILS: dict[HelpMode, tuple[str, str]] = {
 _TOPIC_ALIASES: tuple[tuple[HelpTopic, re.Pattern[str]], ...] = (
     (HelpTopic.ALL, re.compile(r"^(все|весь|всё|полн|список|команд)")),
     (HelpTopic.RULES, re.compile(r"^(правил|основ)")),
-    (HelpTopic.MOVES, re.compile(r"^(ход|фигур)")),
+    # «hot» is ASR's Latin mishearing of «ход» (application/command_router.py).
+    (HelpTopic.MOVES, re.compile(r"^(ход|фигур|hot)")),
     (HelpTopic.POSITION, re.compile(r"^(позиц|доск)")),
     (HelpTopic.FACTS, re.compile(r"^(факт|дебют|стади|рокиров|цвет)")),
     (HelpTopic.SETTINGS, re.compile(r"^(настройк|настрой|предпочт|нотац|громкост)")),

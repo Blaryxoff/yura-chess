@@ -479,6 +479,10 @@ def test_leaving_is_commanded_outright_or_asked_about(utterance: str, expected: 
         ("подожди", CommandKind.PAUSE),
         ("я еще поле выставляю", CommandKind.PAUSE),
         ("ход", CommandKind.AMBIGUOUS_TURN),
+        ("hot", CommandKind.AMBIGUOUS_TURN),
+        ("hot hot", CommandKind.AMBIGUOUS_TURN),
+        ("алиса hot", CommandKind.AMBIGUOUS_TURN),
+        ("hot алиса", CommandKind.AMBIGUOUS_TURN),
         ("почему", CommandKind.WHY),
         ("не знаю", CommandKind.DONT_KNOW),
         ("что мне делать", CommandKind.HELP),
@@ -492,6 +496,11 @@ def test_observed_production_phrases_are_routed(utterance: str, expected: Comman
 
 def test_unrelated_continue_phrase_is_not_a_chess_command() -> None:
     assert route("алиса продолжай трек", chess.Board()).kind is CommandKind.UNKNOWN
+
+
+@pytest.mark.parametrize("utterance", ["а hot hot", "wash hot", "hot нужен"])
+def test_a_near_miss_of_the_hot_alias_is_not_routed(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.UNKNOWN
 
 
 def test_compound_confirmation_stays_explicit_and_does_not_capture_another_request() -> None:

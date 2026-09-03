@@ -444,7 +444,8 @@ _CONVERSATION_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"^я еще (?:поле|доску|фигуры) выставляю$"
         ),
     ),
-    (CommandKind.AMBIGUOUS_TURN, re.compile(r"^ходы?$")),
+    # ASR devoices «ход»'s final /д/ and sometimes transliterates it as Latin.
+    (CommandKind.AMBIGUOUS_TURN, re.compile(r"^(?:ходы?|hot(?: hot)?)$")),
     # After the help table, which owns «как сделать ход»: that one asks how a move
     # is spoken, while «как ходить» asks either the rules or what to play here.
     (

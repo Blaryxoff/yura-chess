@@ -300,6 +300,50 @@ async def test_my_move_during_a_pending_engine_turn_says_yura_still_owes_a_move(
     assert after.pending_engine_turn is not None
 
 
+async def test_the_bare_word_hod_during_a_pending_engine_turn_says_yura_still_owes_a_move(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    game_id = started.state.game_id or ""
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        game = repository.load(game_id, OWNER)
+        pending = repository.begin_engine_turn(game.id, OWNER, game.revision, "e2e4", "pending")
+
+    reply = await conversation.handle(
+        OWNER,
+        "ход",
+        context(2),
+        ConversationState(game_id=game_id, revision=pending.revision),
+    )
+
+    assert reply.speech.text == "Юра еще думает над ходом. Скажите «продолжаем»."
+
+
+async def test_a_conversational_aside_during_a_pending_engine_turn_does_not_claim_its_the_players_move(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    game_id = started.state.game_id or ""
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        game = repository.load(game_id, OWNER)
+        pending = repository.begin_engine_turn(game.id, OWNER, game.revision, "e2e4", "pending")
+
+    reply = await conversation.handle(
+        OWNER,
+        "алиса",
+        context(2),
+        ConversationState(game_id=game_id, revision=pending.revision),
+    )
+
+    assert reply.speech.text == "Слушаю. Юра еще думает над ходом. Скажите «продолжаем»."
+
+
 async def test_partial_opening_coordinates_get_a_specific_next_step(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
@@ -443,6 +487,22 @@ async def test_confirmation_analytics_are_request_linked_and_not_reported_as_unm
         "confirmation",
     )
     assert transcript.outcome == "confirmation"
+
+
+async def test_the_hot_alias_for_hod_is_recorded_as_ambiguous_turn_not_unmatched(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    reply = await conversation.handle(OWNER, "hot", context(2), started.state)
+    key = request_key("shell", "conversation", "2")
+
+    assert reply.speech.text == "Ваш ход. Назовите фигуру и поле назначения."
+    with session_scope(session_factory) as session:
+        transcript = session.scalars(select(AsrTranscriptRow).where(AsrTranscriptRow.request_key == key)).one()
+        assert GameRepository(session).load(started.state.game_id or "", OWNER).moves == ()
+    assert transcript.outcome == "ambiguous_turn"
 
 
 async def test_illegal_move_explains_the_rule_without_changing_the_game(
@@ -823,7 +883,7 @@ async def test_a_farewell_ends_the_session_and_keeps_the_game(
         ("спасибо", "Пожалуйста. Ваш ход."),
         ("как дела", "Все хорошо, готов играть. Ваш ход."),
         ("понятно", "Хорошо. Ваш ход."),
-        ("ход", "Что вы хотите: сделать ход, услышать последний ход или открыть помощь?"),
+        ("ход", "Ваш ход. Назовите фигуру и поле назначения."),
         ("как ходить", "Объяснить правила или подсказать ход?"),
         ("какой у тебя голос", "Я говорю голосом Алисы. Другой голос выбрать нельзя. Ваш ход."),
         ("подожди", "Хорошо, подожду. Партия сохранена."),
@@ -1455,12 +1515,129 @@ async def test_back_and_rotate_never_undo_a_move(
     backed = await conversation.handle(OWNER, "вернись", context(4), rotated.state)
 
     assert "за белых или за черных" in rotated.speech.text
-    assert backed.speech.text == "Куда вернуться: к партии, выйти из задач или закрыть справку?"
+    assert backed.speech.text == "Ваш ход."
     with session_scope(session_factory) as session:
         after = GameRepository(session).load(started.state.game_id or "", OWNER)
     assert (after.moves, after.revision) == (before.moves, before.revision)
     assert route("отмени ход", chess.Board()).kind is CommandKind.UNDO
     assert route("верни последний ход", chess.Board()).kind is CommandKind.UNDO
+
+
+async def test_going_back_while_help_is_open_names_the_command_that_closes_it(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    opened = await conversation.handle(OWNER, "все команды", context(1))
+
+    backed = await conversation.handle(OWNER, "вернись", context(2), opened.state)
+
+    assert backed.speech.text == "Скажите «закрой справку», чтобы вернуться."
+
+
+async def test_going_back_during_a_pending_confirmation_asks_for_that_answer(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    asked = await conversation.handle(OWNER, "сдаюсь", context(2), started.state)
+
+    backed = await conversation.handle(OWNER, "вернись", context(3), asked.state)
+
+    assert backed.speech.text == "Скажите «да» или «нет»."
+
+
+async def test_going_back_with_an_open_move_clarification_names_the_cancel_command(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    played = await conversation.handle(OWNER, "пешка е два е четыре", context(2), started.state)
+    asked = await conversation.handle(OWNER, "ход конем", context(3), played.state)
+    assert asked.state.clarification is not None
+
+    backed = await conversation.handle(OWNER, "вернись", context(4), asked.state)
+
+    assert backed.speech.text == "Скажите «отмена», чтобы отменить неоконченный ход."
+
+
+async def test_going_back_with_an_open_puzzle_names_the_exit_command(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    offered = await conversation.handle(OWNER, "дай задачу", context(1, new=True))
+
+    backed = await conversation.handle(OWNER, "вернись", context(2), offered.state)
+
+    assert backed.speech.text == "Скажите «выйти из задач», чтобы вернуться к партии."
+
+
+async def test_going_back_with_an_open_review_outranks_an_open_puzzle(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).create_game(OWNER, PlayerColor.WHITE, initial_fen=MATE_IN_ONE_FEN)
+
+    mated = await conversation.handle(
+        OWNER,
+        "ладья а один а восемь",
+        context(1),
+        ConversationState(game_id=game.id, revision=game.revision),
+    )
+    puzzle = await conversation.handle(OWNER, "решить задачу", context(2), mated.state)
+    summary = await conversation.handle(OWNER, "разобрать партию", context(3), puzzle.state)
+    assert summary.state.reviewing is True
+    assert PuzzleService(session_factory).find_open(OWNER) is not None
+
+    backed = await conversation.handle(OWNER, "вернись", context(4), summary.state)
+
+    assert backed.speech.text == "Скажите «выйти из разбора», чтобы вернуться к партии."
+
+
+async def test_going_back_with_a_finished_game_and_nothing_else_open_offers_review_or_new_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    asked = await conversation.handle(OWNER, "сдаюсь", context(2), started.state)
+    resigned = await conversation.handle(OWNER, "да подтверждаю", context(3), asked.state)
+
+    backed = await conversation.handle(OWNER, "вернись", context(4), resigned.state)
+
+    assert backed.speech.text == "Можно разобрать партию или начать новую."
+
+
+async def test_ambiguous_turn_during_a_pending_confirmation_asks_for_that_answer(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    asked = await conversation.handle(OWNER, "сдаюсь", context(2), started.state)
+
+    reply = await conversation.handle(OWNER, "ход", context(3), asked.state)
+
+    assert reply.speech.text == "Скажите «да» или «нет»."
+
+
+async def test_ambiguous_turn_while_solving_a_puzzle_gives_the_puzzle_instruction(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра", context(1))
+    offered = await conversation.handle(OWNER, "задача", context(2), started.state)
+    assert PuzzleService(session_factory).find_open(OWNER) is not None
+
+    reply = await conversation.handle(OWNER, "ход", context(3), offered.state)
+
+    assert reply.speech.text == "Назовите ход, попросите подсказку или покажите решение."
 
 
 async def test_natural_trainer_and_review_questions_reach_their_services(
@@ -1737,6 +1914,18 @@ async def test_a_section_named_alone_after_the_menu_opens_that_section(
 
     assert reply.state.help == HelpState(topic=HelpTopic.MOVES, page=0)
     assert reply.state.game_id is None
+
+
+async def test_the_hot_alias_for_hod_opens_the_moves_topic_while_help_is_open(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    menu = await conversation.handle(OWNER, "справка", context(1))
+
+    reply = await conversation.handle(OWNER, "hot", context(2), menu.state)
+
+    assert reply.state.help == HelpState(topic=HelpTopic.MOVES, page=0)
 
 
 async def test_a_board_question_during_help_still_reads_the_board(

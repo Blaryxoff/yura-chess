@@ -470,9 +470,13 @@ class ConversationService:
                     routed.kind,
                     routed.normalized.text,
                     game,
+                    board,
                     open_puzzle is not None,
                     pending_action,
                     routed.persona,
+                    help_open=state.help is not None,
+                    clarification_open=state.clarification is not None,
+                    reviewing=state.reviewing,
                 ),
                 state,
             )
@@ -799,8 +803,12 @@ class ConversationService:
                     routed.kind,
                     routed.normalized.text,
                     game,
+                    board,
                     open_puzzle is not None,
                     None,
+                    help_open=state.help is not None,
+                    clarification_open=state.clarification is not None,
+                    reviewing=state.reviewing,
                 ),
                 self._with_game(next_state, game) if game is not None else next_state,
             )
@@ -917,7 +925,7 @@ class ConversationService:
             )
         if routed.kind is CommandKind.CLARIFY:
             pending = routed.clarification or state.clarification
-            engine_to_move = game.pending_engine_turn is not None or board.turn != game.player_color.to_chess()
+            engine_to_move = _engine_to_move(game, board)
             return ConversationReply(
                 self._clarification_speech(pending, board, engine_to_move),
                 replace(self._with_game(next_state, game), clarification=pending),
@@ -1359,8 +1367,7 @@ class ConversationService:
         else:
             history = f"Последние два хода: {describe_recent_moves(board, 2, notation).text}"
         # The engine still owes an answer, so the next word is not a move.
-        engine_to_move = game.pending_engine_turn is not None or board.turn != game.player_color.to_chess()
-        tail = "Скажите «продолжаем»." if engine_to_move else "Чтобы продолжить, назовите ход."
+        tail = "Скажите «продолжаем»." if _engine_to_move(game, board) else "Чтобы продолжить, назовите ход."
         return Speech.of(f"{opening} {history} {tail}")
 
     def _reload(self, owner_key: str, game: GameState) -> GameState:
@@ -1537,6 +1544,10 @@ def _hint(preferences: PlayerPreferences, text: str) -> str:
     return "" if preferences.detail_level is DetailLevel.BRIEF else f" {text}"
 
 
+def _engine_to_move(game: GameState, board: chess.Board) -> bool:
+    return game.pending_engine_turn is not None or board.turn != game.player_color.to_chess()
+
+
 def _routing_outcome(kind: CommandKind) -> str:
     if kind is CommandKind.UNKNOWN:
         return "unknown"
@@ -1551,35 +1562,60 @@ def _conversational_reply(
     kind: CommandKind,
     text: str,
     game: GameState | None,
+    board: chess.Board | None,
     solving_puzzle: bool,
     pending_action: PendingAction | None,
     persona: PersonaRequest | None = None,
+    *,
+    help_open: bool = False,
+    clarification_open: bool = False,
+    reviewing: bool = False,
 ) -> Speech:
     """Keep short conversational turns useful without changing chess state."""
+    engine_to_move = game is not None and board is not None and _engine_to_move(game, board)
     if kind is CommandKind.PAUSE:
         saved = " Партия сохранена." if game is not None and game.status is GameStatus.ACTIVE else ""
         return Speech.of(f"Хорошо, подожду.{saved}")
-    if kind is CommandKind.AMBIGUOUS_TURN:
-        return Speech.of("Что вы хотите: сделать ход, услышать последний ход или открыть помощь?")
     if kind is CommandKind.AMBIGUOUS_LEARNING:
         if game is not None and game.status is GameStatus.ACTIVE:
             return Speech.of("Объяснить правила или подсказать ход?")
         return Speech.of("Объяснить правила или начать партию?")
     if kind is CommandKind.ORIENTATION_QUERY:
         return Speech.of("Как показать доску: за белых или за черных?")
-    if kind is CommandKind.NAVIGATE_BACK:
-        return Speech.of("Куда вернуться: к партии, выйти из задач или закрыть справку?")
 
     if pending_action is not None:
         expectation = "Скажите «да» или «нет»."
     elif solving_puzzle:
         expectation = "Назовите ход, попросите подсказку или покажите решение."
     elif game is not None and game.status is GameStatus.ACTIVE:
-        expectation = "Ваш ход."
+        expectation = "Юра еще думает над ходом. Скажите «продолжаем»." if engine_to_move else "Ваш ход."
     elif game is not None:
         expectation = "Можно разобрать партию или начать новую."
     else:
         expectation = "Скажите «новая игра», чтобы начать."
+
+    if kind is CommandKind.AMBIGUOUS_TURN:
+        if (
+            pending_action is None
+            and not solving_puzzle
+            and game is not None
+            and game.status is GameStatus.ACTIVE
+            and not engine_to_move
+        ):
+            return Speech.of("Ваш ход. Назовите фигуру и поле назначения.")
+        return Speech.of(expectation)
+    if kind is CommandKind.NAVIGATE_BACK:
+        if help_open:
+            return Speech.of("Скажите «закрой справку», чтобы вернуться.")
+        if pending_action is not None:
+            return Speech.of(expectation)
+        if clarification_open:
+            return Speech.of("Скажите «отмена», чтобы отменить неоконченный ход.")
+        if reviewing:
+            return Speech.of("Скажите «выйти из разбора», чтобы вернуться к партии.")
+        if solving_puzzle:
+            return Speech.of("Скажите «выйти из задач», чтобы вернуться к партии.")
+        return Speech.of(expectation)
 
     if kind is CommandKind.ATTENTION:
         return Speech.of(f"Слушаю. {expectation}")
