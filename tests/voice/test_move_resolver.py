@@ -499,6 +499,12 @@ def test_compound_confirmation_stays_explicit_and_does_not_capture_another_reque
     assert confirmation_answer("да просто песню поставь") is None
 
 
+def test_repeated_yes_confirms_even_resignation() -> None:
+    assert confirmation_answer("да да", CommandKind.RESIGN) is True
+    assert confirmation_answer("да да", CommandKind.NEW_GAME) is True
+    assert confirmation_answer("да да") is True
+
+
 @pytest.mark.parametrize(
     "utterance",
     [
@@ -660,6 +666,19 @@ def test_yes_confirms_a_single_candidate() -> None:
     assert routed.kind is CommandKind.MOVE
     assert routed.move == "e2e4"
     assert routed.clarification is None
+
+
+def test_repeated_yes_confirms_a_single_candidate_but_not_several() -> None:
+    single = PendingClarification(heard="пешка е два е четыре", candidates=("e2e4",))
+    multiple = PendingClarification(heard="конь дэ два", candidates=("b1d2", "f3d2"))
+
+    resolved = route("да да", chess.Board(), pending=single)
+    still_waiting = route("да да", chess.Board(), pending=multiple)
+
+    assert resolved.kind is CommandKind.MOVE
+    assert resolved.move == "e2e4"
+    assert still_waiting.kind is CommandKind.CLARIFY
+    assert still_waiting.clarification == multiple
 
 
 def test_yes_never_picks_one_of_several_candidates() -> None:

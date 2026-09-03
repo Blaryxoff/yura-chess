@@ -917,8 +917,9 @@ class ConversationService:
             )
         if routed.kind is CommandKind.CLARIFY:
             pending = routed.clarification or state.clarification
+            engine_to_move = game.pending_engine_turn is not None or board.turn != game.player_color.to_chess()
             return ConversationReply(
-                self._clarification_speech(pending, board),
+                self._clarification_speech(pending, board, engine_to_move),
                 replace(self._with_game(next_state, game), clarification=pending),
             )
         if routed.kind is CommandKind.ILLEGAL_MOVE:
@@ -1405,11 +1406,17 @@ class ConversationService:
         return replace(state, game_id=result.game_id, revision=result.revision, clarification=None)
 
     @staticmethod
-    def _clarification_speech(pending: PendingClarification | None, board: chess.Board) -> Speech:
+    def _clarification_speech(
+        pending: PendingClarification | None, board: chess.Board, engine_to_move: bool = False
+    ) -> Speech:
         if pending is None:
             return Speech.of("Уточните ход.")
         if not pending.candidates:
             normalized = normalize(pending.heard)
+            if normalized.text == "мой ход":
+                if engine_to_move:
+                    return Speech.of("Юра еще думает над ходом. Скажите «продолжаем».")
+                return Speech.of("Ваш ход. Назовите фигуру и поле назначения.")
             if contains_multiple_moves(normalized):
                 return Speech.of("Я услышал несколько ходов. Назовите только ваш текущий ход.")
             recognized = recognize(normalized.signature)

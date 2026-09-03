@@ -260,6 +260,46 @@ async def test_incomplete_and_compound_moves_get_specific_non_mutating_clarifica
         assert GameRepository(session).load(started.state.game_id or "", OWNER).moves == ()
 
 
+async def test_my_move_confirms_its_the_players_turn(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    reply = await conversation.handle(OWNER, "мой ход", context(2), started.state)
+
+    assert reply.speech.text == "Ваш ход. Назовите фигуру и поле назначения."
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).load(started.state.game_id or "", OWNER).moves == ()
+
+
+async def test_my_move_during_a_pending_engine_turn_says_yura_still_owes_a_move(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    game_id = started.state.game_id or ""
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        game = repository.load(game_id, OWNER)
+        pending = repository.begin_engine_turn(game.id, OWNER, game.revision, "e2e4", "pending")
+
+    reply = await conversation.handle(
+        OWNER,
+        "мой ход",
+        context(2),
+        ConversationState(game_id=game_id, revision=pending.revision),
+    )
+
+    assert reply.speech.text == "Юра еще думает над ходом. Скажите «продолжаем»."
+    with session_scope(session_factory) as session:
+        after = GameRepository(session).load(game_id, OWNER)
+    assert after.moves == ("e2e4",)
+    assert after.pending_engine_turn is not None
+
+
 async def test_partial_opening_coordinates_get_a_specific_next_step(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,

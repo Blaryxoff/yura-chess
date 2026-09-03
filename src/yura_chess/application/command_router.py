@@ -1193,7 +1193,7 @@ _REMATCH_HARDER = re.compile(r"сложнее|потруднее|усложни|
 _REMATCH_WHITE = re.compile(r"\bбел(ыми|ые)\b")
 _REMATCH_BLACK = re.compile(r"\bчерн(ыми|ые)\b")
 
-_AFFIRM_EXPLICIT = re.compile(r"^(?:да|ага|верно|точно|правильно|подтверждаю|да подтверждаю)$")
+_AFFIRM_EXPLICIT = re.compile(r"^(?:да|да да|ага|верно|точно|правильно|подтверждаю|да подтверждаю)$")
 _AFFIRM_FRIENDLY = re.compile(r"^(?:угу|конечно|давай|да давай|да конечно)$")
 _AFFIRM_CONTINUE = re.compile(r"^(?:поехали|погнали|начали|начинаем|продолжать|продолжи партию)$")
 _DECLINE = re.compile(
