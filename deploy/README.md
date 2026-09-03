@@ -16,7 +16,6 @@ where this repository is unpacked at `/srv/yura-chess/repo`. See
 | `deploy.sh` | Idempotent deploy of one immutable tag, with migrations and health smoke |
 | `rollback.sh` | Put the previous application image back |
 | `nginx/yurachess.ru.conf` | Canonical host nginx vhost: TLS, limits, rate limiting |
-| `nginx/chess.waxim.ru.conf` | Permanent redirects from the retired host |
 | `mariadb/backup.sh` | Scheduled dump, off-host copy, retention, alerting |
 | `mariadb/restore-smoke.sh` | Restore the latest dump into a temporary database and verify it |
 | `systemd/` | Daily backup and weekly restore-smoke units for the production Incus container |
@@ -137,9 +136,12 @@ allowlist there names every public path one by one, so adding a page or a crawle
 file to the application is not enough — the vhost must be reinstalled in the same
 release, or nginx keeps answering 404 while every unit test passes.
 
+`chess.waxim.ru`'s redirect-only vhost is managed directly on the host, not from
+this repo: it was rewritten by hand after the domain switchover and this repo
+never held the current version, so there is nothing here to reinstall for it.
+
 ```bash
 sudo install -m 0644 deploy/nginx/yurachess.ru.conf /etc/nginx/sites-available/yurachess.ru.conf
-sudo install -m 0644 deploy/nginx/chess.waxim.ru.conf /etc/nginx/sites-available/chess.waxim.ru.conf
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
