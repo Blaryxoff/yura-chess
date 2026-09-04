@@ -72,6 +72,7 @@ the public webhook with throwaway Alice identities:
 
 ```bash
 YURA_CHESS_DEPLOYED_URL=https://yurachess.ru \
+  YURA_CHESS_YANDEX_SKILL_ID=1778b5e3-d1d2-487e-bcb2-cb335c1e0e5d \
   uv run pytest tests/e2e/test_deployed_webhook.py
 ```
 
