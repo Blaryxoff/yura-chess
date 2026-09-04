@@ -100,14 +100,20 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert 'class="footer-brand" href="/" aria-label=' not in response.text
     assert 'class="footer-nav" aria-label="Дополнительные страницы"' in response.text
     assert response.text.index('id="statistics"') < response.text.index("Конфиденциальность")
-    assert response.text.index('id="statistics"') < response.text.index('id="support"')
-    assert response.text.index('id="support"') < response.text.index("Конфиденциальность")
+    assert response.text.index('id="support"') < response.text.index('id="statistics"')
+    assert response.text.index('id="statistics"') < response.text.index("Конфиденциальность")
+    assert "Ваше мнение помогает" not in response.text
+    assert "Использование навыка" not in response.text
     assert 'href="https://pay.cloudtips.ru/p/f604e20f"' in response.text
     assert response.text.count('href="https://pay.cloudtips.ru/p/f604e20f"') == 1
     assert 'rel="noopener noreferrer nofollow"' in response.text
-    assert "Поддержка не предоставляет платных функций" in response.text
-    assert f'href="{YANDEX_REVIEW_URL}"' in response.text
-    assert "Оставьте отзыв в Яндексе" in response.text
+    assert 'class="support-donation-link"' in response.text
+    assert "Поддержать работу навыка" in response.text
+    assert "Хотите помочь с оплатой сервера?" not in response.text
+    assert f'class="support-action"\n          href="{YANDEX_REVIEW_URL}"' in response.text
+    assert "Оставить отзыв в Яндексе" in response.text
+    assert "Отзыв поможет другим игрокам найти навык" in response.text
+    assert "а нам — понять, что сделать лучше" in response.text
     assert '<link rel="icon" href="/favicon.svg"' in response.text
     assert '<link rel="canonical" href="https://yurachess.ru/">' in response.text
     assert '<meta property="og:type" content="website">' in response.text

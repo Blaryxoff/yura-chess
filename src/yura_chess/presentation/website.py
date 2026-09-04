@@ -247,28 +247,62 @@ SITE_CSS = (
     .steps { padding-left: 22px; }
     .steps li { margin-top: 14px; }
     .steps li strong { display: block; color: var(--gold); }
-    /* A voluntary ask, not a paywall: it stays visible but never outweighs the skill itself. */
-    .support { padding: 26px 34px; text-align: center; }
-    .support h2 { margin-bottom: 10px; font-size: clamp(20px, 2.4vw, 25px); }
-    .support p { max-width: 680px; margin: 0 auto 18px; color: var(--muted); font-size: 16px; }
+    .support {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
+      gap: clamp(34px, 6vw, 72px);
+      align-items: center;
+      border-color: #69542f;
+      background: linear-gradient(135deg, #2a251b, var(--panel) 64%);
+      text-align: left;
+    }
+    .support-copy { max-width: 620px; }
+    .support h2 { text-wrap: balance; }
+    .support .support-intro {
+      max-width: 620px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+      text-wrap: pretty;
+    }
+    .support-actions { display: flex; width: 100%; align-items: center; flex-direction: column; justify-self: end; }
     .support-action {
-      display: inline-block;
+      display: inline-flex;
+      width: min(100%, 360px);
+      min-height: 52px;
+      align-items: center;
+      justify-content: center;
       padding: 14px 24px;
+      border: 1px solid #f0ca7a;
       border-radius: 999px;
       background: var(--gold);
+      box-shadow: 0 12px 30px #e8b85424;
       color: #171613;
+      font-size: 16px;
       font-weight: 800;
       text-decoration: none;
       transition: transform 520ms var(--spring), box-shadow 220ms ease, background 180ms ease;
     }
-    .support .support-action { padding: 11px 20px; font-size: 15px; }
     .support-action:hover {
       background: #f3ca78;
       transform: translateY(-3px) scale(1.025);
       box-shadow: 0 14px 34px #e8b8542e;
     }
-    .support .support-note { margin-top: 16px; margin-bottom: 0; font-size: 14px; }
-    .support .support-review { margin: 13px auto 0; font-size: 15px; }
+    .support-action:focus-visible { outline: 2px solid var(--text); outline-offset: 4px; }
+    .support-donation { margin-top: 16px; }
+    .support-donation-link {
+      display: inline-flex;
+      min-height: 44px;
+      align-items: center;
+      padding: 7px 10px;
+      color: var(--gold);
+      font-size: 16px;
+      font-weight: 700;
+      text-decoration-color: #806d47;
+      text-underline-offset: 4px;
+    }
+    .support-donation-link:hover { color: #f3ca78; text-decoration-color: currentColor; }
+    .support-donation-link:focus-visible { outline: 2px solid var(--gold); outline-offset: 4px; }
     footer {
       display: grid;
       grid-template-columns: minmax(220px, .7fr) minmax(0, 1.3fr);
@@ -357,6 +391,12 @@ SITE_CSS = (
     @media (min-width: 761px) {
       .site-top { position: sticky; top: -12px; z-index: 20; }
       .site-nav { background: #1d1c19; }
+    }
+    @media (max-width: 900px) {
+      .support { grid-template-columns: 1fr; gap: 24px; text-align: center; }
+      .support-copy { max-width: 720px; margin: 0 auto; }
+      .support .support-intro { max-width: 720px; margin: 0 auto; }
+      .support-actions { max-width: 360px; justify-self: center; }
     }
     @media (max-width: 760px) {
       .site-top { padding-top: 12px; }
@@ -920,26 +960,33 @@ LANDING_BODY = f"""    <header>
       </dl>
     </section>
 
-    {{{{ dashboard }}}}
-
     <section id="support" class="support">
-      <h2>Поддержать проект</h2>
-      <p>
-        «Шахматы с Юрой» остаются бесплатными для всех. Добровольная поддержка помогает оплачивать сервер
-        и развивать навык.
-      </p>
-      <a
-        class="support-action"
-        href="https://pay.cloudtips.ru/p/f604e20f"
-        target="_blank"
-        rel="noopener noreferrer nofollow"
-      >Поддержать «Шахматы с Юрой»</a>
-      <p class="support-note">Поддержка не предоставляет платных функций или преимуществ в игре.</p>
-      <p class="support-review">
-        Уже сыграли?
-        <a href="{YANDEX_REVIEW_URL}" target="_blank" rel="noopener noreferrer">Оставьте отзыв в Яндексе</a>.
-      </p>
+      <div class="support-copy">
+        <h2>Как вам «Шахматы с&nbsp;Юрой»?</h2>
+        <p class="support-intro">
+          Поделитесь впечатлением в Яндексе. Отзыв поможет другим игрокам найти навык,
+          а нам — понять, что сделать лучше.
+        </p>
+      </div>
+      <div class="support-actions">
+        <a
+          class="support-action"
+          href="{YANDEX_REVIEW_URL}"
+          target="_blank"
+          rel="noopener noreferrer"
+        >Оставить отзыв в Яндексе</a>
+        <div class="support-donation">
+          <a
+            class="support-donation-link"
+            href="https://pay.cloudtips.ru/p/f604e20f"
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+          >Поддержать работу навыка</a>
+        </div>
+      </div>
     </section>
+
+    {{{{ dashboard }}}}
 
     <section>
       <h2>Конфиденциальность</h2>

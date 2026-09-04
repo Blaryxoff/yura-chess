@@ -49,7 +49,6 @@ _METRIC_LABELS: dict[str, tuple[str, str]] = {
 DASHBOARD_CSS = """
     .stats { scroll-margin-top: 20px; }
     .stats-top { display: flex; justify-content: space-between; align-items: end; gap: 24px; }
-    .stats-kicker { color: var(--gold); font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
     .stats-muted { color: var(--muted); }
     .stats-tabs { display: flex; gap: 7px; flex-wrap: wrap; }
     .stats-tab {
@@ -321,7 +320,7 @@ def render_dashboard(snapshot: DashboardSnapshot, metric: ChartMetric = "engaged
     )
     generated = snapshot.generated_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Moscow"))
     return f"""<section id="statistics" class="stats">
-      <div class="stats-top"><div><div class="stats-kicker">Использование навыка</div><h2>Статистика</h2><div class="stats-muted">Обновлено {generated:%d.%m.%Y %H:%M} МСК</div></div><nav class="stats-tabs" aria-label="Период статистики">{periods}</nav></div>
+      <div class="stats-top"><div><h2>Статистика</h2><div class="stats-muted">Обновлено {generated:%d.%m.%Y %H:%M} МСК</div></div><nav class="stats-tabs" aria-label="Период статистики">{periods}</nav></div>
       <div class="stats-panel"><h3>{_TOTAL_TITLES[snapshot.period]}</h3>{_cards(snapshot.totals)}</div>
       <div class="stats-panel" id="statistics-chart">
         <div class="stats-panel-top"><h3>{chart_title}</h3>{_metric_picker(snapshot.period, metric)}</div>
