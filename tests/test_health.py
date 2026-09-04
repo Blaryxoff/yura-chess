@@ -31,6 +31,7 @@ from yura_chess.presentation.website import (
     SITEMAP_ENTRIES,
     SITEMAP_PATH,
     SITEMAP_XML,
+    STATISTICS_PATH,
     WEBMASTER_VERIFICATION_HTML,
     WEBMASTER_VERIFICATION_PATH,
     YANDEX_DIALOG_URL,
@@ -60,7 +61,7 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     totals = UsageTotals(2, 1, 1, 1, 1, 1, 0, 0)
     snapshot = DashboardSnapshot(
         "real",
-        "month",
+        "all",
         datetime(2026, 7, 23, 12, 0, 0),
         totals,
         (DailyUsage(date(2026, 7, 23), requests=2),),
@@ -99,9 +100,19 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert 'class="footer-brand"' in response.text
     assert 'class="footer-brand" href="/" aria-label=' not in response.text
     assert 'class="footer-nav" aria-label="Дополнительные страницы"' in response.text
-    assert response.text.index('id="statistics"') < response.text.index("Конфиденциальность")
-    assert response.text.index('id="support"') < response.text.index('id="statistics"')
-    assert response.text.index('id="statistics"') < response.text.index("Конфиденциальность")
+    assert "min-height: 100vh;" in response.text
+    assert "margin-top: auto;" in response.text
+    assert ".footer-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));" in response.text
+    assert response.text.index('id="statistics-summary"') < response.text.index("Конфиденциальность")
+    assert response.text.index('id="support"') < response.text.index('id="statistics-summary"')
+    assert 'id="statistics"' not in response.text
+    assert response.text.count('class="stats-summary-card"') == 3
+    assert 'class="stats-summary-link" href="/statistics"' in response.text
+    assert "Вся статистика" in response.text
+    assert '<div class="stats-summary-value">1</div>' in response.text
+    assert '<div class="stats-summary-label">игрок</div>' in response.text
+    assert '<div class="stats-summary-label">партия с ходом</div>' in response.text
+    assert '<div class="stats-summary-label">завершённых партий</div>' in response.text
     assert "Ваше мнение помогает" not in response.text
     assert "Использование навыка" not in response.text
     assert 'href="https://pay.cloudtips.ru/p/f604e20f"' in response.text
@@ -139,16 +150,22 @@ def test_public_landing_page_describes_the_skill_for_everyone(
         assert question in response.text
         assert answer in response.text
     assert "незряч" in response.text.lower()
-    for path in (HOW_TO_PLAY_PATH, COMMANDS_PATH, COACH_PATH, PUZZLES_PATH, ACCESSIBILITY_PATH, BLINDFOLD_PATH):
+    for path in (
+        HOW_TO_PLAY_PATH,
+        COMMANDS_PATH,
+        COACH_PATH,
+        PUZZLES_PATH,
+        ACCESSIBILITY_PATH,
+        BLINDFOLD_PATH,
+        STATISTICS_PATH,
+    ):
         assert f'href="{path}"' in response.text
-    # The privacy wording moved into a hover tooltip on the word it explains.
-    assert "Что значит «пользователь»?" in response.text
-    assert 'class="stats-hint"' in response.text
-    assert 'aria-describedby="users-hint"' in response.text
+    # The compact summary does not bring the full dashboard controls onto the landing page.
+    assert "Что значит «пользователь»?" not in response.text
+    assert 'class="stats-hint"' not in response.text
+    assert 'class="stats-chart" aria-hidden="true"' not in response.text
+    assert 'class="stats-table visually-hidden"' not in response.text
     assert "Автоматические проверки" not in response.text
-    # A dismissible, touch-operable tooltip needs a real button, not a focusable span.
-    assert '<button type="button" class="stats-hint"' in response.text
-    assert 'aria-expanded="false"' in response.text
     # The card, not the inline word, positions the tooltip: an inline anchor both
     # mispositions the panel and traps its z-index inside a sibling stacking context.
     assert ".stats-card { position: relative;" in response.text
@@ -170,13 +187,6 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert 'element.matches("h2, h3")' in response.text
     assert "const revealGroups = new WeakMap();" in response.text
     assert 'targets.forEach((target) => target.classList.add("is-visible"))' in response.text
-    # The figure a screen reader reads is the server-rendered one, never the animated layer.
-    assert 'class="stats-value-shown" aria-hidden="true"' in response.text
-    assert '<span class="visually-hidden">' in response.text
-    # role="img" flattened the bars out of the tree, so the numbers live in a real table.
-    assert 'class="stats-chart" aria-hidden="true"' in response.text
-    assert 'class="stats-table visually-hidden"' in response.text
-    assert '<th scope="col">Партий с ходом</th>' in response.text
     # A stale period response must not overwrite a newer one.
     assert "if (request !== statisticsRequest) return;" in response.text
     # Sharing a link should unfurl into something.
@@ -261,13 +271,27 @@ def test_statistics_expose_the_chart_data_as_a_table(
         lambda self, source, *, period: snapshot,
     )
     with TestClient(create_app(offline_settings)) as client:
-        response = client.get("/")
+        response = client.get(STATISTICS_PATH)
 
     assert '<th scope="row">22.07.2026</th><td>7</td>' in response.text
     assert '<th scope="row">23.07.2026</th><td>9</td>' in response.text
     # The decorative bars must not also be announced.
     assert 'class="stats-chart" aria-hidden="true"' in response.text
     assert 'role="img"' not in response.text
+    assert "<h1>Статистика навыка</h1>" in response.text
+    assert "<h2>Статистика</h2>" not in response.text
+    assert '<a href="/statistics" aria-current="page">Статистика</a>' in response.text
+    assert 'aria-label="Подробная статистика"' in response.text
+    assert "Что значит «пользователь»?" in response.text
+    assert '<button type="button" class="stats-hint"' in response.text
+    assert 'aria-expanded="false"' in response.text
+    assert 'class="stats-value-shown" aria-hidden="true"' in response.text
+    assert '<span class="visually-hidden">' in response.text
+    assert '<div class="visually-hidden"><table class="stats-table">' in response.text
+    assert 'class="stats-table visually-hidden"' not in response.text
+    assert '<th scope="col">Партий с ходом</th>' in response.text
+    assert 'href="/statistics?period=year&amp;metric=engaged_games#statistics"' in response.text
+    assert 'action="/statistics#statistics"' in response.text
 
 
 def test_indexnow_key_is_served_so_submissions_are_accepted(offline_settings: Settings) -> None:
@@ -316,6 +340,7 @@ def test_secondary_pages_are_crawlable_and_self_describing(
         PUZZLES_PATH,
         ACCESSIBILITY_PATH,
         BLINDFOLD_PATH,
+        STATISTICS_PATH,
     }
     for linked in every_page - {path}:
         assert f'href="{linked}"' in response.text
@@ -331,7 +356,7 @@ def test_secondary_pages_are_crawlable_and_self_describing(
     structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
     graph = json.loads(structured_data)["@graph"]
     assert "BreadcrumbList" in {item["@type"] for item in graph}
-    # The statistics dashboard belongs to the landing page only.
+    # The full dashboard belongs to its own dynamic page.
     assert 'id="statistics"' not in response.text
 
 
@@ -347,7 +372,7 @@ def test_favicon_is_served_for_modern_and_legacy_browser_paths(offline_settings:
     assert svg.text == ico.text == FAVICON_SVG
 
 
-def test_public_landing_page_uses_real_traffic_and_accepts_period_filters(
+def test_public_statistics_pages_use_real_traffic_and_accept_period_filters(
     monkeypatch: pytest.MonkeyPatch,
     offline_settings: Settings,
 ) -> None:
@@ -377,17 +402,21 @@ def test_public_landing_page_uses_real_traffic_and_accepts_period_filters(
     monkeypatch.setattr("yura_chess.main.UsageRepository", Repository)
     with TestClient(create_app(offline_settings)) as client:
         default = client.get("/")
-        test = client.get("/?source=test&period=year")
+        landing_with_noise = client.get("/?source=test&period=year")
         head = client.head("/")
-        invalid = client.get("/?source=private")
-        invalid_period = client.get("/?period=week")
+        statistics = client.get(STATISTICS_PATH)
+        year = client.get(f"{STATISTICS_PATH}?source=test&period=year")
+        invalid = client.get(f"{STATISTICS_PATH}?source=private")
+        invalid_period = client.get(f"{STATISTICS_PATH}?period=week")
         removed_dashboard = client.get("/dashboard")
 
-    assert default.status_code == test.status_code == head.status_code == 200
+    assert default.status_code == landing_with_noise.status_code == head.status_code == 200
+    assert statistics.status_code == year.status_code == 200
     assert default.headers["cache-control"] == "public, max-age=60, stale-while-revalidate=300"
-    # One render per (period, metric) within the TTL: the webhook shares this pool.
-    assert queries == [("real", "month"), ("real", "year")]
-    assert '<link rel="canonical" href="https://yurachess.ru/">' in test.text
+    # The landing summary is all-time; the detailed page owns period filtering.
+    assert queries == [("real", "all"), ("real", "month"), ("real", "year")]
+    assert '<link rel="canonical" href="https://yurachess.ru/">' in landing_with_noise.text
+    assert '<link rel="canonical" href="https://yurachess.ru/statistics">' in year.text
     assert invalid.status_code == 200
     assert invalid_period.status_code == 422
     assert removed_dashboard.status_code == 404

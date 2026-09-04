@@ -16,7 +16,7 @@ from yura_chess import __version__
 from yura_chess.adapters.alice.webhook import build_router as build_alice_router
 from yura_chess.adapters.yandex_images import BoardImageService
 from yura_chess.engine.stockfish import StockfishPool
-from yura_chess.presentation.dashboard import ChartMetric, render_dashboard
+from yura_chess.presentation.dashboard import ChartMetric, render_dashboard, render_summary
 from yura_chess.presentation.social_card import SOCIAL_CARD_PATH, SOCIAL_CARD_PNG
 from yura_chess.presentation.website import (
     ACCESSIBILITY_PAGE_HTML,
@@ -39,9 +39,11 @@ from yura_chess.presentation.website import (
     ROBOTS_TEXT,
     SITEMAP_PATH,
     SITEMAP_XML,
+    STATISTICS_PATH,
     WEBMASTER_VERIFICATION_HTML,
     WEBMASTER_VERIFICATION_PATH,
     render_landing_page,
+    render_statistics_page,
 )
 from yura_chess.settings import Settings, get_settings
 from yura_chess.storage.analysis_repository import AnalysisRepository
@@ -140,22 +142,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings or get_settings()
 
-    # Bounded by the two enumerated query parameters, so it needs no eviction.
-    rendered: dict[tuple[str, str], tuple[float, str]] = {}
+    # Bounded by the page and enumerated query parameters, so it needs no eviction.
+    rendered: dict[tuple[str, str, str], tuple[float, str]] = {}
     rendering = asyncio.Lock()
 
     @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
-    async def landing_page(
-        period: Literal["month", "year", "all"] = "month",
-        metric: ChartMetric = "engaged_games",
-    ) -> HTMLResponse:
+    async def landing_page() -> HTMLResponse:
+        cache_key = ("landing", "all", "summary")
+
         def load() -> str:
             with session_scope(app.state.session_factory) as session:
-                snapshot = UsageRepository(session).dashboard("real", period=period)
-                return render_landing_page(render_dashboard(snapshot, metric))
+                snapshot = UsageRepository(session).dashboard("real", period="all")
+                return render_landing_page(render_summary(snapshot))
 
         def fresh() -> str | None:
-            cached = rendered.get((period, metric))
+            cached = rendered.get(cache_key)
             if cached is None or monotonic() - cached[0] >= DASHBOARD_CACHE_SECONDS:
                 return None
             return cached[1]
@@ -166,7 +167,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 html = fresh()
                 if html is None:
                     html = await run_in_threadpool(load)
-                    rendered[(period, metric)] = (monotonic(), html)
+                    rendered[cache_key] = (monotonic(), html)
+
+        return HTMLResponse(
+            html,
+            headers={"Cache-Control": "public, max-age=60, stale-while-revalidate=300"},
+        )
+
+    @app.api_route(STATISTICS_PATH, methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
+    async def statistics_page(
+        period: Literal["month", "year", "all"] = "month",
+        metric: ChartMetric = "engaged_games",
+    ) -> HTMLResponse:
+        cache_key = ("statistics", period, metric)
+
+        def load() -> str:
+            with session_scope(app.state.session_factory) as session:
+                snapshot = UsageRepository(session).dashboard("real", period=period)
+                return render_statistics_page(render_dashboard(snapshot, metric, show_heading=False))
+
+        def fresh() -> str | None:
+            cached = rendered.get(cache_key)
+            if cached is None or monotonic() - cached[0] >= DASHBOARD_CACHE_SECONDS:
+                return None
+            return cached[1]
+
+        html = fresh()
+        if html is None:
+            async with rendering:
+                html = fresh()
+                if html is None:
+                    html = await run_in_threadpool(load)
+                    rendered[cache_key] = (monotonic(), html)
 
         return HTMLResponse(
             html,

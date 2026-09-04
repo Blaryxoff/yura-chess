@@ -38,8 +38,8 @@ def test_dashboard_is_aggregate_responsive_and_explains_pseudonymous_users() -> 
     assert "необратимый HMAC-ключ" in html
     assert "120" in html
     assert 'id="statistics"' in html
-    assert 'href="/?period=month&amp;metric=engaged_games#statistics"' in html
-    assert 'href="/?period=year&amp;metric=engaged_games#statistics"' in html
+    assert 'href="/statistics?period=month&amp;metric=engaged_games#statistics"' in html
+    assert 'href="/statistics?period=year&amp;metric=engaged_games#statistics"' in html
     assert 'rel="nofollow"' in html
     assert 'aria-label="Период статистики"' in html
     assert "Реальные" not in html
@@ -72,7 +72,7 @@ def test_chart_offers_every_metric_and_keeps_the_period_while_switching() -> Non
         "new_users",
         "requests",
     ]
-    assert 'href="/?period=year&amp;metric=player_moves#statistics"' in html
+    assert 'href="/statistics?period=year&amp;metric=player_moves#statistics"' in html
 
 
 @pytest.mark.parametrize(

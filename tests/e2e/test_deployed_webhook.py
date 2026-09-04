@@ -70,6 +70,7 @@ async def test_deployed_public_entry_is_reachable(deployed: httpx.AsyncClient) -
         ("/puzzles", "Шахматные задачи голосом"),
         ("/accessibility", "Шахматы для незрячих голосом"),
         ("/blindfold", "Шахматы вслепую с Алисой"),
+        ("/statistics", "Статистика навыка"),
         ("/yandex_67cb474818f8d2b2.html", "Verification: 67cb474818f8d2b2"),
         ("/3e123263cd3a154a8aa32da5bc28cebd.txt", "3e123263cd3a154a8aa32da5bc28cebd"),
         ("/favicon.svg", "<svg"),

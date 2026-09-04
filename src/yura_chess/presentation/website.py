@@ -6,10 +6,12 @@ import json
 from typing import Any
 
 from yura_chess.presentation.dashboard import DASHBOARD_CSS
+from yura_chess.presentation.dashboard import STATISTICS_PATH as DASHBOARD_STATISTICS_PATH
 from yura_chess.presentation.social_card import CARD_HEIGHT, CARD_WIDTH, SOCIAL_CARD_ALT, SOCIAL_CARD_PATH
 
 # One node of the schema.org graph embedded in every page.
 Schema = dict[str, Any]
+STATISTICS_PATH = DASHBOARD_STATISTICS_PATH
 
 WEBMASTER_VERIFICATION_PATH = "/yandex_67cb474818f8d2b2.html"
 # IndexNow proves host control by serving the key from the site itself, which lets
@@ -54,6 +56,7 @@ Sitemap: {PUBLIC_SITE_URL}sitemap.xml
 # Every indexable page, with the weight given to it relative to the landing page.
 SITEMAP_ENTRIES: tuple[tuple[str, str], ...] = (
     (LANDING_PATH, "1.0"),
+    (STATISTICS_PATH, "0.7"),
     (HOW_TO_PLAY_PATH, "0.8"),
     (COMMANDS_PATH, "0.8"),
     (ACCESSIBILITY_PATH, "0.8"),
@@ -96,7 +99,13 @@ SITE_CSS = (
       color: var(--text);
       font: 17px/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; }
+    main {
+      display: flex;
+      width: min(1080px, calc(100% - 32px));
+      min-height: 100vh;
+      margin: 0 auto;
+      flex-direction: column;
+    }
     .site-top { display: flex; justify-content: center; padding-top: 18px; }
     .site-nav {
       display: inline-flex;
@@ -308,8 +317,8 @@ SITE_CSS = (
       grid-template-columns: minmax(220px, .7fr) minmax(0, 1.3fr);
       gap: 34px;
       align-items: start;
-      margin-top: 36px;
-      padding: 32px 4px 48px;
+      margin-top: auto;
+      padding: 26px 4px 32px;
       border-top: 1px solid var(--line);
       color: var(--muted);
     }
@@ -328,7 +337,8 @@ SITE_CSS = (
     }
     .footer-brand-copy strong { display: block; font-size: 17px; }
     .footer-brand-copy span { display: block; margin-top: 2px; color: var(--muted); font-size: 14px; }
-    .footer-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 24px; }
+    .footer-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 20px; }
+    main > section:last-of-type { margin-bottom: 52px; }
     .footer-nav a {
       color: var(--muted);
       text-decoration-color: #6d5d3d;
@@ -419,8 +429,9 @@ SITE_CSS = (
       .voice-demo { grid-template-columns: 1fr; gap: 12px; text-align: left; }
       .voice-signal { justify-content: center; height: 28px; }
       .command-list { columns: 1; }
-      footer { grid-template-columns: 1fr; gap: 24px; margin-top: 28px; padding-inline: 2px; }
-      .footer-nav { gap: 12px 18px; }
+      footer { grid-template-columns: 1fr; gap: 24px; padding-inline: 2px; }
+      .footer-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
+      main > section:last-of-type { margin-bottom: 42px; }
     }
     @media (max-width: 520px) {
       main { width: min(1080px, calc(100% - 20px)); }
@@ -648,6 +659,7 @@ NAV_ITEMS: tuple[tuple[str, str], ...] = (
     (PUZZLES_PATH, "Задачи"),
     (ACCESSIBILITY_PATH, "Без экрана"),
     (BLINDFOLD_PATH, "Вслепую"),
+    (STATISTICS_PATH, "Статистика"),
 )
 
 
@@ -678,6 +690,7 @@ FOOTER_HTML = f"""<footer>
       <a href="{PUZZLES_PATH}">Шахматные задачи</a>
       <a href="{ACCESSIBILITY_PATH}">Шахматы для незрячих</a>
       <a href="{BLINDFOLD_PATH}">Игра вслепую</a>
+      <a href="{STATISTICS_PATH}">Вся статистика</a>
     </nav>
   </footer>"""
 
@@ -986,7 +999,7 @@ LANDING_BODY = f"""    <header>
       </div>
     </section>
 
-    {{{{ dashboard }}}}
+    {{{{ statistics_summary }}}}
 
     <section>
       <h2>Конфиденциальность</h2>
@@ -1009,6 +1022,28 @@ LANDING_PAGE_HTML = _document(
     path=LANDING_PATH,
     structured_data=[SKILL_SCHEMA, LANDING_FAQ_SCHEMA],
     body=LANDING_BODY,
+)
+
+STATISTICS_PAGE_HTML = _document(
+    title="Статистика навыка «Шахматы с Юрой»",
+    description=(
+        "Публичная обезличенная статистика навыка «Шахматы с Юрой»: игроки, партии, ходы, сессии и шахматные задачи."
+    ),
+    path=STATISTICS_PATH,
+    structured_data=[
+        _page_schema("Статистика навыка «Шахматы с Юрой»", STATISTICS_PATH),
+        _breadcrumb_schema("Статистика", STATISTICS_PATH),
+    ],
+    body="""    <header>
+      <a class="piece home" href="/" aria-label="На главную «Шахматы с Юрой»">♞</a>
+      <h1>Статистика навыка</h1>
+      <p class="lead">
+        Общие обезличенные показатели использования «Шахмат с Юрой» — без исходных идентификаторов игроков.
+      </p>
+    </header>
+
+    {{ dashboard }}
+""",
 )
 
 _HOW_TO_PLAY_TITLE = "Как играть в шахматы с Алисой голосом"
@@ -1551,5 +1586,9 @@ BLINDFOLD_PAGE_HTML = _document(
 )
 
 
-def render_landing_page(dashboard: str) -> str:
-    return LANDING_PAGE_HTML.replace("{{ dashboard }}", dashboard)
+def render_landing_page(statistics_summary: str) -> str:
+    return LANDING_PAGE_HTML.replace("{{ statistics_summary }}", statistics_summary)
+
+
+def render_statistics_page(dashboard: str) -> str:
+    return STATISTICS_PAGE_HTML.replace("{{ dashboard }}", dashboard)

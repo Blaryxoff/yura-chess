@@ -22,6 +22,8 @@ ChartMetric = Literal[
     "requests",
 ]
 
+STATISTICS_PATH = "/statistics"
+
 _PERIOD_LABELS = {"month": "Месяц", "year": "Год", "all": "Всё время"}
 _TOTAL_TITLES = {
     "month": "Последние 30 дней",
@@ -47,6 +49,26 @@ _METRIC_LABELS: dict[str, tuple[str, str]] = {
 }
 
 DASHBOARD_CSS = """
+    .stats-summary { display: grid; grid-template-columns: minmax(190px, .65fr) minmax(0, 1.35fr); gap: 28px; align-items: center; }
+    .stats-summary-copy p { margin: -8px 0 18px; color: var(--muted); }
+    .stats-summary-link {
+      display: inline-flex;
+      gap: 8px;
+      min-height: 44px;
+      align-items: center;
+      padding: 9px 16px;
+      border: 1px solid #8b7348;
+      border-radius: 999px;
+      color: var(--gold);
+      font-weight: 750;
+      text-decoration: none;
+      transition: border-color 180ms ease, background 180ms ease, transform 420ms var(--spring);
+    }
+    .stats-summary-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .stats-summary-card { min-width: 0; padding: 10px 20px; border-left: 1px solid var(--line); }
+    .stats-summary-card:first-child { border-left: 0; }
+    .stats-summary-value { color: var(--gold); font-size: clamp(28px, 4vw, 42px); font-weight: 850; line-height: 1; }
+    .stats-summary-label { margin-top: 8px; color: var(--muted); font-size: 15px; line-height: 1.35; overflow-wrap: break-word; }
     .stats { scroll-margin-top: 20px; }
     .stats-top { display: flex; justify-content: space-between; align-items: end; gap: 24px; }
     .stats-muted { color: var(--muted); }
@@ -267,16 +289,23 @@ DASHBOARD_CSS = """
     .stats-card:focus-within,
     .stats-card:has(.stats-hint[aria-expanded="true"]) { z-index: 4; }
     @media (hover: hover) {
+      .stats-summary-link:hover { border-color: var(--gold); background: #e8bd6610; transform: translateY(-2px); }
       .stats-tab:hover { color: var(--gold); border-color: var(--gold); transform: translateY(-2px) scale(1.03); }
       .stats-tab.active:hover { color: #241d12; }
       .stats-metric:hover { color: var(--gold); border-color: var(--gold); }
     }
     .stats-table caption { text-align: left; }
     @media (max-width: 850px) {
+      .stats-summary { grid-template-columns: 1fr; gap: 20px; }
+      .stats-summary-copy { text-align: center; }
       .stats-top { align-items: start; flex-direction: column; }
       .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 520px) {
+      .stats-summary-cards { gap: 0; }
+      .stats-summary-card { padding: 8px 10px; }
+      .stats-summary-value { font-size: clamp(24px, 8vw, 30px); }
+      .stats-summary-label { font-size: 12px; }
       .stats-panel { padding: 14px; }
       .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
       .stats-card { padding: 11px; }
@@ -287,7 +316,42 @@ DASHBOARD_CSS = """
 """
 
 
-def render_dashboard(snapshot: DashboardSnapshot, metric: ChartMetric = "engaged_games") -> str:
+def render_summary(snapshot: DashboardSnapshot) -> str:
+    values = (
+        (snapshot.totals.users, plural_form(snapshot.totals.users, ("игрок", "игрока", "игроков"))),
+        (
+            snapshot.totals.engaged_games,
+            plural_form(snapshot.totals.engaged_games, ("партия с ходом", "партии с ходом", "партий с ходом")),
+        ),
+        (
+            snapshot.totals.finished_games,
+            plural_form(
+                snapshot.totals.finished_games,
+                ("завершённая партия", "завершённые партии", "завершённых партий"),
+            ),
+        ),
+    )
+    cards = "".join(
+        f'<div class="stats-summary-card"><div class="stats-summary-value">{_ru(value)}</div>'
+        f'<div class="stats-summary-label">{label}</div></div>'
+        for value, label in values
+    )
+    return f"""<section id="statistics-summary" class="stats-summary">
+      <div class="stats-summary-copy">
+        <h2>Статистика</h2>
+        <p>За всё время</p>
+        <a class="stats-summary-link" href="{STATISTICS_PATH}">Вся статистика <span aria-hidden="true">→</span></a>
+      </div>
+      <div class="stats-summary-cards">{cards}</div>
+    </section>"""
+
+
+def render_dashboard(
+    snapshot: DashboardSnapshot,
+    metric: ChartMetric = "engaged_games",
+    *,
+    show_heading: bool = True,
+) -> str:
     title, column = _METRIC_LABELS[metric]
     chart_title = f"{title} {_CHART_SPANS[snapshot.period]}"
     series = [(point.day, getattr(point, metric)) for point in snapshot.daily]
@@ -307,20 +371,21 @@ def render_dashboard(snapshot: DashboardSnapshot, metric: ChartMetric = "engaged
     rows = "".join(f'<tr><th scope="row">{day:%d.%m.%Y}</th><td>{value}</td></tr>' for day, value in series)
     # Visually hidden rather than behind a disclosure: the audience this site is
     # built for should not have to open anything to reach what the chart shows.
-    table = f"""<table class="stats-table visually-hidden">
+    table = f"""<div class="visually-hidden"><table class="stats-table">
         <caption>{chart_title}</caption>
         <thead><tr><th scope="col">Дата</th><th scope="col">{column}</th></tr></thead>
         <tbody>{rows}</tbody>
-      </table>"""
+      </table></div>"""
     periods = "".join(
         f'<a class="stats-tab{" active" if key == snapshot.period else ""}"'
         f"{' aria-current="page"' if key == snapshot.period else ''}"
-        f' rel="nofollow" href="/?period={key}&amp;metric={metric}#statistics">{label}</a>'
+        f' rel="nofollow" href="{STATISTICS_PATH}?period={key}&amp;metric={metric}#statistics">{label}</a>'
         for key, label in _PERIOD_LABELS.items()
     )
     generated = snapshot.generated_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Moscow"))
-    return f"""<section id="statistics" class="stats">
-      <div class="stats-top"><div><h2>Статистика</h2><div class="stats-muted">Обновлено {generated:%d.%m.%Y %H:%M} МСК</div></div><nav class="stats-tabs" aria-label="Период статистики">{periods}</nav></div>
+    heading = "<h2>Статистика</h2>" if show_heading else ""
+    return f"""<section id="statistics" class="stats" aria-label="Подробная статистика">
+      <div class="stats-top"><div>{heading}<div class="stats-muted">Обновлено {generated:%d.%m.%Y %H:%M} МСК</div></div><nav class="stats-tabs" aria-label="Период статистики">{periods}</nav></div>
       <div class="stats-panel"><h3>{_TOTAL_TITLES[snapshot.period]}</h3>{_cards(snapshot.totals)}</div>
       <div class="stats-panel" id="statistics-chart">
         <div class="stats-panel-top"><h3>{chart_title}</h3>{_metric_picker(snapshot.period, metric)}</div>
@@ -337,7 +402,7 @@ def _metric_picker(period: str, metric: str) -> str:
         f'<option value="{key}"{" selected" if key == metric else ""}>{title}</option>'
         for key, (title, _) in _METRIC_LABELS.items()
     )
-    return f"""<form class="stats-metric-form" method="get" action="/#statistics">
+    return f"""<form class="stats-metric-form" method="get" action="{STATISTICS_PATH}#statistics">
         <input type="hidden" name="period" value="{period}">
         <label class="visually-hidden" for="stats-metric">Показатель на графике</label>
         <select class="stats-metric" id="stats-metric" name="metric" autocomplete="off">{options}</select>

@@ -149,7 +149,7 @@ Verify the whole crawlable surface afterwards:
 
 ```bash
 for path in / /robots.txt /sitemap.xml /how-to-play /commands /coach /puzzles \
-            /accessibility /blindfold /favicon.svg \
+            /accessibility /blindfold /statistics /favicon.svg \
             /3e123263cd3a154a8aa32da5bc28cebd.txt; do
   printf '%s -> %s\n' "$path" "$(curl -s -o /dev/null -w '%{http_code}' "https://yurachess.ru$path")"
 done
