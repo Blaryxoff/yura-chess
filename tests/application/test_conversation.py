@@ -489,6 +489,34 @@ async def test_confirmation_analytics_are_request_linked_and_not_reported_as_unm
     assert transcript.outcome == "confirmation"
 
 
+async def test_a_bare_yes_with_nothing_pending_says_so_and_leaves_the_game_alone(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    reply = await conversation.handle(OWNER, "да", context(2), started.state)
+
+    assert reply.speech.text == "Сейчас нечего подтверждать. Назовите ход или попросите помощь."
+    assert reply.turn is None
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).load(started.state.game_id or "", OWNER).moves == ()
+    assert reply.state.revision == started.state.revision
+
+
+async def test_a_bare_no_with_nothing_pending_gets_the_same_answer(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    reply = await conversation.handle(OWNER, "нет", context(2), started.state)
+
+    assert reply.speech.text == "Сейчас нечего подтверждать. Назовите ход или попросите помощь."
+
+
 async def test_the_hot_alias_for_hod_is_recorded_as_ambiguous_turn_not_unmatched(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,

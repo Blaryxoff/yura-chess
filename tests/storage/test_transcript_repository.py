@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import inspect, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from yura_chess.application.command_router import CommandKind
 from yura_chess.storage.models import AsrTranscriptRow
@@ -86,6 +86,32 @@ def test_text_is_clipped_to_the_configured_limit(session: Session) -> None:
     session.commit()
 
     assert len(row.normalized_text) == 32
+
+
+def test_a_replayed_request_keeps_the_row_it_already_has(
+    session: Session, session_factory: sessionmaker[Session], transcripts: TranscriptRepository
+) -> None:
+    first = transcripts.record(OWNER, "пешка е два е четыре", ResolutionStatus.RESOLVED, request_key="c" * 64)
+    session.commit()
+
+    with session_factory() as retry:
+        replay = TranscriptRepository(retry).record(
+            OWNER, "пешка е два е четыре", ResolutionStatus.RESOLVED, request_key="c" * 64
+        )
+        retry.commit()
+
+        assert replay.id == first.id
+        assert retry.scalars(select(AsrTranscriptRow.id).where(AsrTranscriptRow.request_key == "c" * 64)).all() == [
+            first.id
+        ]
+
+
+def test_rows_without_a_request_key_are_never_collapsed(session: Session, transcripts: TranscriptRepository) -> None:
+    first = transcripts.record(OWNER, "конь эф три", ResolutionStatus.RESOLVED)
+    second = transcripts.record(OWNER, "конь эф три", ResolutionStatus.RESOLVED)
+    session.commit()
+
+    assert first.id != second.id
 
 
 def test_purge_removes_only_rows_past_retention(session: Session, transcripts: TranscriptRepository) -> None:

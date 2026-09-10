@@ -955,6 +955,11 @@ class ConversationService:
             reply = self._turn_reply(owner_key, result, next_state, preferences, echo_player_move=True)
             return self._with_training_warning(owner_key, reply)
 
+        if confirmation_answer(utterance) is not None:
+            return ConversationReply(
+                Speech.of("Сейчас нечего подтверждать." + _hint(preferences, "Назовите ход или попросите помощь.")),
+                self._with_game(next_state, game),
+            )
         return ConversationReply(
             Speech.of("Не понял команду." + _hint(preferences, "Скажите ход или попросите помощь.")),
             self._with_game(next_state, game),

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from yura_chess.storage.models import TRANSCRIPT_TEXT_LENGTH, AsrTranscriptRow
@@ -30,6 +31,13 @@ class TranscriptRepository:
         legal_move_count: int = 0,
         request_key: str | None = None,
     ) -> AsrTranscriptRow:
+        """Record one utterance; a replayed request keeps the row it already has."""
+        if request_key is not None:
+            replayed = self._session.scalars(
+                select(AsrTranscriptRow).where(AsrTranscriptRow.request_key == request_key)
+            ).first()
+            if replayed is not None:
+                return replayed
         row = AsrTranscriptRow(
             owner_key=owner_key,
             request_key=request_key,
