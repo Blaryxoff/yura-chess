@@ -14,17 +14,24 @@ from yura_chess.adapters.alice.webhook import ALICE_WEBHOOK_PATH, LEGACY_ALICE_W
 from yura_chess.main import _purge_retained_data, create_app
 from yura_chess.presentation.social_card import SOCIAL_CARD_PATH
 from yura_chess.presentation.website import (
+    _COMMANDS_TITLE,
+    ACCESSIBILITY_PAGE_HTML,
     ACCESSIBILITY_PATH,
     ALICE_SKILL_URL,
+    BLINDFOLD_PAGE_HTML,
     BLINDFOLD_PATH,
+    COACH_PAGE_HTML,
     COACH_PATH,
+    COMMANDS_PAGE_HTML,
     COMMANDS_PATH,
     FAVICON_SVG,
+    HOW_TO_PLAY_PAGE_HTML,
     HOW_TO_PLAY_PATH,
     INDEXNOW_KEY,
     INDEXNOW_KEY_PATH,
     LANDING_FAQ,
     LANDING_PATH,
+    PUZZLES_PAGE_HTML,
     PUZZLES_PATH,
     ROBOTS_PATH,
     ROBOTS_TEXT,
@@ -192,6 +199,76 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     # Sharing a link should unfurl into something.
     assert f'<meta property="og:image" content="https://yurachess.ru{SOCIAL_CARD_PATH}">' in response.text
     assert '<meta name="twitter:card" content="summary_large_image">' in response.text
+
+
+def test_landing_snippet_uses_the_intent_aligned_description_everywhere(
+    monkeypatch: pytest.MonkeyPatch,
+    offline_settings: Settings,
+) -> None:
+    description = (
+        "Играйте в шахматы с Алисой бесплатно и без экрана. Скажите: «Алиса, запусти навык "
+        "Шахматы с Юрой» — 20 уровней, тренер и задачи."
+    )
+    monkeypatch.setattr(
+        "yura_chess.main.UsageRepository.dashboard",
+        lambda self, source, *, period: DashboardSnapshot(
+            "real", "all", datetime(2026, 7, 23, 12, 0, 0), UsageTotals(2, 1, 1, 1, 1, 1, 0, 0), ()
+        ),
+    )
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get("/")
+
+    assert f'<meta name="description" content="{description}">' in response.text
+    assert f'<meta property="og:description" content="{description}">' in response.text
+    assert f'<meta name="twitter:description" content="{description}">' in response.text
+
+
+def test_commands_h1_matches_structured_data_and_keeps_the_full_list(offline_settings: Settings) -> None:
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get(COMMANDS_PATH)
+
+    assert _COMMANDS_TITLE == "Голосовые команды для шахмат в Алисе"
+    assert f"<h1>{_COMMANDS_TITLE}</h1>" in response.text
+    # The detailed command catalogue and the "no need to memorise exact wording" promise must survive.
+    assert "навык понимает разные формулировки" in response.text
+    assert "«включи режим тренера»" in response.text
+    assert "«говори кратко»" in response.text
+    structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
+    graph = json.loads(structured_data)["@graph"]
+    page = next(item for item in graph if item["@type"] == "WebPage")
+    breadcrumb = next(item for item in graph if item["@type"] == "BreadcrumbList")
+    assert page["name"] == _COMMANDS_TITLE
+    assert breadcrumb["itemListElement"][-1]["name"] == _COMMANDS_TITLE
+
+
+def test_sitemap_lists_exactly_the_eight_canonical_pages_without_lastmod(offline_settings: Settings) -> None:
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get(SITEMAP_PATH)
+
+    assert len(SITEMAP_ENTRIES) == 8
+    assert response.text.count("<url>") == 8
+    assert response.text.count("<loc>") == 8
+    assert "<lastmod>" not in response.text
+    for path, _ in SITEMAP_ENTRIES:
+        assert f"<loc>https://yurachess.ru{path}</loc>" in response.text
+
+
+def test_no_yandex_tv_claim_is_made_without_a_verified_device_check() -> None:
+    tv_markers = ("Яндекс ТВ", "телевизор", "Smart TV", "смарт-тв")
+    for question, answer in LANDING_FAQ:
+        for marker in tv_markers:
+            assert marker not in question
+            assert marker not in answer
+    for page_html in (
+        HOW_TO_PLAY_PAGE_HTML,
+        COMMANDS_PAGE_HTML,
+        COACH_PAGE_HTML,
+        PUZZLES_PAGE_HTML,
+        ACCESSIBILITY_PAGE_HTML,
+        BLINDFOLD_PAGE_HTML,
+    ):
+        for marker in tv_markers:
+            assert marker not in page_html
 
 
 def test_yandex_webmaster_verification_file_is_served_verbatim(offline_settings: Settings) -> None:
