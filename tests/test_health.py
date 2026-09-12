@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -30,6 +31,7 @@ from yura_chess.presentation.website import (
     INDEXNOW_KEY,
     INDEXNOW_KEY_PATH,
     LANDING_FAQ,
+    LANDING_PAGE_HTML,
     LANDING_PATH,
     PUZZLES_PAGE_HTML,
     PUZZLES_PATH,
@@ -38,6 +40,7 @@ from yura_chess.presentation.website import (
     SITEMAP_ENTRIES,
     SITEMAP_PATH,
     SITEMAP_XML,
+    STATISTICS_PAGE_HTML,
     STATISTICS_PATH,
     WEBMASTER_VERIFICATION_HTML,
     WEBMASTER_VERIFICATION_PATH,
@@ -253,6 +256,34 @@ def test_sitemap_lists_exactly_the_eight_canonical_pages_without_lastmod(offline
         assert f"<loc>https://yurachess.ru{path}</loc>" in response.text
 
 
+def test_all_eight_canonical_pages_have_unique_title_and_description() -> None:
+    pages_by_path = {
+        LANDING_PATH: LANDING_PAGE_HTML,
+        STATISTICS_PATH: STATISTICS_PAGE_HTML,
+        HOW_TO_PLAY_PATH: HOW_TO_PLAY_PAGE_HTML,
+        COMMANDS_PATH: COMMANDS_PAGE_HTML,
+        ACCESSIBILITY_PATH: ACCESSIBILITY_PAGE_HTML,
+        BLINDFOLD_PATH: BLINDFOLD_PAGE_HTML,
+        COACH_PATH: COACH_PAGE_HTML,
+        PUZZLES_PATH: PUZZLES_PAGE_HTML,
+    }
+    assert set(pages_by_path) == {path for path, _ in SITEMAP_ENTRIES}
+    assert len(pages_by_path) == 8
+
+    titles = []
+    descriptions = []
+    for path, page_html in pages_by_path.items():
+        title_match = re.search(r"<title>(.*?)</title>", page_html)
+        description_match = re.search(r'<meta name="description" content="(.*?)">', page_html)
+        assert title_match, f"missing <title> for {path}"
+        assert description_match, f"missing meta description for {path}"
+        titles.append(title_match.group(1))
+        descriptions.append(description_match.group(1))
+
+    assert len(set(titles)) == 8
+    assert len(set(descriptions)) == 8
+
+
 def test_no_yandex_tv_claim_is_made_without_a_verified_device_check() -> None:
     tv_markers = ("Яндекс ТВ", "телевизор", "Smart TV", "смарт-тв")
     for question, answer in LANDING_FAQ:
@@ -260,6 +291,8 @@ def test_no_yandex_tv_claim_is_made_without_a_verified_device_check() -> None:
             assert marker not in question
             assert marker not in answer
     for page_html in (
+        LANDING_PAGE_HTML,
+        STATISTICS_PAGE_HTML,
         HOW_TO_PLAY_PAGE_HTML,
         COMMANDS_PAGE_HTML,
         COACH_PAGE_HTML,
