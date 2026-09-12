@@ -226,6 +226,52 @@ def test_landing_snippet_uses_the_intent_aligned_description_everywhere(
     assert f'<meta name="twitter:description" content="{description}">' in response.text
 
 
+def test_mandatory_faq_questions_are_each_pinned_exactly_once(
+    monkeypatch: pytest.MonkeyPatch,
+    offline_settings: Settings,
+) -> None:
+    required_questions = (
+        "Как играть в шахматы с Алисой?",
+        "Умеет ли Алиса играть в шахматы?",
+    )
+    faq_questions = [question for question, _ in LANDING_FAQ]
+    for required in required_questions:
+        assert faq_questions.count(required) == 1
+
+    monkeypatch.setattr(
+        "yura_chess.main.UsageRepository.dashboard",
+        lambda self, source, *, period: DashboardSnapshot(
+            "real", "all", datetime(2026, 7, 23, 12, 0, 0), UsageTotals(2, 1, 1, 1, 1, 1, 0, 0), ()
+        ),
+    )
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get(LANDING_PATH)
+
+    structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
+    visible_html = re.sub(r'<script type="application/ld\+json">.*?</script>', "", response.text, flags=re.S)
+    graph = json.loads(structured_data)["@graph"]
+    faq = next(item for item in graph if item["@type"] == "FAQPage")
+    schema_names = [item["name"] for item in faq["mainEntity"]]
+    for required in required_questions:
+        assert visible_html.count(required) == 1
+        assert schema_names.count(required) == 1
+
+
+_COMMANDS_CATALOGUE_SECTIONS = (
+    "Ходы",
+    "Позиция",
+    "Факты о партии",
+    "Управление партией",
+    "Настройки речи и доски",
+    "Режим тренера",
+    "Разбор сыгранной партии",
+    "Шахматные задачи",
+    "Если Алиса не расслышала",
+    "Справка голосом",
+)
+_COMMANDS_CATALOGUE_ITEM_COUNT = 31
+
+
 def test_commands_h1_matches_structured_data_and_keeps_the_full_list(offline_settings: Settings) -> None:
     with TestClient(create_app(offline_settings)) as client:
         response = client.get(COMMANDS_PATH)
@@ -236,6 +282,9 @@ def test_commands_h1_matches_structured_data_and_keeps_the_full_list(offline_set
     assert "навык понимает разные формулировки" in response.text
     assert "«включи режим тренера»" in response.text
     assert "«говори кратко»" in response.text
+    # Snapshot guard: dropping a whole section would otherwise leave this test green.
+    assert re.findall(r"<h2>(.*?)</h2>", response.text) == list(_COMMANDS_CATALOGUE_SECTIONS)
+    assert len(re.findall(r"<li>.*?</li>", response.text, re.S)) == _COMMANDS_CATALOGUE_ITEM_COUNT
     structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
     graph = json.loads(structured_data)["@graph"]
     page = next(item for item in graph if item["@type"] == "WebPage")
@@ -284,12 +333,21 @@ def test_all_eight_canonical_pages_have_unique_title_and_description() -> None:
     assert len(set(descriptions)) == 8
 
 
+_TV_LONG_MARKERS = ("яндекс тв", "телевизор", "smart tv", "смарт-тв")
+_TV_TOKEN_PATTERN = re.compile(r"\bтв\b|\btv\b")
+
+
+def _assert_makes_no_tv_claim(text: str) -> None:
+    normalized = text.casefold()
+    for marker in _TV_LONG_MARKERS:
+        assert marker not in normalized
+    assert _TV_TOKEN_PATTERN.search(normalized) is None
+
+
 def test_no_yandex_tv_claim_is_made_without_a_verified_device_check() -> None:
-    tv_markers = ("Яндекс ТВ", "телевизор", "Smart TV", "смарт-тв")
     for question, answer in LANDING_FAQ:
-        for marker in tv_markers:
-            assert marker not in question
-            assert marker not in answer
+        _assert_makes_no_tv_claim(question)
+        _assert_makes_no_tv_claim(answer)
     for page_html in (
         LANDING_PAGE_HTML,
         STATISTICS_PAGE_HTML,
@@ -300,8 +358,7 @@ def test_no_yandex_tv_claim_is_made_without_a_verified_device_check() -> None:
         ACCESSIBILITY_PAGE_HTML,
         BLINDFOLD_PAGE_HTML,
     ):
-        for marker in tv_markers:
-            assert marker not in page_html
+        _assert_makes_no_tv_claim(page_html)
 
 
 def test_yandex_webmaster_verification_file_is_served_verbatim(offline_settings: Settings) -> None:
