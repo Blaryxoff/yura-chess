@@ -1,0 +1,10 @@
+{
+  "path": "/commands",
+  "url": "http://127.0.0.1:8010/commands",
+  "domContentLoadedMs": 9.300000000279397,
+  "loadMs": 10.399999999906868,
+  "transferBytes": 49236,
+  "cls": 0,
+  "documentWidth": 390,
+  "viewportWidth": 390
+}

@@ -1,0 +1,10 @@
+{
+  "path": "/coach",
+  "url": "http://127.0.0.1:8011/coach",
+  "domContentLoadedMs": 14.099999999627471,
+  "loadMs": 15.199999999720603,
+  "transferBytes": 50070,
+  "cls": 0,
+  "documentWidth": 390,
+  "viewportWidth": 390
+}

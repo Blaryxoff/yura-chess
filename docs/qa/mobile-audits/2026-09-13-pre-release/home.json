@@ -1,0 +1,10 @@
+{
+  "path": "/",
+  "url": "http://127.0.0.1:8010/",
+  "domContentLoadedMs": 90.10000000009313,
+  "loadMs": 92,
+  "transferBytes": 57056,
+  "cls": 0,
+  "documentWidth": 390,
+  "viewportWidth": 390
+}

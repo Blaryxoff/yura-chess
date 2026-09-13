@@ -1,0 +1,10 @@
+{
+  "path": "/blindfold",
+  "url": "http://127.0.0.1:8011/blindfold",
+  "domContentLoadedMs": 9.699999999720603,
+  "loadMs": 10.5,
+  "transferBytes": 49579,
+  "cls": 0,
+  "documentWidth": 390,
+  "viewportWidth": 390
+}
