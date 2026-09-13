@@ -1215,6 +1215,12 @@ COMMANDS_PAGE_HTML = _document(
         Дословно запоминать команды не нужно — навык понимает разные формулировки. Этот список показывает,
         о чём вообще можно попросить. В самом навыке те же разделы читает команда «все команды».
       </p>
+      <div class="hero-actions">
+        <div class="launch">
+          <span class="launch-label">Ещё не запускали? Скажите Алисе</span>
+          <span class="launch-command">«Запусти навык Шахматы с Юрой»</span>
+        </div>
+      </div>
     </header>
 
     <section class="article">
@@ -1409,6 +1415,12 @@ COACH_PAGE_HTML = _document(
         Тренер — отдельный режим, который включается одной фразой и объясняет позицию словами,
         а не строкой вариантов.
       </p>
+      <div class="hero-actions">
+        <div class="launch">
+          <span class="launch-label">Ещё не запускали? Скажите Алисе</span>
+          <span class="launch-command">«Запусти навык Шахматы с Юрой»</span>
+        </div>
+      </div>
     </header>
 
     <section class="article">
@@ -1587,6 +1599,12 @@ BLINDFOLD_PAGE_HTML = _document(
         Игра вслепую всегда упиралась в партнёра: кто-то должен вести доску и называть ходы.
         Алиса делает это бесконечно терпеливо — и не показывает подсказок, пока их не попросят.
       </p>
+      <div class="hero-actions">
+        <div class="launch">
+          <span class="launch-label">Ещё не запускали? Скажите Алисе</span>
+          <span class="launch-command">«Запусти навык Шахматы с Юрой»</span>
+        </div>
+      </div>
     </header>
 
     <section class="article">

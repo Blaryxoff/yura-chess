@@ -1,10 +1,14 @@
 {
   "path": "/",
   "url": "http://127.0.0.1:8011/",
-  "domContentLoadedMs": 65.79999999981374,
-  "loadMs": 67.79999999981374,
+  "domContentLoadedMs": 44.59999999962747,
+  "loadMs": 47.09999999962747,
   "transferBytes": 57343,
   "cls": 0,
   "documentWidth": 390,
-  "viewportWidth": 390
+  "viewportWidth": 390,
+  "launchCommandTop": 606.2794189453125,
+  "launchCommandVisible": true,
+  "httpStatus": 200,
+  "finalUrl": "http://127.0.0.1:8011/"
 }

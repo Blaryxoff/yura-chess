@@ -1,10 +1,14 @@
 {
   "path": "/coach",
   "url": "http://127.0.0.1:8010/coach",
-  "domContentLoadedMs": 8,
-  "loadMs": 8.899999999906868,
+  "domContentLoadedMs": 10.299999999813735,
+  "loadMs": 11.299999999813735,
   "transferBytes": 47690,
   "cls": 0,
   "documentWidth": 390,
-  "viewportWidth": 390
+  "viewportWidth": 390,
+  "launchCommandTop": null,
+  "launchCommandVisible": false,
+  "httpStatus": 200,
+  "finalUrl": "http://127.0.0.1:8010/coach"
 }

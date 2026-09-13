@@ -75,21 +75,41 @@ CLS_PROBE_SCRIPT = """
 })();
 """
 
-METRICS_EXPRESSION = """
-(() => {
+LAUNCH_COMMAND_MARKER = "запусти навык шахматы с юрой"
+
+METRICS_EXPRESSION = f"""
+(() => {{
   const nav = performance.getEntriesByType("navigation")[0];
   const resourceBytes = performance
     .getEntriesByType("resource")
     .reduce((sum, entry) => sum + (entry.transferSize || 0), 0);
-  return {
+
+  const marker = {LAUNCH_COMMAND_MARKER!r};
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let launchElement = null;
+  let node;
+  while ((node = walker.nextNode())) {{
+    if (node.textContent && node.textContent.toLowerCase().includes(marker)) {{
+      launchElement = node.parentElement;
+      break;
+    }}
+  }}
+  const launchRect = launchElement ? launchElement.getBoundingClientRect() : null;
+
+  return {{
     domContentLoadedMs: nav ? nav.domContentLoadedEventEnd : null,
     loadMs: nav ? nav.loadEventEnd : null,
     transferBytes: (nav ? nav.transferSize : 0) + resourceBytes,
     cls: window.__cls || 0,
     documentWidth: document.documentElement.scrollWidth,
     viewportWidth: window.innerWidth,
-  };
-})()
+    launchCommandTop: launchRect ? launchRect.top : null,
+    launchCommandVisible: !!(
+      launchRect && launchRect.width > 0 && launchRect.height > 0 &&
+      launchRect.top >= 0 && launchRect.top < window.innerHeight
+    ),
+  }};
+}})()
 """
 
 
@@ -202,10 +222,19 @@ class DevToolsSocket:
             if "method" in message:
                 self._pending_events.append(message)
 
-    def wait_for(self, method: str, timeout: float) -> dict[str, Any]:
+    def wait_for(
+        self,
+        method: str,
+        timeout: float,
+        collect: dict[str, list[dict[str, Any]]] | None = None,
+    ) -> dict[str, Any]:
+        """Wait for `method`, optionally recording every occurrence of other methods seen along the way."""
         for _ in range(len(self._pending_events)):
             message = self._pending_events.popleft()
-            if message.get("method") == method:
+            event_method = message.get("method")
+            if collect is not None and event_method in collect:
+                collect[event_method].append(dict(message.get("params", {})))
+            if event_method == method:
                 return dict(message.get("params", {}))
             self._pending_events.append(message)
         deadline = time.monotonic() + timeout
@@ -213,8 +242,11 @@ class DevToolsSocket:
             message = self._read_message(deadline)
             if message is None:
                 raise DevToolsError(f"timed out waiting for event {method}")
-            if message.get("method") == method:
+            event_method = message.get("method")
+            if event_method == method:
                 return dict(message.get("params", {}))
+            if collect is not None and event_method in collect:
+                collect[event_method].append(dict(message.get("params", {})))
             if "method" in message:
                 self._pending_events.append(message)
 
@@ -292,59 +324,100 @@ def _prepare_session(ws: DevToolsSocket) -> None:
 
 
 def _measure_page(ws: DevToolsSocket, url: str, settle_seconds: float) -> dict[str, Any]:
-    ws.call("Page.navigate", {"url": url})
-    ws.wait_for("Page.loadEventFired", timeout=20.0)
+    navigation = ws.call("Page.navigate", {"url": url})
+    if navigation.get("errorText"):
+        raise DevToolsError(f"navigation to {url} failed: {navigation['errorText']}")
+    frame_id = navigation.get("frameId")
+
+    document_responses: list[dict[str, Any]] = []
+    ws.wait_for(
+        "Page.loadEventFired",
+        timeout=20.0,
+        collect={"Network.responseReceived": document_responses},
+    )
+    main_document_responses = [
+        event["response"]
+        for event in document_responses
+        if event.get("frameId") == frame_id and event.get("type") == "Document"
+    ]
+    if not main_document_responses:
+        raise DevToolsError(f"no main-document response observed for {url}")
+    final_response = main_document_responses[-1]
+    if final_response["status"] != 200:
+        raise DevToolsError(f"{url} responded with HTTP {final_response['status']}, expected 200")
+    if final_response["url"] != url:
+        raise DevToolsError(f"{url} resolved to a different page: {final_response['url']}")
+
     time.sleep(settle_seconds)
     result = ws.call("Runtime.evaluate", {"expression": METRICS_EXPRESSION, "returnByValue": True})
     if result.get("exceptionDetails"):
         raise DevToolsError(f"metrics script failed for {url}: {result['exceptionDetails']}")
-    return dict(result["result"]["value"])
+    metrics = dict(result["result"]["value"])
+    metrics["httpStatus"] = final_response["status"]
+    metrics["finalUrl"] = final_response["url"]
+    return metrics
 
 
 def _summary_row(path: str, metrics: dict[str, Any]) -> str:
     overflow = "yes" if metrics["documentWidth"] > metrics["viewportWidth"] else "no"
+    launch = "yes" if metrics["launchCommandVisible"] else "no"
     return (
         f"| `{path}` | {metrics['domContentLoadedMs']:.0f} ms | {metrics['loadMs']:.0f} ms | "
         f"{metrics['transferBytes']:.0f} B | {metrics['cls']:.4f} | "
-        f"{overflow} ({metrics['documentWidth']}px vs {metrics['viewportWidth']}px) |"
+        f"{overflow} ({metrics['documentWidth']}px vs {metrics['viewportWidth']}px) | {launch} |"
     )
 
 
 def run(*, label: str, base_url: str, output_root: Path, port: int, settle_seconds: float) -> int:
     run_dir = output_root / f"{datetime.now(UTC):%Y-%m-%d}-{label}"
-    run_dir.mkdir(parents=True, exist_ok=True)
+    if run_dir.exists():
+        raise SystemExit(f"{run_dir} already exists; pass a different --label or remove it before re-running")
+    output_root.mkdir(parents=True, exist_ok=True)
+    staging_dir = Path(tempfile.mkdtemp(prefix=f"{run_dir.name}-staging-", dir=output_root))
     user_data_dir = Path(tempfile.mkdtemp(prefix="mobile-audit-"))
 
-    process = _launch_chrome(port, user_data_dir)
+    published = False
     try:
-        ws = DevToolsSocket(_page_target_ws_url(port))
+        process = _launch_chrome(port, user_data_dir)
         try:
-            _prepare_session(ws)
-            rows = []
-            for path in AUDITED_PATHS:
-                url = urllib.parse.urljoin(base_url, path)
-                print(f"measuring {url} ...")
-                metrics = _measure_page(ws, url, settle_seconds)
-                record = {"path": path, "url": url, **metrics}
-                (run_dir / f"{_slug(path)}.json").write_text(json.dumps(record, ensure_ascii=False, indent=2))
-                rows.append(_summary_row(path, metrics))
+            ws = DevToolsSocket(_page_target_ws_url(port))
+            try:
+                _prepare_session(ws)
+                rows = []
+                for path in AUDITED_PATHS:
+                    url = urllib.parse.urljoin(base_url, path)
+                    print(f"measuring {url} ...")
+                    metrics = _measure_page(ws, url, settle_seconds)
+                    record = {"path": path, "url": url, **metrics}
+                    (staging_dir / f"{_slug(path)}.json").write_text(json.dumps(record, ensure_ascii=False, indent=2))
+                    rows.append(_summary_row(path, metrics))
+            finally:
+                ws.close()
         finally:
-            ws.close()
-    finally:
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-        shutil.rmtree(user_data_dir, ignore_errors=True)
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            shutil.rmtree(user_data_dir, ignore_errors=True)
 
-    header = "| page | DOMContentLoaded | load | transfer | CLS | document width vs viewport |"
-    divider = "|" + " --- |" * 5
-    summary = "\n".join([f"# Mobile audit — {label} ({base_url})", "", header, divider, *rows, ""])
-    (run_dir / "summary.md").write_text(summary)
-    print(summary)
-    print(f"saved to {run_dir}")
-    return 0
+        header = (
+            "| page | DOMContentLoaded | load | transfer | CLS | document width vs viewport | launch command visible |"
+        )
+        divider = "|" + " --- |" * 7
+        summary = "\n".join([f"# Mobile audit — {label} ({base_url})", "", header, divider, *rows, ""])
+        (staging_dir / "summary.md").write_text(summary)
+
+        if run_dir.exists():
+            raise SystemExit(f"{run_dir} appeared during the run; refusing to overwrite it")
+        staging_dir.rename(run_dir)
+        published = True
+        print(summary)
+        print(f"saved to {run_dir}")
+        return 0
+    finally:
+        if not published:
+            shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def main() -> int:
