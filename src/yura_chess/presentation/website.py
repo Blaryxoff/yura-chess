@@ -64,6 +64,7 @@ SITEMAP_ENTRIES: tuple[tuple[str, str], ...] = (
     (COACH_PATH, "0.7"),
     (PUZZLES_PATH, "0.7"),
 )
+# No <lastmod>: no stable, truthful per-page content-change date exists to report.
 SITEMAP_XML = (
     '<?xml version="1.0" encoding="UTF-8"?>\n'
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -1019,8 +1020,8 @@ LANDING_BODY = f"""    <header>
 LANDING_PAGE_HTML = _document(
     title="Шахматы с Юрой — играть в шахматы голосом с Алисой",
     description=(
-        "Бесплатный навык Алисы: полноценная партия в шахматы голосом против Stockfish, режим тренера, "
-        "разбор партий и шахматные задачи. Играть можно без экрана."
+        "Играйте в шахматы с Алисой бесплатно и без экрана. Скажите: «Алиса, запусти навык "
+        "Шахматы с Юрой» — 20 уровней, тренер и задачи."
     ),
     path=LANDING_PATH,
     structured_data=[SKILL_SCHEMA, LANDING_FAQ_SCHEMA],
@@ -1196,7 +1197,7 @@ HOW_TO_PLAY_PAGE_HTML = _document(
 """,
 )
 
-_COMMANDS_TITLE = "Все голосовые команды навыка"
+_COMMANDS_TITLE = "Голосовые команды для шахмат в Алисе"
 _COMMANDS_CRUMB_SCHEMA = _breadcrumb_schema(_COMMANDS_TITLE, COMMANDS_PATH)
 
 COMMANDS_PAGE_HTML = _document(
