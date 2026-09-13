@@ -88,7 +88,7 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert response.headers["cache-control"] == "public, max-age=60, stale-while-revalidate=300"
     assert "Шахматы с Юрой" in response.text
     assert "Stockfish" in response.text
-    assert "с&nbsp;привычными шахматными фразами" in response.text
+    assert "Называйте ходы обычными" in response.text
     assert "Включи режим тренера" in response.text
     assert "Настоящие шахматы в Алисе" in response.text
     assert "Продолжайте позже" in response.text
@@ -156,9 +156,10 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     faq = next(item for item in graph if item["@type"] == "FAQPage")
     assert [item["name"] for item in faq["mainEntity"]] == [question for question, _ in LANDING_FAQ]
     # A FAQ rich result is dropped when the marked-up answer is not on the page.
+    visible_text = re.sub(r"<[^>]+>", "", response.text)
     for question, answer in LANDING_FAQ:
         assert question in response.text
-        assert answer in response.text
+        assert answer in visible_text
     assert "незряч" in response.text.lower()
     for path in (
         HOW_TO_PLAY_PATH,
@@ -552,9 +553,22 @@ def test_public_pages_keep_internal_qa_language_out_of_player_copy() -> None:
         "Разбор реального цикла",
         "последовательность запрос — согласие",
         "HMAC-ключ",
+        "Это уже не честная партия",
+        "партия ещё честная",
+        "с привычными шахматными фразами",
+        "вместо него используется необратимый код",
+        "уровнями силы",
+        "Ещё не запускали",
     ):
         assert internal_phrase not in combined
     assert f'href="{YANDEX_DIALOG_URL}#surfaces"' in HOW_TO_PLAY_PAGE_HTML
+    assert "Скажите <code>«Алиса, запусти навык Шахматы с Юрой»</code>" in HOW_TO_PLAY_PAGE_HTML
+    assert "по запросу <code>«все команды»</code>" in COMMANDS_PAGE_HTML
+    assert "Команда <code>«какая позиция»</code>" in ACCESSIBILITY_PAGE_HTML
+    assert "<code>«оцени позицию»</code>" in COACH_PAGE_HTML
+    assert "<code>«сколько я сделал ходов»</code>" in BLINDFOLD_PAGE_HTML
+    assert "<code>«дай задачу»</code>" in PUZZLES_PAGE_HTML
+    assert ".hero-actions .launch:only-child" in LANDING_PAGE_HTML
 
 
 def test_favicon_is_served_for_modern_and_legacy_browser_paths(offline_settings: Settings) -> None:

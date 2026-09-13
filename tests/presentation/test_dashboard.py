@@ -36,7 +36,7 @@ def test_dashboard_is_aggregate_responsive_and_explains_pseudonymous_users() -> 
 
     assert ">Статистика</h2>" in html
     assert "не сохраняем исходный идентификатор Алисы" in html
-    assert "восстановить по нему идентификатор нельзя" in html
+    assert "не можем восстановить его из сохранённых данных" in html
     assert "120" in html
     assert 'id="statistics"' in html
     assert 'href="/statistics?period=month&amp;metric=engaged_games#statistics"' in html

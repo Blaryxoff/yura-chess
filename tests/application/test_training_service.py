@@ -103,6 +103,8 @@ async def test_trainer_is_switched_on_only_by_an_explicit_command(
     reply = await conversation.handle(OWNER, "включи режим тренера", context(2), started.state)
 
     assert "тренера" in reply.speech.text
+    assert "Чтобы снова играть без подсказок" in reply.speech.text
+    assert "честная партия" not in reply.speech.text
     assert load(session_factory, started.state.game_id or "").mode is GameMode.TRAINING
 
 
@@ -164,6 +166,8 @@ async def test_no_coaching_question_reaches_the_engine_before_consent(
     reply = await conversation.handle(OWNER, utterance, context(2), started.state)
 
     assert "Включить режим тренера" in reply.speech.text
+    assert "Его можно снова выключить в любой момент" in reply.speech.text
+    assert "честная партия" not in reply.speech.text
     assert engine.analysed == []
 
 
