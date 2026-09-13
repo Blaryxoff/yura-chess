@@ -1,0 +1,14 @@
+{
+  "path": "/commands",
+  "url": "http://127.0.0.1:8011/commands",
+  "domContentLoadedMs": 13.300000000745058,
+  "loadMs": 14.800000000745058,
+  "transferBytes": 49573,
+  "cls": 0,
+  "documentWidth": 390,
+  "viewportWidth": 390,
+  "launchCommandTop": 695.7515869140625,
+  "launchCommandVisible": true,
+  "httpStatus": 200,
+  "finalUrl": "http://127.0.0.1:8011/commands"
+}

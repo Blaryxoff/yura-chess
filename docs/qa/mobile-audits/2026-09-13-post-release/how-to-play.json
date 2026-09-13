@@ -1,0 +1,14 @@
+{
+  "path": "/how-to-play",
+  "url": "http://127.0.0.1:8011/how-to-play",
+  "domContentLoadedMs": 10.199999999254942,
+  "loadMs": 12.199999999254942,
+  "transferBytes": 50971,
+  "cls": 0,
+  "documentWidth": 390,
+  "viewportWidth": 390,
+  "launchCommandTop": 746.3372192382812,
+  "launchCommandVisible": true,
+  "httpStatus": 200,
+  "finalUrl": "http://127.0.0.1:8011/how-to-play"
+}

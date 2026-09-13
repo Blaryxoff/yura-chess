@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -14,23 +15,32 @@ from yura_chess.adapters.alice.webhook import ALICE_WEBHOOK_PATH, LEGACY_ALICE_W
 from yura_chess.main import _purge_retained_data, create_app
 from yura_chess.presentation.social_card import SOCIAL_CARD_PATH
 from yura_chess.presentation.website import (
+    _COMMANDS_TITLE,
+    ACCESSIBILITY_PAGE_HTML,
     ACCESSIBILITY_PATH,
     ALICE_SKILL_URL,
+    BLINDFOLD_PAGE_HTML,
     BLINDFOLD_PATH,
+    COACH_PAGE_HTML,
     COACH_PATH,
+    COMMANDS_PAGE_HTML,
     COMMANDS_PATH,
     FAVICON_SVG,
+    HOW_TO_PLAY_PAGE_HTML,
     HOW_TO_PLAY_PATH,
     INDEXNOW_KEY,
     INDEXNOW_KEY_PATH,
     LANDING_FAQ,
+    LANDING_PAGE_HTML,
     LANDING_PATH,
+    PUZZLES_PAGE_HTML,
     PUZZLES_PATH,
     ROBOTS_PATH,
     ROBOTS_TEXT,
     SITEMAP_ENTRIES,
     SITEMAP_PATH,
     SITEMAP_XML,
+    STATISTICS_PAGE_HTML,
     STATISTICS_PATH,
     WEBMASTER_VERIFICATION_HTML,
     WEBMASTER_VERIFICATION_PATH,
@@ -192,6 +202,163 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     # Sharing a link should unfurl into something.
     assert f'<meta property="og:image" content="https://yurachess.ru{SOCIAL_CARD_PATH}">' in response.text
     assert '<meta name="twitter:card" content="summary_large_image">' in response.text
+
+
+def test_landing_snippet_uses_the_intent_aligned_description_everywhere(
+    monkeypatch: pytest.MonkeyPatch,
+    offline_settings: Settings,
+) -> None:
+    description = (
+        "Играйте в шахматы с Алисой бесплатно и без экрана. Скажите: «Алиса, запусти навык "
+        "Шахматы с Юрой» — 20 уровней, тренер и задачи."
+    )
+    monkeypatch.setattr(
+        "yura_chess.main.UsageRepository.dashboard",
+        lambda self, source, *, period: DashboardSnapshot(
+            "real", "all", datetime(2026, 7, 23, 12, 0, 0), UsageTotals(2, 1, 1, 1, 1, 1, 0, 0), ()
+        ),
+    )
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get("/")
+
+    assert f'<meta name="description" content="{description}">' in response.text
+    assert f'<meta property="og:description" content="{description}">' in response.text
+    assert f'<meta name="twitter:description" content="{description}">' in response.text
+
+
+def test_mandatory_faq_questions_are_each_pinned_exactly_once(
+    monkeypatch: pytest.MonkeyPatch,
+    offline_settings: Settings,
+) -> None:
+    required_questions = (
+        "Как играть в шахматы с Алисой?",
+        "Умеет ли Алиса играть в шахматы?",
+    )
+    faq_questions = [question for question, _ in LANDING_FAQ]
+    for required in required_questions:
+        assert faq_questions.count(required) == 1
+
+    monkeypatch.setattr(
+        "yura_chess.main.UsageRepository.dashboard",
+        lambda self, source, *, period: DashboardSnapshot(
+            "real", "all", datetime(2026, 7, 23, 12, 0, 0), UsageTotals(2, 1, 1, 1, 1, 1, 0, 0), ()
+        ),
+    )
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get(LANDING_PATH)
+
+    structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
+    visible_html = re.sub(r'<script type="application/ld\+json">.*?</script>', "", response.text, flags=re.S)
+    graph = json.loads(structured_data)["@graph"]
+    faq = next(item for item in graph if item["@type"] == "FAQPage")
+    schema_names = [item["name"] for item in faq["mainEntity"]]
+    for required in required_questions:
+        assert visible_html.count(required) == 1
+        assert schema_names.count(required) == 1
+
+
+_COMMANDS_CATALOGUE_SECTIONS = (
+    "Ходы",
+    "Позиция",
+    "Факты о партии",
+    "Управление партией",
+    "Настройки речи и доски",
+    "Режим тренера",
+    "Разбор сыгранной партии",
+    "Шахматные задачи",
+    "Если Алиса не расслышала",
+    "Справка голосом",
+)
+_COMMANDS_CATALOGUE_ITEM_COUNT = 31
+
+
+def test_commands_h1_matches_structured_data_and_keeps_the_full_list(offline_settings: Settings) -> None:
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get(COMMANDS_PATH)
+
+    assert _COMMANDS_TITLE == "Голосовые команды для шахмат в Алисе"
+    assert f"<h1>{_COMMANDS_TITLE}</h1>" in response.text
+    # The detailed command catalogue and the "no need to memorise exact wording" promise must survive.
+    assert "навык понимает разные формулировки" in response.text
+    assert "«включи режим тренера»" in response.text
+    assert "«говори кратко»" in response.text
+    # Snapshot guard: dropping a whole section would otherwise leave this test green.
+    assert re.findall(r"<h2>(.*?)</h2>", response.text) == list(_COMMANDS_CATALOGUE_SECTIONS)
+    assert len(re.findall(r"<li>.*?</li>", response.text, re.S)) == _COMMANDS_CATALOGUE_ITEM_COUNT
+    structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
+    graph = json.loads(structured_data)["@graph"]
+    page = next(item for item in graph if item["@type"] == "WebPage")
+    breadcrumb = next(item for item in graph if item["@type"] == "BreadcrumbList")
+    assert page["name"] == _COMMANDS_TITLE
+    assert breadcrumb["itemListElement"][-1]["name"] == _COMMANDS_TITLE
+
+
+def test_sitemap_lists_exactly_the_eight_canonical_pages_without_lastmod(offline_settings: Settings) -> None:
+    with TestClient(create_app(offline_settings)) as client:
+        response = client.get(SITEMAP_PATH)
+
+    assert len(SITEMAP_ENTRIES) == 8
+    assert response.text.count("<url>") == 8
+    assert response.text.count("<loc>") == 8
+    assert "<lastmod>" not in response.text
+    for path, _ in SITEMAP_ENTRIES:
+        assert f"<loc>https://yurachess.ru{path}</loc>" in response.text
+
+
+def test_all_eight_canonical_pages_have_unique_title_and_description() -> None:
+    pages_by_path = {
+        LANDING_PATH: LANDING_PAGE_HTML,
+        STATISTICS_PATH: STATISTICS_PAGE_HTML,
+        HOW_TO_PLAY_PATH: HOW_TO_PLAY_PAGE_HTML,
+        COMMANDS_PATH: COMMANDS_PAGE_HTML,
+        ACCESSIBILITY_PATH: ACCESSIBILITY_PAGE_HTML,
+        BLINDFOLD_PATH: BLINDFOLD_PAGE_HTML,
+        COACH_PATH: COACH_PAGE_HTML,
+        PUZZLES_PATH: PUZZLES_PAGE_HTML,
+    }
+    assert set(pages_by_path) == {path for path, _ in SITEMAP_ENTRIES}
+    assert len(pages_by_path) == 8
+
+    titles = []
+    descriptions = []
+    for path, page_html in pages_by_path.items():
+        title_match = re.search(r"<title>(.*?)</title>", page_html)
+        description_match = re.search(r'<meta name="description" content="(.*?)">', page_html)
+        assert title_match, f"missing <title> for {path}"
+        assert description_match, f"missing meta description for {path}"
+        titles.append(title_match.group(1))
+        descriptions.append(description_match.group(1))
+
+    assert len(set(titles)) == 8
+    assert len(set(descriptions)) == 8
+
+
+_TV_LONG_MARKERS = ("яндекс тв", "телевизор", "smart tv", "смарт-тв")
+_TV_TOKEN_PATTERN = re.compile(r"\bтв\b|\btv\b")
+
+
+def _assert_makes_no_tv_claim(text: str) -> None:
+    normalized = text.casefold()
+    for marker in _TV_LONG_MARKERS:
+        assert marker not in normalized
+    assert _TV_TOKEN_PATTERN.search(normalized) is None
+
+
+def test_no_yandex_tv_claim_is_made_without_a_verified_device_check() -> None:
+    for question, answer in LANDING_FAQ:
+        _assert_makes_no_tv_claim(question)
+        _assert_makes_no_tv_claim(answer)
+    for page_html in (
+        LANDING_PAGE_HTML,
+        STATISTICS_PAGE_HTML,
+        HOW_TO_PLAY_PAGE_HTML,
+        COMMANDS_PAGE_HTML,
+        COACH_PAGE_HTML,
+        PUZZLES_PAGE_HTML,
+        ACCESSIBILITY_PAGE_HTML,
+        BLINDFOLD_PAGE_HTML,
+    ):
+        _assert_makes_no_tv_claim(page_html)
 
 
 def test_yandex_webmaster_verification_file_is_served_verbatim(offline_settings: Settings) -> None:
