@@ -35,7 +35,8 @@ def test_dashboard_is_aggregate_responsive_and_explains_pseudonymous_users() -> 
     html = render_dashboard(snapshot())
 
     assert ">Статистика</h2>" in html
-    assert "необратимый HMAC-ключ" in html
+    assert "не сохраняем исходный идентификатор Алисы" in html
+    assert "восстановить по нему идентификатор нельзя" in html
     assert "120" in html
     assert 'id="statistics"' in html
     assert 'href="/statistics?period=month&amp;metric=engaged_games#statistics"' in html

@@ -88,7 +88,7 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert response.headers["cache-control"] == "public, max-age=60, stale-while-revalidate=300"
     assert "Шахматы с Юрой" in response.text
     assert "Stockfish" in response.text
-    assert "с&nbsp;естественными командами" in response.text
+    assert "с&nbsp;привычными шахматными фразами" in response.text
     assert "Включи режим тренера" in response.text
     assert "Настоящие шахматы в Алисе" in response.text
     assert "Продолжайте позже" in response.text
@@ -282,7 +282,7 @@ def test_commands_h1_matches_structured_data_and_keeps_the_full_list(offline_set
     with TestClient(create_app(offline_settings)) as client:
         response = client.get(COMMANDS_PATH)
 
-    assert _COMMANDS_TITLE == "Голосовые команды для шахмат в Алисе"
+    assert _COMMANDS_TITLE == "Голосовые команды для шахмат с Алисой"
     assert f"<h1>{_COMMANDS_TITLE}</h1>" in response.text
     # The detailed command catalogue and the "no need to memorise exact wording" promise must survive.
     assert "навык понимает разные формулировки" in response.text
@@ -400,7 +400,7 @@ def test_a_secondary_page_revalidates_instead_of_serving_a_stale_release(offline
     assert revalidated.status_code == 304
     assert revalidated.headers["etag"] == first.headers["etag"]
     assert changed.status_code == 200
-    assert "Голосовые команды шахмат в Алисе" in changed.text
+    assert "Голосовые команды для шахмат с Алисой" in changed.text
 
 
 def test_both_webhook_paths_answer_so_the_console_never_races_a_deploy(offline_settings: Settings) -> None:
@@ -480,8 +480,8 @@ def test_indexnow_key_is_served_so_submissions_are_accepted(offline_settings: Se
     ("path", "title", "marker"),
     [
         (HOW_TO_PLAY_PATH, "Как играть в шахматы с Алисой голосом", "Уровень Stockfish — от нуля"),
-        (COMMANDS_PATH, "Голосовые команды шахмат в Алисе", "«повтори координаты по буквам»"),
-        (COACH_PATH, "Шахматный тренер голосом", "Подсказки по ступеням"),
+        (COMMANDS_PATH, "Голосовые команды для шахмат с Алисой", "«повтори координаты по буквам»"),
+        (COACH_PATH, "Шахматный тренер голосом", "Подсказки: от намёка к ходу"),
         (PUZZLES_PATH, "Шахматные задачи голосом", "Мат по последней горизонтали"),
         (ACCESSIBILITY_PATH, "Шахматы для незрячих голосом", "Тренер и задачи тоже без экрана"),
         (BLINDFOLD_PATH, "Шахматы вслепую с Алисой", "Как наращивать сложность"),
@@ -531,6 +531,30 @@ def test_secondary_pages_are_crawlable_and_self_describing(
     assert "BreadcrumbList" in {item["@type"] for item in graph}
     # The full dashboard belongs to its own dynamic page.
     assert 'id="statistics"' not in response.text
+
+
+def test_public_pages_keep_internal_qa_language_out_of_player_copy() -> None:
+    pages = (
+        LANDING_PAGE_HTML,
+        STATISTICS_PAGE_HTML,
+        HOW_TO_PLAY_PAGE_HTML,
+        COMMANDS_PAGE_HTML,
+        COACH_PAGE_HTML,
+        PUZZLES_PAGE_HTML,
+        ACCESSIBILITY_PAGE_HTML,
+        BLINDFOLD_PAGE_HTML,
+    )
+    combined = "\n".join(pages)
+
+    for internal_phrase in (
+        "ступенчат",
+        "Конев три",
+        "Разбор реального цикла",
+        "последовательность запрос — согласие",
+        "HMAC-ключ",
+    ):
+        assert internal_phrase not in combined
+    assert f'href="{YANDEX_DIALOG_URL}#surfaces"' in HOW_TO_PLAY_PAGE_HTML
 
 
 def test_favicon_is_served_for_modern_and_legacy_browser_paths(offline_settings: Settings) -> None:

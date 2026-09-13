@@ -66,6 +66,7 @@ def test_moves_played_counts_plies_and_full_moves() -> None:
 def test_moves_played_can_count_only_the_asked_side() -> None:
     board = board_of("e2e4", "e7e5", "g1f3")
 
+    assert answer("сколько я сделал ходов", board, chess.WHITE)[1] == "Вы сделали 2 хода."
     assert answer("сколько ходов сделал я", board, chess.WHITE)[1] == "Вы сделали 2 хода."
     assert answer("сколько ходов сделал ты", board, chess.WHITE)[1] == "Я сделал 1 ход."
     assert answer("сколько ходов сделал я", board, chess.BLACK)[1] == "Вы сделали 1 ход."
