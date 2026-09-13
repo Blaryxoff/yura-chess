@@ -197,7 +197,7 @@ SITE_CSS = (
       letter-spacing: .1em;
       text-transform: uppercase;
     }
-    .launch-command { display: block; color: var(--text); font-weight: 700; }
+    .launch-command { display: block; color: var(--gold); font-weight: 700; }
     section {
       margin: 0 0 24px;
       padding: 34px;
@@ -887,6 +887,19 @@ def _highlight_landing_faq_commands(answer: str) -> str:
     return answer
 
 
+def _launch_cta(label: str = "Ещё не играли? Скажите Алисе") -> str:
+    return f"""      <div class="hero-actions">
+        <div class="launch">
+          <span class="launch-label">{label}</span>
+          <span class="launch-command">«Запусти навык Шахматы с Юрой»</span>
+        </div>
+        <a class="launch-action" href="{ALICE_SKILL_URL}" target="_blank" rel="noopener noreferrer">
+          Запустить в браузере
+        </a>
+      </div>
+"""
+
+
 LANDING_FAQ_HTML = "\n".join(
     f"""        <div>
           <dt>{question}</dt>
@@ -902,15 +915,7 @@ LANDING_BODY = f"""    <header>
         Играйте в шахматы голосом с Алисой против сильного движка Stockfish. Называйте ходы обычными
         словами, получайте понятные объяснения и продолжайте сохранённую партию позже. Экран не нужен.
       </p>
-      <div class="hero-actions">
-        <div class="launch">
-          <span class="launch-label">Скажите Алисе</span>
-          <span class="launch-command">«Запусти навык Шахматы с Юрой»</span>
-        </div>
-        <a class="launch-action" href="{ALICE_SKILL_URL}" target="_blank" rel="noopener noreferrer">
-          Запустить в браузере
-        </a>
-      </div>
+{_launch_cta("Скажите Алисе")}
     </header>
 
     <section>
@@ -1067,7 +1072,9 @@ STATISTICS_PAGE_HTML = _document(
       <p class="lead">
         Общая статистика «Шахмат с Юрой». В ней нет имён и открытых идентификаторов игроков.
       </p>
-    </header>
+"""
+    + _launch_cta()
+    + """    </header>
 
     {{ dashboard }}
 """,
@@ -1126,6 +1133,7 @@ HOW_TO_PLAY_PAGE_HTML = _document(
         Пять шагов от запуска навыка до первой партии против Stockfish. Ничего запоминать не нужно:
         навык понимает обычную шахматную речь и сам подсказывает, что сказать дальше.
       </p>
+{_launch_cta()}
     </header>
 
     <section class="article">
@@ -1240,12 +1248,7 @@ COMMANDS_PAGE_HTML = _document(
         Дословно запоминать команды не нужно — навык понимает разные формулировки. Здесь собраны примеры того,
         о чём можно попросить. Эти же разделы Алиса прочитает по запросу <code>«все команды»</code>.
       </p>
-      <div class="hero-actions">
-        <div class="launch">
-          <span class="launch-label">Ещё не играли? Скажите Алисе</span>
-          <span class="launch-command">«Запусти навык Шахматы с Юрой»</span>
-        </div>
-      </div>
+{_launch_cta()}
     </header>
 
     <section class="article">
@@ -1359,6 +1362,7 @@ ACCESSIBILITY_PAGE_HTML = _document(
         «Шахматы с Юрой» создавались в первую очередь для незрячих и слабовидящих игроков.
         Экран не нужен ни для одного действия: вся партия ведётся голосом.
       </p>
+{_launch_cta()}
     </header>
 
     <section class="article">
@@ -1445,12 +1449,7 @@ COACH_PAGE_HTML = _document(
         В обычном режиме навык не подсказывает. Если нужна помощь, тренера можно включить одной фразой,
         получить объяснение позиции обычными словами, а затем снова выключить.
       </p>
-      <div class="hero-actions">
-        <div class="launch">
-          <span class="launch-label">Ещё не играли? Скажите Алисе</span>
-          <span class="launch-command">«Запусти навык Шахматы с Юрой»</span>
-        </div>
-      </div>
+{_launch_cta()}
     </header>
 
     <section class="article">
@@ -1554,6 +1553,7 @@ PUZZLES_PAGE_HTML = _document(
         Задача читается вслух — позицию нужно удержать в голове и найти решение на слух.
         Такие задачи помогают тренировать расчёт вариантов и умение удерживать позицию в голове.
       </p>
+{_launch_cta()}
     </header>
 
     <section class="article">
@@ -1625,12 +1625,7 @@ BLINDFOLD_PAGE_HTML = _document(
         Для тренировки вслепую обычно нужен тот, кто будет вести доску и называть ходы.
         Здесь эту роль берёт на себя Алиса, а подсказки появляются только по просьбе игрока.
       </p>
-      <div class="hero-actions">
-        <div class="launch">
-          <span class="launch-label">Ещё не играли? Скажите Алисе</span>
-          <span class="launch-command">«Запусти навык Шахматы с Юрой»</span>
-        </div>
-      </div>
+{_launch_cta()}
     </header>
 
     <section class="article">

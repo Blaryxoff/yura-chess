@@ -525,6 +525,9 @@ def test_secondary_pages_are_crawlable_and_self_describing(
     assert response.text.count('aria-label="Разделы сайта"') == 1
     assert response.text.count('class="footer-brand"') == 1
     assert response.text.count('class="footer-nav"') == 1
+    assert response.text.count(f'class="launch-action" href="{ALICE_SKILL_URL}"') == 1
+    assert response.text.count('class="launch-command">«Запусти навык Шахматы с Юрой»') == 1
+    assert "Запустить в браузере" in response.text
     # The trail belongs in the search result, not above the hero.
     assert 'class="breadcrumbs"' not in response.text
     structured_data = response.text.split('<script type="application/ld+json">', 1)[1].split("</script>", 1)[0]
@@ -570,6 +573,7 @@ def test_public_pages_keep_internal_qa_language_out_of_player_copy() -> None:
     assert "<code>«дай задачу»</code>" in PUZZLES_PAGE_HTML
     assert ".hero-actions .launch:only-child" in LANDING_PAGE_HTML
     assert "border-left: 2px solid var(--gold)" in LANDING_PAGE_HTML
+    assert ".launch-command { display: block; color: var(--gold); font-weight: 700; }" in LANDING_PAGE_HTML
     assert "code { color: var(--gold); font: inherit; font-weight: 400; }" in LANDING_PAGE_HTML
     assert "<strong><code>" not in combined
 
