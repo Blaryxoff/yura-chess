@@ -165,10 +165,6 @@ SITE_CSS = (
     .hero-actions .launch:only-child {
       width: fit-content;
       max-width: 100%;
-      padding: 10px 16px 0;
-      border-top: 2px solid var(--gold);
-      border-left: 0;
-      text-align: center;
     }
     .launch-action {
       display: inline-flex;
@@ -248,7 +244,7 @@ SITE_CSS = (
     .section-intro { margin: -6px 0 20px; color: var(--muted); }
     .command-list { columns: 2; column-gap: 48px; }
     .command-list li { break-inside: avoid; }
-    code { color: var(--gold); font: inherit; }
+    code { color: var(--gold); font: inherit; font-weight: 400; }
     a { color: var(--gold); }
     a.piece {
       display: inline-block;
@@ -1173,16 +1169,16 @@ HOW_TO_PLAY_PAGE_HTML = _document(
       </p>
       <ul>
         <li>
-          <strong><code>«Давай поиграем в шахматы»</code></strong>
+          <code>«Давай поиграем в шахматы»</code>
           Если не называть цвет и уровень отдельно, навык всё равно начинает партию сразу:
           белыми и на уровне сложности по умолчанию.
         </li>
         <li>
-          <strong><code>«Конь эф три»</code></strong>
+          <code>«Конь эф три»</code>
           Ход можно назвать коротко: слова «с» и «на» произносить не обязательно.
         </li>
         <li>
-          <strong><code>«Алиса, твой ход»</code></strong>
+          <code>«Алиса, твой ход»</code>
           Если кажется, что колонка задумалась или пропустила ответ, эта фраза не начинает партию
           заново — она просит Алису ответить или напомнить, чей сейчас ход.
         </li>
@@ -1654,7 +1650,7 @@ BLINDFOLD_PAGE_HTML = _document(
           <code>«Алиса, запусти навык Шахматы с Юрой»</code>.
         </li>
         <li>
-          <strong>Возьмите посильный уровень</strong>
+          <strong>Выберите подходящий уровень</strong>
           <code>«Новая игра белыми уровень три»</code>. Вслепую даже слабый уровень ощущается сложнее обычного:
           силы уходят на удержание позиции, а не на счёт.
         </li>

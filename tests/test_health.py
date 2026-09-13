@@ -569,6 +569,9 @@ def test_public_pages_keep_internal_qa_language_out_of_player_copy() -> None:
     assert "<code>«сколько я сделал ходов»</code>" in BLINDFOLD_PAGE_HTML
     assert "<code>«дай задачу»</code>" in PUZZLES_PAGE_HTML
     assert ".hero-actions .launch:only-child" in LANDING_PAGE_HTML
+    assert "border-left: 2px solid var(--gold)" in LANDING_PAGE_HTML
+    assert "code { color: var(--gold); font: inherit; font-weight: 400; }" in LANDING_PAGE_HTML
+    assert "<strong><code>" not in combined
 
 
 def test_favicon_is_served_for_modern_and_legacy_browser_paths(offline_settings: Settings) -> None:
