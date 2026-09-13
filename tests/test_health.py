@@ -197,8 +197,14 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert 'element.matches("h2, h3")' in response.text
     assert "const revealGroups = new WeakMap();" in response.text
     assert 'targets.forEach((target) => target.classList.add("is-visible"))' in response.text
-    # A stale period response must not overwrite a newer one.
-    assert "if (request !== statisticsRequest) return;" in response.text
+    # A stale period response must not overwrite a newer one, nor navigate away
+    # from it when the stale request is the one that failed.
+    assert response.text.count("if (request !== statisticsRequest) return;") == 2
+    assert (
+        """if (request !== statisticsRequest) return;
+          window.location.assign(url);"""
+        in response.text
+    )
     # Sharing a link should unfurl into something.
     assert f'<meta property="og:image" content="https://yurachess.ru{SOCIAL_CARD_PATH}">' in response.text
     assert '<meta name="twitter:card" content="summary_large_image">' in response.text

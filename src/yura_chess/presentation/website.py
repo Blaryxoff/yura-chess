@@ -525,6 +525,7 @@ SITE_SCRIPT = """
           syncPeriodLinks(new URL(url, window.location.href));
           prepareStatistics(replacement);
         } catch (error) {
+          if (request !== statisticsRequest) return;
           window.location.assign(url);
         } finally {
           if (request === statisticsRequest) {
