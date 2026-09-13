@@ -316,6 +316,9 @@ DASHBOARD_CSS = """
 """
 
 
+_UNAVAILABLE = "Статистика временно недоступна"
+
+
 def render_summary(snapshot: DashboardSnapshot) -> str:
     values = (
         (snapshot.totals.users, plural_form(snapshot.totals.users, ("игрок", "игрока", "игроков"))),
@@ -343,6 +346,16 @@ def render_summary(snapshot: DashboardSnapshot) -> str:
         <a class="stats-summary-link" href="{STATISTICS_PATH}">Вся статистика <span aria-hidden="true">→</span></a>
       </div>
       <div class="stats-summary-cards">{cards}</div>
+    </section>"""
+
+
+def render_summary_unavailable() -> str:
+    return f"""<section id="statistics-summary" class="stats-summary">
+      <div class="stats-summary-copy">
+        <h2>Статистика</h2>
+        <p>{_UNAVAILABLE}</p>
+        <a class="stats-summary-link" href="{STATISTICS_PATH}">Вся статистика <span aria-hidden="true">→</span></a>
+      </div>
     </section>"""
 
 
@@ -392,6 +405,12 @@ def render_dashboard(
         <div class="stats-chart" aria-hidden="true">{bars}</div>
         {table}
       </div>
+    </section>"""
+
+
+def render_dashboard_unavailable() -> str:
+    return f"""<section id="statistics" class="stats" aria-label="Подробная статистика">
+      <p>{_UNAVAILABLE}</p>
     </section>"""
 
 

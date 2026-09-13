@@ -595,6 +595,115 @@ def test_public_statistics_pages_use_real_traffic_and_accept_period_filters(
     assert removed_dashboard.status_code == 404
 
 
+def test_statistics_metrics_share_one_query_per_period(
+    monkeypatch: pytest.MonkeyPatch,
+    offline_settings: Settings,
+) -> None:
+    queries: list[tuple[str, str]] = []
+    totals = UsageTotals(2, 1, 1, 1, 1, 1, 0, 0)
+
+    @contextmanager
+    def fake_session_scope(session_factory: object) -> Iterator[object]:
+        yield object()
+
+    class Repository:
+        def __init__(self, session: object) -> None:
+            return None
+
+        def dashboard(self, source: str, *, period: str) -> DashboardSnapshot:
+            queries.append((source, period))
+            return DashboardSnapshot(
+                "real",
+                period,  # type: ignore[arg-type]
+                datetime(2026, 7, 23, 12, 0, 0),
+                totals,
+                (DailyUsage(date(2026, 7, 23), requests=2),),
+            )
+
+    monkeypatch.setattr("yura_chess.main.session_scope", fake_session_scope)
+    monkeypatch.setattr("yura_chess.main.UsageRepository", Repository)
+    metrics = ("engaged_games", "player_moves", "users")
+    with TestClient(create_app(offline_settings)) as client:
+        responses = [
+            client.get(f"{STATISTICS_PATH}?period={period}&metric={metric}")
+            for period in ("month", "year", "all")
+            for metric in metrics
+        ]
+
+    assert [response.status_code for response in responses] == [200] * 9
+    # The metric picks a column out of the snapshot; only the period reaches the database.
+    assert queries == [("real", "month"), ("real", "year"), ("real", "all")]
+
+
+def test_analytics_failure_serves_the_pages_without_their_counters(
+    monkeypatch: pytest.MonkeyPatch,
+    offline_settings: Settings,
+) -> None:
+    @contextmanager
+    def fake_session_scope(session_factory: object) -> Iterator[object]:
+        yield object()
+
+    class BrokenRepository:
+        def __init__(self, session: object) -> None:
+            return None
+
+        def dashboard(self, source: str, *, period: str) -> DashboardSnapshot:
+            raise RuntimeError("database is unreachable")
+
+    monkeypatch.setattr("yura_chess.main.session_scope", fake_session_scope)
+    monkeypatch.setattr("yura_chess.main.UsageRepository", BrokenRepository)
+    with TestClient(create_app(offline_settings)) as client:
+        landing = client.get("/")
+        statistics = client.get(STATISTICS_PATH)
+
+    assert landing.status_code == statistics.status_code == 200
+    assert "Статистика временно недоступна" in landing.text
+    assert "Статистика временно недоступна" in statistics.text
+    # The pages carry the content search engines index; only the counters are missing.
+    assert ALICE_SKILL_URL in landing.text
+    assert landing.headers["cache-control"] == statistics.headers["cache-control"] == "no-store"
+
+
+def test_analytics_failure_keeps_serving_the_last_good_counters(
+    monkeypatch: pytest.MonkeyPatch,
+    offline_settings: Settings,
+) -> None:
+    failing = False
+    totals = UsageTotals(2, 1, 1, 1, 1, 1, 0, 0)
+    snapshot = DashboardSnapshot(
+        "real",
+        "all",
+        datetime(2026, 7, 23, 12, 0, 0),
+        totals,
+        (DailyUsage(date(2026, 7, 23), requests=2),),
+    )
+
+    @contextmanager
+    def fake_session_scope(session_factory: object) -> Iterator[object]:
+        yield object()
+
+    class FlakyRepository:
+        def __init__(self, session: object) -> None:
+            return None
+
+        def dashboard(self, source: str, *, period: str) -> DashboardSnapshot:
+            if failing:
+                raise RuntimeError("database is unreachable")
+            return snapshot
+
+    monkeypatch.setattr("yura_chess.main.session_scope", fake_session_scope)
+    monkeypatch.setattr("yura_chess.main.UsageRepository", FlakyRepository)
+    monkeypatch.setattr("yura_chess.main.DASHBOARD_CACHE_SECONDS", 0.0)
+    with TestClient(create_app(offline_settings)) as client:
+        warm = client.get("/")
+        failing = True
+        degraded = client.get("/")
+
+    assert warm.status_code == degraded.status_code == 200
+    assert "Статистика временно недоступна" not in degraded.text
+    assert "stats-summary-value" in degraded.text
+
+
 def test_readiness_reports_an_unreachable_database(offline_settings: Settings) -> None:
     with TestClient(create_app(offline_settings)) as client:
         response = client.get("/health/ready")

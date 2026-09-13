@@ -16,7 +16,13 @@ from yura_chess import __version__
 from yura_chess.adapters.alice.webhook import build_router as build_alice_router
 from yura_chess.adapters.yandex_images import BoardImageService
 from yura_chess.engine.stockfish import StockfishPool
-from yura_chess.presentation.dashboard import ChartMetric, render_dashboard, render_summary
+from yura_chess.presentation.dashboard import (
+    ChartMetric,
+    render_dashboard,
+    render_dashboard_unavailable,
+    render_summary,
+    render_summary_unavailable,
+)
 from yura_chess.presentation.social_card import SOCIAL_CARD_PATH, SOCIAL_CARD_PNG
 from yura_chess.presentation.website import (
     ACCESSIBILITY_PAGE_HTML,
@@ -57,7 +63,12 @@ from yura_chess.storage.database import (
 from yura_chess.storage.game_repository import GameRepository
 from yura_chess.storage.review_repository import ReviewRepository
 from yura_chess.storage.transcript_repository import TranscriptRepository
-from yura_chess.storage.usage_repository import UsageRepository
+from yura_chess.storage.usage_repository import (
+    ChartPeriod,
+    DashboardSnapshot,
+    DashboardSource,
+    UsageRepository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -142,68 +153,72 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings or get_settings()
 
-    # Bounded by the page and enumerated query parameters, so it needs no eviction.
-    rendered: dict[tuple[str, str, str], tuple[float, str]] = {}
-    rendering = asyncio.Lock()
+    # Keyed on what the query reads, not on what a page renders from it: the metric
+    # only picks a column out of a snapshot the period alone determines. Bounded by
+    # the enumerated query parameters, so it needs no eviction.
+    snapshots: dict[tuple[DashboardSource, ChartPeriod], tuple[float, DashboardSnapshot]] = {}
+    snapshot_locks: dict[tuple[DashboardSource, ChartPeriod], asyncio.Lock] = {}
 
-    @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
-    async def landing_page() -> HTMLResponse:
-        cache_key = ("landing", "all", "summary")
+    async def dashboard_snapshot(source: DashboardSource, period: ChartPeriod) -> DashboardSnapshot | None:
+        key = (source, period)
 
-        def load() -> str:
-            with session_scope(app.state.session_factory) as session:
-                snapshot = UsageRepository(session).dashboard("real", period="all")
-                return render_landing_page(render_summary(snapshot))
-
-        def fresh() -> str | None:
-            cached = rendered.get(cache_key)
+        def fresh() -> DashboardSnapshot | None:
+            cached = snapshots.get(key)
             if cached is None or monotonic() - cached[0] >= DASHBOARD_CACHE_SECONDS:
                 return None
             return cached[1]
 
-        html = fresh()
-        if html is None:
-            async with rendering:
-                html = fresh()
-                if html is None:
-                    html = await run_in_threadpool(load)
-                    rendered[cache_key] = (monotonic(), html)
+        def load() -> DashboardSnapshot:
+            with session_scope(app.state.session_factory) as session:
+                return UsageRepository(session).dashboard(source, period=period)
 
+        snapshot = fresh()
+        if snapshot is not None:
+            return snapshot
+        async with snapshot_locks.setdefault(key, asyncio.Lock()):
+            snapshot = fresh()
+            if snapshot is not None:
+                return snapshot
+            try:
+                snapshot = await run_in_threadpool(load)
+            except Exception:  # noqa: BLE001 - the page is worth more than its counters
+                logger.exception("dashboard snapshot %s/%s is unavailable", source, period)
+                stale = snapshots.get(key)
+                if stale is None:
+                    return None
+                # Re-stamped so a sustained outage costs one query per window, not one
+                # per request, each waiting out the same timeout before serving this.
+                snapshots[key] = (monotonic(), stale[1])
+                return stale[1]
+            snapshots[key] = (monotonic(), snapshot)
+            return snapshot
+
+    def dashboard_page(html: str, *, degraded: bool) -> HTMLResponse:
+        if degraded:
+            return HTMLResponse(html, headers={"Cache-Control": "no-store"})
         return HTMLResponse(
             html,
             headers={"Cache-Control": "public, max-age=60, stale-while-revalidate=300"},
         )
+
+    @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
+    async def landing_page() -> HTMLResponse:
+        snapshot = await dashboard_snapshot("real", "all")
+        summary = render_summary_unavailable() if snapshot is None else render_summary(snapshot)
+        return dashboard_page(render_landing_page(summary), degraded=snapshot is None)
 
     @app.api_route(STATISTICS_PATH, methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
     async def statistics_page(
         period: Literal["month", "year", "all"] = "month",
         metric: ChartMetric = "engaged_games",
     ) -> HTMLResponse:
-        cache_key = ("statistics", period, metric)
-
-        def load() -> str:
-            with session_scope(app.state.session_factory) as session:
-                snapshot = UsageRepository(session).dashboard("real", period=period)
-                return render_statistics_page(render_dashboard(snapshot, metric, show_heading=False))
-
-        def fresh() -> str | None:
-            cached = rendered.get(cache_key)
-            if cached is None or monotonic() - cached[0] >= DASHBOARD_CACHE_SECONDS:
-                return None
-            return cached[1]
-
-        html = fresh()
-        if html is None:
-            async with rendering:
-                html = fresh()
-                if html is None:
-                    html = await run_in_threadpool(load)
-                    rendered[cache_key] = (monotonic(), html)
-
-        return HTMLResponse(
-            html,
-            headers={"Cache-Control": "public, max-age=60, stale-while-revalidate=300"},
+        snapshot = await dashboard_snapshot("real", period)
+        dashboard = (
+            render_dashboard_unavailable()
+            if snapshot is None
+            else render_dashboard(snapshot, metric, show_heading=False)
         )
+        return dashboard_page(render_statistics_page(dashboard), degraded=snapshot is None)
 
     def _static_page(path: str, html: str) -> None:
         """Serve one crawlable page.
