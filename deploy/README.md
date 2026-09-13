@@ -173,4 +173,4 @@ including snippets, when a path 404s despite being listed here.
 5. From a workstation checkout: `uv run python scripts/submit_indexnow.py` — tells Yandex and Bing the pages changed.
    It exits non-zero when an endpoint rejects the submission; skipping it only delays the crawl.
 6. Voice-only and screen-device QA in the Alice console before submitting for moderation.
-7. Open `https://yurachess.ru/#statistics` and confirm real/test and period filters render aggregate counts without identifiers.
+7. Open `https://yurachess.ru/statistics` and confirm real/test and period filters render aggregate counts without identifiers.
