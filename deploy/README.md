@@ -111,8 +111,9 @@ Verify restorability regularly as an independent operations check:
 /srv/yura-chess/repo/deploy/mariadb/restore-smoke.sh
 ```
 
-It restores into `yura_chess_restore_smoke`, checks every canonical table and the
-Alembic revision, then drops it. It refuses to touch the live database.
+It restores into `yura_chess_restore_smoke`, checks that every table of the live
+schema came back and compares the archive's Alembic revision with the live one, then
+drops it. It refuses to touch the live database.
 
 Backup availability, off-host copy status and restore-smoke results do not gate an
 application deploy. Their failures remain alerts that operators should resolve

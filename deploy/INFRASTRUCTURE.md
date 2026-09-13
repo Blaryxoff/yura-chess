@@ -142,8 +142,8 @@ Details and the cutover checklist: [README.md](README.md).
 - Backup commands use the explicit production Compose file from
   `YURA_CHESS_COMPOSE_FILE`, so timers do not depend on their working directory.
 - `deploy/mariadb/restore-smoke.sh` — restore the latest archive into
-  `yura_chess_restore_smoke`, assert every canonical table and the Alembic
-  revision, then drop it. Run on its schedule or manually as an independent
+  `yura_chess_restore_smoke`, assert that every table of the live schema came back
+  and compare the archive's Alembic revision with the live one, then drop it. Run on its schedule or manually as an independent
   operations check; backup and restore status never blocks an application deploy.
 - `deploy/systemd/yura-chess-backup.timer` runs daily and
   `yura-chess-restore-smoke.timer` verifies the latest archive weekly. Install

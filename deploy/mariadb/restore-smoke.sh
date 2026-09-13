@@ -3,9 +3,9 @@
 #
 #   deploy/mariadb/restore-smoke.sh [archive.sql.gz]
 #
-# Restores into a temporary database, checks that the canonical tables exist and
-# that Alembic is at head, then drops it. The production database is never
-# touched: the script refuses to run against it.
+# Restores into a temporary database, checks that every table of the live schema came
+# back and compares the archive's Alembic revision with the live one, then drops it.
+# The production database is never touched: the script refuses to run against it.
 set -Eeuo pipefail
 
 ENV_FILE="${YURA_CHESS_BACKUP_ENV_FILE:-/srv/yura-chess/backup.env}"
@@ -22,6 +22,7 @@ fi
 PROJECT="${YURA_CHESS_COMPOSE_PROJECT:-yura-chess-production}"
 COMPOSE_FILE="${YURA_CHESS_COMPOSE_FILE:-/srv/yura-chess/repo/deploy/compose.production.yml}"
 DB_SERVICE="${YURA_CHESS_DB_SERVICE:-mariadb}"
+APP_SERVICE="${YURA_CHESS_APP_SERVICE:-app}"
 DB_NAME="${YURA_CHESS_DB_NAME:?YURA_CHESS_DB_NAME is required}"
 DB_USER="${YURA_CHESS_RESTORE_DB_USER:-root}"
 DB_PASSWORD="${YURA_CHESS_RESTORE_DB_PASSWORD:?YURA_CHESS_RESTORE_DB_PASSWORD is required}"
@@ -51,6 +52,10 @@ mariadb_client() {
     mariadb --user="$DB_USER" --default-character-set=utf8mb4 "$@"
 }
 
+app_client() {
+  docker compose --project-name "$PROJECT" --file "$COMPOSE_FILE" exec -T "$APP_SERVICE" "$@"
+}
+
 cleanup() {
   mariadb_client --execute "DROP DATABASE IF EXISTS \`$RESTORE_DB\`" || true
 }
@@ -62,20 +67,54 @@ mariadb_client --execute \
 gunzip --stdout "$ARCHIVE" | mariadb_client "$RESTORE_DB"
 
 echo "==> verifying the restored schema"
-EXPECTED_TABLES=(games game_moves pending_engine_turns request_replays asr_transcripts usage_users usage_requests board_image_cache alembic_version)
-for table in "${EXPECTED_TABLES[@]}"; do
-  if ! mariadb_client --skip-column-names --batch --execute \
-      "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$RESTORE_DB' AND table_name='$table'" \
-      | grep --quiet '^1$'; then
-    echo "restored backup is missing table $table" >&2
-    exit 1
-  fi
-done
+table_names() {
+  mariadb_client --skip-column-names --batch --execute \
+    "SELECT table_name FROM information_schema.tables \
+        WHERE table_schema='$1' AND table_type='BASE TABLE'" \
+    | LC_ALL=C sort
+}
 
 REVISION="$(mariadb_client --skip-column-names --batch --execute \
   "SELECT version_num FROM \`$RESTORE_DB\`.alembic_version" | head -1)"
 if [[ -z "$REVISION" ]]; then
   echo "restored backup has no Alembic revision" >&2
+  exit 1
+fi
+LIVE_REVISION="$(mariadb_client --skip-column-names --batch --execute \
+  "SELECT version_num FROM \`$DB_NAME\`.alembic_version" | head -1)"
+
+if [[ "$REVISION" != "$LIVE_REVISION" ]]; then
+  echo "warning: archive is at Alembic revision $REVISION, the live schema at $LIVE_REVISION" >&2
+fi
+
+# Two expectations, because neither alone is enough. The build's own ORM metadata is
+# the canonical schema and cannot mirror a live database that has lost a table; the live
+# schema catches everything else the dump dropped, and covers a table a migration adds
+# without editing this script. A missing table always fails: the revision warning above
+# explains a migration newer than the archive, it does not excuse one.
+CANONICAL_TABLES="$(app_client python -c 'from yura_chess.storage.models import Base
+print("\n".join(sorted(Base.metadata.tables)))' | tr -d '\r' | LC_ALL=C sort)"
+LIVE_TABLES="$(table_names "$DB_NAME")"
+RESTORED_TABLES="$(table_names "$RESTORE_DB")"
+if [[ -z "$CANONICAL_TABLES" ]]; then
+  echo "could not read the canonical schema from the $APP_SERVICE service" >&2
+  exit 1
+fi
+if [[ -z "$LIVE_TABLES" || -z "$RESTORED_TABLES" ]]; then
+  echo "could not list the tables of the restored or the live database" >&2
+  exit 1
+fi
+missing_from_restore() {
+  LC_ALL=C comm -23 <(printf '%s\n' "$1") <(printf '%s\n' "$RESTORED_TABLES") | tr '\n' ' '
+}
+MISSING_CANONICAL="$(missing_from_restore "$CANONICAL_TABLES")"
+if [[ -n "${MISSING_CANONICAL// /}" ]]; then
+  echo "restored backup is missing tables this build requires: ${MISSING_CANONICAL% }" >&2
+  exit 1
+fi
+MISSING="$(missing_from_restore "$LIVE_TABLES")"
+if [[ -n "${MISSING// /}" ]]; then
+  echo "restored backup is missing tables the live schema has: ${MISSING% }" >&2
   exit 1
 fi
 
