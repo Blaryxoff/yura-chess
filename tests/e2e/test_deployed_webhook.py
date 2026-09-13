@@ -65,7 +65,7 @@ async def test_deployed_public_entry_is_reachable(deployed: httpx.AsyncClient) -
         ("/robots.txt", "Sitemap: https://yurachess.ru/sitemap.xml"),
         ("/sitemap.xml", "<loc>https://yurachess.ru/commands</loc>"),
         ("/how-to-play", "Как играть в шахматы с Алисой голосом"),
-        ("/commands", "Голосовые команды шахмат в Алисе"),
+        ("/commands", "Голосовые команды для шахмат с Алисой"),
         ("/coach", "Шахматный тренер голосом"),
         ("/puzzles", "Шахматные задачи голосом"),
         ("/accessibility", "Шахматы для незрячих голосом"),
