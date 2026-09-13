@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     board_image_cleanup_batch_size: int = Field(default=50, ge=1)
     board_image_cleanup_grace_seconds: int = Field(default=300, ge=0)
     board_image_quota_stop_ratio: float = Field(default=0.8, gt=0.0, lt=1.0)
-    asr_transcript_retention_days: int = Field(default=30, ge=1)
+    asr_transcript_retention_days: int = Field(default=30, ge=1, le=30)
     asr_transcript_text_limit: int = Field(default=255, ge=16, le=255)
     request_replay_retention_days: int = Field(default=7, ge=1)
     test_game_retention_days: int = Field(default=7, ge=1)

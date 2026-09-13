@@ -59,11 +59,21 @@ echo "==> dumping $DB_NAME"
 # Passed by name, not as `--env NAME=value`: the value is read from this one
 # command's environment instead of appearing in the host process list. Scoped to
 # the command rather than exported, so `aws` and the alert hook never see it.
-MYSQL_PWD="$DB_PASSWORD" docker compose --project-name "$PROJECT" --file "$COMPOSE_FILE" exec -T \
-  --env MYSQL_PWD "$DB_SERVICE" \
-  mariadb-dump --user="$DB_USER" --single-transaction --quick \
-    --routines --events --default-character-set=utf8mb4 "$DB_NAME" \
-  | gzip -9 >"$ARCHIVE.partial"
+dump() {
+  MYSQL_PWD="$DB_PASSWORD" docker compose --project-name "$PROJECT" --file "$COMPOSE_FILE" exec -T \
+    --env MYSQL_PWD "$DB_SERVICE" \
+    mariadb-dump --user="$DB_USER" --single-transaction --quick \
+      --default-character-set=utf8mb4 "$@" </dev/null
+}
+
+# The site promises recognised command text lives at most
+# asr_transcript_retention_days; rows inside a dump would outlive that promise by
+# the backup retention. Schema only, so a restore still has the table.
+TRANSCRIPT_TABLE=asr_transcripts
+{
+  dump --routines --events --ignore-table="$DB_NAME.$TRANSCRIPT_TABLE" "$DB_NAME"
+  dump --no-data "$DB_NAME" "$TRANSCRIPT_TABLE"
+} | gzip -9 >"$ARCHIVE.partial"
 
 # Rename only after a complete dump, so a truncated file is never mistaken for a backup.
 mv "$ARCHIVE.partial" "$ARCHIVE"
