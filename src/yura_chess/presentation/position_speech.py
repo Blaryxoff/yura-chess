@@ -74,11 +74,17 @@ WHOLE_BOARD_ONLY = re.compile(rf"^(?:{WHOLE_BOARD_REQUEST.pattern})$")
 _SLOWLY = re.compile(r"медленн|по буквам|по слогам|повтори координат")
 # Public like `RANK_LINE`: a phrase the router sends here but the reader misses reads the whole board.
 LAST_MOVE = re.compile(
-    r"последн(ий|его) ход|как (ты|я) (походил\w*|пошел|пошла|пошли)|"
+    r"последн(ий|его) ход|(?:прошл\w*|предыдущ\w*) ход|"
+    r"как (ты|я) (походил\w*|пошел|пошла|пошли)|"
+    r"как (?:вы )+(?:походил\w*|сходил\w*)|как (?:походил\w*|сходил\w*) (?:белые|черные)|"
     r"какой (ты )?ход (сделал|сделала|сыграл|сыграла)|"
-    r"^(повтори[тл]?|напомни) ход$|(повтори|напомни)(?: еще раз)? (свой|последний свой|предыдущий свой) ход|"
-    r"твой последний ход"
+    r"какой твой ход был последн\w*|"
+    r"^(?:ну ка )?(?:повтори(?:ть|т|л)?|напомни|назови)(?: еще раз)? (?:свой ход|ход свой|ход)$|"
+    r"(?:повтори|напомни|назови)(?: еще раз)? (?:последний свой|предыдущий свой|предыдущий) ход|"
+    r"^еще раз назови ход$|твой последний ход"
 )
+MULTIPLE_MOVES = re.compile(r"^(?:повтори(?:ть|т|л)?|напомни|назови)(?: еще раз)? (?:последние |предыдущие )?ходы$")
+MATE_STATUS = re.compile(r"^(?:(?:я )?спрашиваю )?(?:(?:есть ли|на доске) )?(?:шах и )?мат(?: сейчас)?$")
 _NUMBER_WORDS = {
     "один": 1,
     "два": 2,
@@ -239,11 +245,13 @@ class PositionQuery(StrEnum):
     RANK = "rank"
     SLOW_SQUARE = "slow_square"
     LAST_MOVE = "last_move"
+    MOVE_SCOPE = "move_scope"
     HISTORY = "history"
     # A ply named by its number from the start, as opposed to `HISTORY`'s countback.
     NUMBERED_MOVE = "numbered_move"
     TURN = "turn"
     CHECK = "check"
+    MATE = "mate"
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,6 +298,11 @@ def answer_position_query(
             else describe_numbered_move(board, index, colour)
         )
         return PositionAnswer(PositionQuery.NUMBERED_MOVE, speech)
+    if MULTIPLE_MOVES.search(normalized.text):
+        return PositionAnswer(
+            PositionQuery.MOVE_SCOPE,
+            Speech.of("Уточните: повторить последний ход или продиктовать всю партию?"),
+        )
     if LAST_MOVE.search(normalized.text):
         if colour is not None:
             return PositionAnswer(PositionQuery.HISTORY, describe_historical_move(board, 1, colour))
@@ -302,6 +315,14 @@ def answer_position_query(
             return PositionAnswer(PositionQuery.CHECK, Speech.of("Сейчас шаха нет."))
         side = "белому" if board.turn == chess.WHITE else "черному"
         return PositionAnswer(PositionQuery.CHECK, Speech.of(f"Шах {side} королю."))
+    if MATE_STATUS.search(normalized.text):
+        if board.is_checkmate():
+            return PositionAnswer(PositionQuery.MATE, Speech.of("Да, на доске мат."))
+        if board.is_stalemate():
+            return PositionAnswer(PositionQuery.MATE, Speech.of("Мата нет. На доске пат."))
+        if board.is_check():
+            return PositionAnswer(PositionQuery.MATE, Speech.of("Мата нет. Сейчас шах."))
+        return PositionAnswer(PositionQuery.MATE, Speech.of("Сейчас мата нет."))
     if _SLOWLY.search(normalized.text):
         spelled = square or _last_named_square(board)
         if spelled is None:

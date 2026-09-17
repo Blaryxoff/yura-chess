@@ -406,17 +406,34 @@ async def test_a_declined_exit_keeps_the_skill_and_the_game_open(
     assert moved.turn is not None and moved.turn.player_move == "e2e4"
 
 
-async def test_a_bare_stop_word_still_leaves_without_a_question(
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "выход",
+        "выйди",
+        "выйди оттуда",
+        "алиса выйди",
+        "алиса выйди из этого навыка",
+        "алиса выйди с шахмат",
+        "выйди из режима",
+        "выйди из режима игры",
+    ],
+)
+async def test_a_direct_exit_still_leaves_without_a_question(
+    utterance: str,
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
 ) -> None:
-    """Alice requires «выход» and «стоп» to close the skill on the spot."""
     conversation = subject(session_factory, offline_settings)
     started = await conversation.handle(OWNER, "новая игра", context(1))
-    exited = await conversation.handle(OWNER, "выход", context(2), started.state)
+    exited = await conversation.handle(OWNER, utterance, context(2), started.state)
 
     assert exited.end_session is True
     assert exited.speech.text.startswith("До свидания.")
+    with session_scope(session_factory) as session:
+        unchanged = GameRepository(session).load(started.state.game_id or "", OWNER)
+    assert unchanged.status is GameStatus.ACTIVE
+    assert unchanged.moves == ()
 
 
 async def test_your_turn_and_repeat_your_move_answer_from_canonical_state(
@@ -435,6 +452,28 @@ async def test_your_turn_and_repeat_your_move_answer_from_canonical_state(
 
     assert "e7" in repeated.speech.text and "e5" in repeated.speech.text
     assert "Ваш ход" in prompted.speech.text
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).load(game.id, OWNER).moves == ("e2e4", "e7e5")
+
+
+async def test_plural_move_repeat_request_clarifies_without_mutating_history(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        game = repository.create_game(OWNER, PlayerColor.WHITE)
+        game = repository.append_moves(game.id, OWNER, game.revision, ("e2e4", "e7e5"))
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(
+        OWNER,
+        "повтори ходы",
+        context(1),
+        ConversationState(game.id, game.revision),
+    )
+
+    assert reply.speech.text == "Уточните: повторить последний ход или продиктовать всю партию?"
     with session_scope(session_factory) as session:
         assert GameRepository(session).load(game.id, OWNER).moves == ("e2e4", "e7e5")
 
@@ -1457,7 +1496,18 @@ async def test_natural_capability_questions_open_the_help_menu(
     assert reply.state.game_id is None
 
 
-@pytest.mark.parametrize("utterance", ["давай сыграем", "хочу играть"])
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "давай сыграем",
+        "хочу играть",
+        "можно поиграть в шахматы с тобой",
+        "давай с тобой в шахматы играть",
+        "ну в шахматы будем играть давайте играть в шахматы",
+        "алиса давай лучше в шахматы сыграем",
+        "алиса играть в шахматы",
+    ],
+)
 async def test_natural_start_phrases_begin_a_game(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
@@ -2306,6 +2356,33 @@ async def test_the_plain_check_question_still_reads_the_position(
     assert reply.speech.text == "Сейчас шаха нет."
 
 
+async def test_mate_check_is_read_only_replay_safe_and_requires_a_game(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    without_game = await conversation.handle(OWNER, "мат", context(1))
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).create_game(
+            OWNER,
+            PlayerColor.WHITE,
+            initial_fen="7k/6Q1/6K1/8/8/8/8/8 b - - 0 1",
+        )
+    state = ConversationState(game.id, game.revision)
+    request = context(2)
+
+    first = await conversation.handle(OWNER, "шах и мат", request, state)
+    replayed = await conversation.handle(OWNER, "шах и мат", request, state)
+
+    assert without_game.speech.text == "Партии сейчас нет. Скажите «новая игра»."
+    assert first.speech.text == "Да, на доске мат."
+    assert replayed.speech == first.speech
+    with session_scope(session_factory) as session:
+        unchanged = GameRepository(session).load(game.id, OWNER)
+    assert unchanged.moves == ()
+    assert unchanged.revision == game.revision
+
+
 async def _finished_game(
     conversation: ConversationService,
     opening: str,
@@ -2332,17 +2409,28 @@ async def test_the_new_game_offered_when_the_game_ends_starts_without_another_qu
     assert started.state.game_id != finished.game_id
 
 
+@pytest.mark.parametrize("utterance", ["новая игра", "можно поиграть в шахматы с тобой"])
 async def test_a_new_game_while_one_is_running_still_asks_to_end_it(
+    utterance: str,
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
 ) -> None:
     conversation = subject(session_factory, offline_settings)
     running = await conversation.handle(OWNER, "новая игра", context(1))
+    request = context(2)
 
-    asked = await conversation.handle(OWNER, "новая игра", context(2), running.state)
+    asked = await conversation.handle(OWNER, utterance, request, running.state)
+    replayed = await conversation.handle(OWNER, utterance, request, running.state)
 
     assert asked.speech.text == "Начать новую партию и закончить текущую? Скажите «да» или «нет»."
+    assert replayed.speech == asked.speech
     assert asked.state.game_id == running.state.game_id
+    with session_scope(session_factory) as session:
+        unchanged = GameRepository(session).load(running.state.game_id or "", OWNER)
+        games_count = session.scalar(select(func.count()).select_from(GameRow).where(GameRow.owner_key == OWNER))
+    assert unchanged.status is GameStatus.ACTIVE
+    assert unchanged.moves == ()
+    assert games_count == 1
 
 
 async def test_settings_command_is_stored_and_never_played_as_a_move(

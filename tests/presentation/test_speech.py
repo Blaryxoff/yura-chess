@@ -311,6 +311,61 @@ def test_asking_how_the_opponent_moved_reads_the_move_and_not_the_board(utteranc
     assert answer.speech.text == "Последний ход: пешка e2 e4."
 
 
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "а как вы сходили",
+        "как вы как вы сходили",
+        "как сходили черные",
+        "а какой был прошлый ход",
+        "алиса повтори предыдущий ход",
+        "какой твой ход был последний",
+        "назови предыдущий ход",
+        "ну ка повтори ход",
+        "повтори ход свой",
+        "повторить свой ход",
+        "еще раз назови ход",
+    ],
+)
+def test_captured_last_move_requests_read_canonical_history(utterance: str) -> None:
+    board = chess.Board()
+    board.push_uci("e2e4")
+    board.push_uci("e7e5")
+    before = board.fen()
+
+    answer = answer_position_query(utterance, board)
+
+    assert answer.query in {PositionQuery.LAST_MOVE, PositionQuery.HISTORY}
+    assert "e7 e5" in answer.speech.text
+    assert board.fen() == before
+
+
+def test_plural_move_repeat_request_asks_for_scope() -> None:
+    answer = answer_position_query("повтори ходы", chess.Board())
+
+    assert answer.query is PositionQuery.MOVE_SCOPE
+    assert answer.speech.text == "Уточните: повторить последний ход или продиктовать всю партию?"
+
+
+def test_mate_statement_checks_the_position_without_changing_it() -> None:
+    mate = chess.Board("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1")
+    checked = chess.Board("4k3/8/8/8/8/8/4R3/4K3 b - - 0 1")
+    stalemate = chess.Board("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1")
+    positions = {
+        "шах и мат": (mate, "Да, на доске мат."),
+        "мат": (checked, "Мата нет. Сейчас шах."),
+        "на доске мат": (stalemate, "Мата нет. На доске пат."),
+        "я спрашиваю на доске мат": (chess.Board(), "Сейчас мата нет."),
+    }
+
+    for utterance, (board, expected) in positions.items():
+        before = board.fen()
+        answer = answer_position_query(utterance, board)
+        assert answer.query is PositionQuery.MATE
+        assert answer.speech.text == expected
+        assert board.fen() == before
+
+
 def test_last_move_turn_and_check_can_be_asked_by_voice() -> None:
     board = chess.Board()
     no_move = answer_position_query("какой последний ход", board)

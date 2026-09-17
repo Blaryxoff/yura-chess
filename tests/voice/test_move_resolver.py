@@ -431,6 +431,76 @@ def test_leaving_is_commanded_outright_or_asked_about(utterance: str, expected: 
 
 
 @pytest.mark.parametrize(
+    "utterance",
+    [
+        "можно поиграть в шахматы с тобой",
+        "давай с тобой в шахматы играть",
+        "ну в шахматы будем играть давайте играть в шахматы",
+        "алиса давай лучше в шахматы сыграем",
+        "алиса играть в шахматы",
+    ],
+)
+def test_captured_proposals_to_play_chess_start_a_game(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.START
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "выйди",
+        "выйди оттуда",
+        "алиса выйди",
+        "алиса выйди из этого навыка",
+        "алиса выйди с шахмат",
+        "выйди из режима",
+        "выйди из режима игры",
+    ],
+)
+def test_captured_direct_exit_imperatives_close_the_skill(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.EXIT
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "шах и мат",
+        "мат",
+        "на доске мат",
+        "я спрашиваю на доске мат",
+        "а как вы сходили",
+        "как вы как вы сходили",
+        "как сходили черные",
+        "а какой был прошлый ход",
+        "алиса повтори предыдущий ход",
+        "какой твой ход был последний",
+        "назови предыдущий ход",
+        "ну ка повтори ход",
+        "повтори ход свой",
+        "повторить свой ход",
+        "еще раз назови ход",
+        "повтори ходы",
+    ],
+)
+def test_captured_read_only_position_requests_are_routed(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.POSITION_QUERY
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "не давай играть в шахматы",
+        "давай дальше играть в шахматы",
+        "давай поиграем в прятки",
+        "как выйти из шаха",
+        "не выходи из навыка",
+        "мат по последней горизонтали",
+    ],
+)
+def test_new_routing_does_not_capture_negations_continuations_or_other_intents(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind not in {CommandKind.START, CommandKind.EXIT, CommandKind.POSITION_QUERY}
+
+
+@pytest.mark.parametrize(
     ("utterance", "expected"),
     [
         ("убери навык", CommandKind.EXIT),
@@ -2041,7 +2111,7 @@ def test_a_puzzle_is_asked_for_in_more_than_one_way(utterance: str, theme: str |
 @pytest.mark.parametrize(
     ("utterance", "kind"),
     [
-        ("мат", CommandKind.UNKNOWN),
+        ("мат", CommandKind.POSITION_QUERY),
         ("какая тактика лучше", CommandKind.UNKNOWN),
         ("тебе мат в 3 хода", CommandKind.CLARIFY),
         ("мат в три хода", CommandKind.CLARIFY),

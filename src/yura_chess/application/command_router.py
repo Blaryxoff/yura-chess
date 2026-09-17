@@ -23,7 +23,14 @@ from yura_chess.domain.preferences import (
 )
 from yura_chess.presentation import game_facts
 from yura_chess.presentation.help_speech import is_rules_request
-from yura_chess.presentation.position_speech import LAST_MOVE, NUMBERED_MOVE, RANK_LINE, WHOLE_BOARD_ONLY
+from yura_chess.presentation.position_speech import (
+    LAST_MOVE,
+    MATE_STATUS,
+    MULTIPLE_MOVES,
+    NUMBERED_MOVE,
+    RANK_LINE,
+    WHOLE_BOARD_ONLY,
+)
 from yura_chess.voice.illegal_move import Explanation, IllegalReason, explain
 from yura_chess.voice.move_resolver import promotion_choice, recognize, resolve
 from yura_chess.voice.normalizer import MAX_UTTERANCE_LENGTH, normalize
@@ -706,8 +713,13 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
     (
         CommandKind.START,
         re.compile(
-            r"начать игру|начн?ем игру|давай (?:по)?играем(?: в шахматы)?|"
-            r"давай играть|давай сыграем|^хочу играть$|старт"
+            r"начать игру|начн?ем игру|^давай (?:по)?играем(?: в (?:шахматы|другую партию))?$|"
+            r"^давай играть(?: в (?:шахматы|[а-я0-9]+ уровень))?$|"
+            r"^давай сыграем(?: в (?:шахматы|другую игру))?$|^хочу играть$|старт|"
+            r"^(?:играть в шахматы|можно (?:мне )?поиграть в шахматы с тобой)$|"
+            r"^давай (?:лучше )?с тобой в шахматы (?:играть|сыграем|поиграем)$|"
+            r"^давай (?:лучше )?в шахматы (?:с тобой )?(?:играть|сыграем|поиграем)$|"
+            r"^(?:ну )?в шахматы будем играть давайте играть в шахматы$"
         ),
     ),
     (
@@ -722,6 +734,8 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         CommandKind.EXIT,
         re.compile(
             r"^(?:алиса )?(выход|выйти|стоп|выключи|замолчи)$|выключись|"
+            r"^(?:алиса )?выйди(?: оттуда(?: из шахмат\w*)?| с шахмат\w*|"
+            r" из (?:этого )?(?:навыка|режима(?: игры)?|шахмат\w*))?$|"
             r"^(?:алиса |юра )?отключи(?:сь|ться)(?: |$)|"
             # A noun, never an adjective: «выключи шахматного тренера» is a trainer command.
             r"(?:выключ|отключ|выруб|убер)\w*(?:\s+\w+){0,3}\s+"
@@ -786,7 +800,7 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"(?:кто|что) (?:стоит|находится) на\b|"
             rf"{NUMBERED_MOVE.pattern}|"
             r"чей ход|кто ходит|кому ходить|моя очередь|есть ли шах|кто под шахом|шах сейчас|"
-            rf"{LAST_MOVE.pattern}|"
+            rf"{LAST_MOVE.pattern}|{MULTIPLE_MOVES.pattern}|{MATE_STATUS.pattern}|"
             r"ход(а|ов)? назад|раз(а)? назад|повтори координат|"
             r"что (сделали|делали) (белые|черные)|назови еще раз (свой|последний) ход|"
             r"^(дальше|далее)$"
@@ -865,8 +879,9 @@ _END_GAME_DEFINITION = re.compile(r"\bчто (?:значит|такое)\b")
 # «не выключай шахматы» keeps the session, and so does «не говори до свидания».
 # Read off the whole utterance: a refusal anywhere in it outranks the request.
 _LEAVING_NEGATED = re.compile(
-    r"\bне\s+(?:\w+\s+){0,3}(?:выключ|отключ|выруб|убир|убер|закрыв|закрой|законч|заверш|говор|прибав|убав|мен[яю]|выйти|выход|надоел|постопить|прекрати)\w*"
+    r"\bне\s+(?:\w+\s+){0,3}(?:выключ|отключ|выруб|убир|убер|закрыв|закрой|законч|заверш|говор|прибав|убав|мен[яю]|выйд|выйти|выход|надоел|постопить|прекрати)\w*"
 )
+_START_NEGATED = re.compile(r"\bне\s+(?:\w+\s+){0,3}(?:игра|сыгра|поигра|начина)\w*")
 _SURRENDER_SPOKEN = re.compile(_SURRENDER)
 # Only a wish stands between the refusal and the word it refuses: «я не проиграл, но сдаюсь» resigns.
 _SURRENDER_REFUSED = re.compile(r"\bне\s+(?:(?:хочу|хочется|хотел\w*|надо|нужн\w*|буд(?:у|ем))\s+)?$")
@@ -1311,6 +1326,8 @@ def _route_once(
 
     for kind, pattern in _CONTROL_PATTERNS:
         if pattern.search(normalized.text):
+            if kind is CommandKind.START and _START_NEGATED.search(normalized.text):
+                continue
             if kind is CommandKind.POSITION_QUERY and _RULES_FRAME.search(normalized.text):
                 # «может ли пешка превратиться на восьмой горизонтали» names a
                 # rank and «как сделать первый ход» a move number, but both ask
