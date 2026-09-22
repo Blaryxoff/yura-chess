@@ -217,7 +217,7 @@ def test_landing_snippet_uses_the_intent_aligned_description_everywhere(
 ) -> None:
     description = (
         "Играйте в шахматы с Алисой бесплатно и без экрана. Скажите: «Алиса, запусти навык "
-        "Шахматы с Юрой» — 20 уровней, тренер и задачи."
+        "Шахматы с Юрой» — уровни сложности от 0 до 20, тренер и задачи."
     )
     monkeypatch.setattr(
         "yura_chess.main.UsageRepository.dashboard",
