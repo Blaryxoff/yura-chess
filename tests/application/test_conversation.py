@@ -34,7 +34,7 @@ from yura_chess.domain.results import GameEnd, GameOutcome, TurnResult, TurnStat
 from yura_chess.presentation.board_image import position_hash
 from yura_chess.presentation.help_speech import SECTIONS, HelpState, HelpTopic
 from yura_chess.presentation.move_speech import PAUSE_MARKUP, SoundEvent, Speech
-from yura_chess.presentation.response_composer import BoardCard
+from yura_chess.presentation.response_composer import BoardCard, compose_board_card
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
@@ -1764,8 +1764,32 @@ async def test_asking_to_enlarge_the_board_reads_the_position_instead(
 
     assert reply.speech.text.startswith("На весь экран переключить не могу. Читаю доску.")
     assert len(reply.speech.text) > len("На весь экран переключить не могу. Читаю доску.")
-    assert reply.card is None
+    assert isinstance(reply.card, BoardCard)
     assert reply.state.game_id == started.state.game_id
+
+
+@pytest.mark.parametrize("utterance", ["доску покажи", "какой ход", "увеличь доску", "можно играть не голосом"])
+async def test_asking_about_the_board_redraws_the_picture_the_last_move_left(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    moved = await conversation.handle(OWNER, "пешка е два е четыре", context(2), started.state)
+    assert moved.turn is not None
+    drawn_after_move = compose_board_card(moved.turn, has_screen=True)
+    assert drawn_after_move is not None
+
+    reply = await conversation.handle(OWNER, utterance, context(3), moved.state)
+
+    assert isinstance(reply.card, BoardCard)
+    assert reply.card.position_hash == drawn_after_move.position_hash
+    assert reply.card.title == "Ваш ход"
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).load(moved.state.game_id or "", OWNER)
+        assert game is not None
+        assert game.moves == ("e2e4", moved.turn.engine_move)
 
 
 async def test_asking_to_play_by_tapping_names_the_spoken_move_instead(

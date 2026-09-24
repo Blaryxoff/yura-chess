@@ -107,13 +107,25 @@ def compose_board_card(
     """
     if not has_screen:
         return None
-    board = chess.Board(result.fen)
-    last_move = result.engine_move or result.player_move
-    drawn_from = orientation or result.player_color
-    return BoardCard(
-        position_hash=position_hash(board, drawn_from, last_move),
-        render=partial(render_png, board, drawn_from, last_move),
-        title="Ваш ход" if board.turn == _chess_color(result.player_color) else "Мой ход",
+    return compose_game_card(
+        chess.Board(result.fen),
+        result.player_color,
+        orientation,
+        result.engine_move or result.player_move,
+    )
+
+
+def compose_game_card(
+    board: chess.Board,
+    player_color: PlayerColor,
+    orientation: PlayerColor | None,
+    last_move_uci: str | None,
+) -> BoardCard:
+    return compose_position_card(
+        board,
+        orientation or player_color,
+        last_move_uci,
+        "Ваш ход" if board.turn == _chess_color(player_color) else "Мой ход",
     )
 
 

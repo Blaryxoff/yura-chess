@@ -72,6 +72,7 @@ from yura_chess.presentation.position_speech import answer_position_query, descr
 from yura_chess.presentation.response_composer import (
     BoardCard,
     TextCard,
+    compose_game_card,
     compose_help_card,
     compose_pgn_card,
     compose_position_card,
@@ -815,10 +816,15 @@ class ConversationService:
 
         if routed.kind is CommandKind.SCREEN and routed.screen is not None:
             if routed.screen.wish is ScreenWish.TAP:
-                playable = game is not None and game.status is GameStatus.ACTIVE
+                if game is None or board is None or game.status is not GameStatus.ACTIVE:
+                    return ConversationReply(
+                        Speech.of(_SCREEN_TAP_NO_GAME),
+                        self._with_game(next_state, game) if game is not None else next_state,
+                    )
                 return ConversationReply(
-                    Speech.of(_SCREEN_TAP_ANSWER if playable else _SCREEN_TAP_NO_GAME),
-                    self._with_game(next_state, game) if game is not None else next_state,
+                    Speech.of(_SCREEN_TAP_ANSWER),
+                    self._with_game(next_state, game),
+                    card=self._game_card(game, board, preferences),
                 )
             if board is None or game is None:
                 return ConversationReply(Speech.of(_SCREEN_BIGGER_NO_GAME), next_state)
@@ -826,6 +832,7 @@ class ConversationService:
             return ConversationReply(
                 Speech.of(f"{_SCREEN_BIGGER_ANSWER} {read.speech.text}"),
                 replace(self._with_game(next_state, game), position_page=read.page),
+                card=self._game_card(game, board, preferences),
             )
 
         if routed.kind is CommandKind.WHY:
@@ -915,6 +922,7 @@ class ConversationService:
             return ConversationReply(
                 answer.speech,
                 replace(self._with_game(next_state, game), position_page=answer.page),
+                card=self._game_card(game, board, preferences),
             )
         if game.pending_engine_turn is not None and routed.normalized.has_move_tokens:
             result = await self._games.continue_game(owner_key, game.id, request)
@@ -1407,6 +1415,15 @@ class ConversationService:
             answer.speech,
             self._with_game(help_state, game) if game is not None else help_state,
             card=compose_help_card() if answer.state is not None else None,
+        )
+
+    @staticmethod
+    def _game_card(game: GameState, board: chess.Board, preferences: PlayerPreferences) -> BoardCard:
+        return compose_game_card(
+            board,
+            game.player_color,
+            preferences.orientation_for(game.player_color),
+            game.moves[-1] if game.moves else None,
         )
 
     @staticmethod
