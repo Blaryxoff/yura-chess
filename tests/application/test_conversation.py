@@ -556,13 +556,15 @@ async def test_a_bare_no_with_nothing_pending_gets_the_same_answer(
     assert reply.speech.text == "Сейчас нечего подтверждать. Назовите ход или попросите помощь."
 
 
+@pytest.mark.parametrize("utterance", ["hot", "кот"])
 async def test_the_hot_alias_for_hod_is_recorded_as_ambiguous_turn_not_unmatched(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
+    utterance: str,
 ) -> None:
     conversation = subject(session_factory, offline_settings)
     started = await conversation.handle(OWNER, "", context(1))
-    reply = await conversation.handle(OWNER, "hot", context(2), started.state)
+    reply = await conversation.handle(OWNER, utterance, context(2), started.state)
     key = request_key("shell", "conversation", "2")
 
     assert reply.speech.text == "Ваш ход. Назовите фигуру и поле назначения."

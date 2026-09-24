@@ -553,6 +553,29 @@ def test_new_routing_does_not_capture_negations_continuations_or_other_intents(u
         ("hot hot", CommandKind.AMBIGUOUS_TURN),
         ("алиса hot", CommandKind.AMBIGUOUS_TURN),
         ("hot алиса", CommandKind.AMBIGUOUS_TURN),
+        ("кот", CommandKind.AMBIGUOUS_TURN),
+        ("какой ход", CommandKind.POSITION_QUERY),
+        ("алиса какой ход", CommandKind.POSITION_QUERY),
+        ("какой ход ты сделал", CommandKind.POSITION_QUERY),
+        ("ты какой ход последний сделала", CommandKind.POSITION_QUERY),
+        ("доску покажи", CommandKind.POSITION_QUERY),
+        ("покажите доску", CommandKind.POSITION_QUERY),
+        ("отобрази доску", CommandKind.POSITION_QUERY),
+        ("так открой доску я не вижу фигур", CommandKind.POSITION_QUERY),
+        ("доску шахматную на экран выведи", CommandKind.POSITION_QUERY),
+        ("давай шахматную доску", CommandKind.POSITION_QUERY),
+        ("мне надо доску увидеть", CommandKind.POSITION_QUERY),
+        ("можешь описать доску", CommandKind.POSITION_QUERY),
+        ("озвучь положение фигур на доске", CommandKind.POSITION_QUERY),
+        ("покажи фото доски", CommandKind.POSITION_QUERY),
+        ("не отображается доска", CommandKind.POSITION_QUERY),
+        ("доску увеличь пожалуйста на экране", CommandKind.SCREEN),
+        ("сделай шахматную доску побольше", CommandKind.SCREEN),
+        ("сделать побольше шахматную доску", CommandKind.SCREEN),
+        ("а можешь шахматную доску сделать покрупнее", CommandKind.SCREEN),
+        ("прошу помощь чтоб шахматная доска была больше", CommandKind.SCREEN),
+        ("доску на большой экран выведи пожалуйста", CommandKind.SCREEN),
+        ("доску не вижу", CommandKind.SCREEN),
         ("почему", CommandKind.WHY),
         ("не знаю", CommandKind.DONT_KNOW),
         ("что мне делать", CommandKind.HELP),
@@ -568,8 +591,26 @@ def test_unrelated_continue_phrase_is_not_a_chess_command() -> None:
     assert route("алиса продолжай трек", chess.Board()).kind is CommandKind.UNKNOWN
 
 
-@pytest.mark.parametrize("utterance", ["а hot hot", "wash hot", "hot нужен"])
+@pytest.mark.parametrize(
+    "utterance", ["а hot hot", "wash hot", "hot нужен", "ешкин кот", "наш кот", "здравствуйте я ваш кот"]
+)
 def test_a_near_miss_of_the_hot_alias_is_not_routed(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.UNKNOWN
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "убери шахматную доску играть не будем",
+        "а мы не нашли доску еще давай завтра попозже",
+        "замени доску",
+        "доска",
+        "а ты можешь подождать пока я открою доску",
+        "в шахматы сыграю если доска будет нормальная",
+        "на доске было больше пешек",
+    ],
+)
+def test_talk_about_the_physical_board_neither_reads_nor_resizes_it(utterance: str) -> None:
     assert route(utterance, chess.Board()).kind is CommandKind.UNKNOWN
 
 
@@ -2229,6 +2270,62 @@ def test_the_surname_konev_is_never_read_as_a_move(utterance: str) -> None:
 
     assert routed.move is None
     assert normalize(utterance).signature == ()
+
+
+_ITALIAN = "r1bqk1nr/pppp1ppp/2n5/2b1p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 4 4"
+_QUIET_QUEEN_PAWN = "rnbqkb1r/pppp1ppp/5n2/4p3/4P3/3P4/PPP2PPP/RNBQKBNR w KQkq - 1 3"
+_BARE_KINGS = "4k3/8/8/8/8/8/8/4K3 w - - 0 1"
+
+
+@pytest.mark.parametrize(
+    ("fen", "utterance", "expected"),
+    [
+        (_ITALIAN, "солнце 4", "f1c4"),
+        (_ITALIAN, "алиса солнце 4", "f1c4"),
+        (_QUIET_QUEEN_PAWN, "солнце 1 на f 4", "c1f4"),
+        (_QUIET_QUEEN_PAWN, "солнце 1 идет на поле ф 4", "c1f4"),
+        (_QUIET_QUEEN_PAWN, "солнце 1 д 2", "c1d2"),
+        (_BARE_KINGS, "король лев 1", "e1f1"),
+        (_BARE_KINGS, "король лев 2", "e1f2"),
+        (_BARE_KINGS, "король король лев 2", "e1f2"),
+    ],
+)
+def test_a_bishop_or_king_glued_to_its_file_is_resolved_against_the_board(
+    fen: str, utterance: str, expected: str
+) -> None:
+    routed = route(utterance, chess.Board(fen))
+
+    assert routed.kind is CommandKind.MOVE
+    assert routed.move == expected
+
+
+def test_korol_lev_is_the_f_file_even_where_the_e_file_is_also_legal() -> None:
+    board = chess.Board(_BARE_KINGS)
+
+    assert board.is_legal(chess.Move.from_uci("e1e2"))
+    assert route("король лев 2", board).move == "e1f2"
+
+
+@pytest.mark.parametrize(("fen", "utterance"), [(_BARE_KINGS, "король лев 5"), (_ITALIAN, "солнце 6")])
+def test_a_glued_bishop_or_king_on_an_unreachable_square_is_not_played(fen: str, utterance: str) -> None:
+    routed = route(utterance, chess.Board(fen))
+
+    assert routed.kind is not CommandKind.MOVE
+    assert routed.move is None
+
+
+@pytest.mark.parametrize("utterance", ["солнце", "солнце светит", "король лев", "мультфильм король лев", "лев 4"])
+def test_the_words_sun_and_lion_are_never_read_as_a_file_without_a_rank(utterance: str) -> None:
+    assert route(utterance, chess.Board(_BARE_KINGS)).move is None
+    assert TokenKind.FILE not in {token.kind for token in normalize(utterance).signature}
+
+
+def test_a_repeated_glued_bishop_never_plays_a_second_move() -> None:
+    board = chess.Board(_ITALIAN)
+    first = route("солнце 4", board)
+    board.push_uci(first.move or "")
+
+    assert route("солнце 4", board).move is None
 
 
 def test_a_repeated_glued_knight_never_plays_a_second_move() -> None:

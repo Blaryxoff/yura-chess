@@ -56,7 +56,8 @@ _PIECES: dict[str, str] = {
 # Yandex ASR writes the final /f/ of «конь эф» the way Russian spells that sound
 # at the end of a word, gluing the piece and the file into «конев». Only a rank
 # right after it makes the word a move; on its own it is a surname.
-_GLUED_PIECE_FILES: dict[str, tuple[str, str]] = {"конев": ("N", "f")}
+_GLUED_PIECE_FILES: dict[str, tuple[str, str]] = {"конев": ("N", "f"), "солнце": ("B", "c")}
+_FILES_HEARD_AFTER_PIECE: dict[tuple[str, str], str] = {("K", "лев"): "f"}
 
 _RANKS: dict[str, str] = {
     "1": "1",
@@ -280,6 +281,14 @@ def _tokenize(words: tuple[str, ...], lowered: str) -> tuple[Signature, tuple[st
             piece, file = _GLUED_PIECE_FILES[word]
             tokens.append(Token(TokenKind.PIECE, piece))
             tokens.append(Token(TokenKind.FILE, file))
+        elif (
+            index > 0
+            and words[index - 1] in _PIECES
+            and (_PIECES[words[index - 1]], word) in _FILES_HEARD_AFTER_PIECE
+            and index + 1 < len(words)
+            and words[index + 1] in _RANKS
+        ):
+            tokens.append(Token(TokenKind.FILE, _FILES_HEARD_AFTER_PIECE[_PIECES[words[index - 1]], word]))
         elif word in _RANKS:
             kind = TokenKind.DESTINATION_RANK if index in recovered else TokenKind.RANK
             tokens.append(Token(kind, _RANKS[word]))

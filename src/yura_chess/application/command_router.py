@@ -452,7 +452,7 @@ _CONVERSATION_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         ),
     ),
     # ASR devoices «ход»'s final /д/ and sometimes transliterates it as Latin.
-    (CommandKind.AMBIGUOUS_TURN, re.compile(r"^(?:ходы?|hot(?: hot)?)$")),
+    (CommandKind.AMBIGUOUS_TURN, re.compile(r"^(?:ходы?|hot(?: hot)?|кот)$")),
     # After the help table, which owns «как сделать ход»: that one asks how a move
     # is spoken, while «как ходить» asks either the rules or what to play here.
     (
@@ -646,11 +646,14 @@ def parse_level(text: str) -> LevelRequest | None:
 # Two different needs, and the skill grants neither: the card is drawn to Alice's
 # own shape, and a move can only be spoken.
 _SCREEN_CANNOT_SEE = re.compile(
-    r"увелич(?:ь|ьте|ить|им)\b\s+(?:\w+\s+)?(?:доск|картинк|экран)|"
+    r"увелич(?:ь|ьте|ить|им)\b(?:\s+\w+){0,2}\s+(?:доск|картинк|экран)|доск\w*\s+увелич|"
     r"(?:сделай|поставь)\s+(?:доску|картинку|экран)\s+больше|"
-    r"(?:больше|крупнее|побольше)\s+(?:доск|картинк|экран)|"
-    r"(?:на|во)\s+весь\s+экран|на полный экран|"
+    r"(?:больше|крупнее|побольше|покрупнее|пошире)\s+(?:\w+\s+)?(?:доск|картинк|экран)|"
+    r"доск\w*(?:\s+\w+){0,2}\s+(?:крупнее|побольше|покрупнее|пошире)\b|"
+    r"доск\w*(?:\s+\w+){0,2}\s+была?\s+больше\b|"
+    r"(?:на|во)\s+весь\s+экран|на полный экран|на больш\w+ экран|"
     r"(?:не вижу|плохо вижу|не видно|вижу плохо)\s+(?:\w+\s+)?(?:доск|картинк|экран|символ|букв[ыуаео]?\b)|"
+    r"доск\w*\s+не\s+(?:вижу|видно)|"
     r"^увелич\w*\s+(?:вижу плохо|плохо вижу)$|"
     r"маленьк\w+\s+(?:символ|букв|доск|картинк)"
 )
@@ -659,6 +662,13 @@ _SCREEN_WANTS_TO_TAP = re.compile(
     r"не голосовым|нажим\w*\s+на клетк"
 )
 _SCREEN_REQUEST = re.compile(f"{_SCREEN_CANNOT_SEE.pattern}|{_SCREEN_WANTS_TO_TAP.pattern}")
+_BOARD_SHOWING_VERB = r"(?:покажи|отобрази|открой|открывай|выв[ео]ди|опиши|описать|озвучь|увидеть|видеть)(?:те)?"
+_BOARD_SHOWN = re.compile(
+    rf"\b{_BOARD_SHOWING_VERB}(?:\s+\w+){{0,3}}\s+доск[уи]\b|"
+    rf"\bдоск[уи](?:\s+\w+){{0,3}}\s+{_BOARD_SHOWING_VERB}\b|"
+    r"^(?:давай|дай)\s+(?:шахматную\s+)?доску$|"
+    r"не\s+отобража\w+\s+(?:\w+\s+)?доск|положени\w+\s+фигур"
+)
 
 
 def parse_screen(text: str) -> ScreenRequest | None:
@@ -790,6 +800,7 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         CommandKind.POSITION_QUERY,
         re.compile(
             r"кака(я|ю) позици|позици(я|ю)|расстановк|\bгде\b|что на|покажи (?:мне\s+)?(?:\w+\s+)?(?:доску|поле)\b|"
+            rf"{_BOARD_SHOWN.pattern}|"
             r"какие (?:у меня )?фигуры|сколько фигур|прочитай|"
             rf"{WHOLE_BOARD_ONLY.pattern}|"
             # A rank only when one is named: «мат по последней горизонтали» is a

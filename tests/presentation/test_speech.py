@@ -325,6 +325,13 @@ def test_asking_how_the_opponent_moved_reads_the_move_and_not_the_board(utteranc
         "повтори ход свой",
         "повторить свой ход",
         "еще раз назови ход",
+        "какой ход",
+        "а какой ход",
+        "то какой ход",
+        "какой ход ты сделал",
+        "ты какой ход последний сделала",
+        "а какой ход последний ты сделал",
+        "какой ход ты только что говорил",
     ],
 )
 def test_captured_last_move_requests_read_canonical_history(utterance: str) -> None:
