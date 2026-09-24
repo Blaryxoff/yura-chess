@@ -20,7 +20,6 @@ from yura_chess.domain.game import EngineSettings, GameMode, GameState, GameStat
 from yura_chess.domain.review import ReviewSection
 from yura_chess.engine.stockfish import EngineSearchTimeoutError, EngineUnavailableError
 from yura_chess.presentation import pgn
-from yura_chess.presentation.response_composer import NEXT_STEP_PROMPT
 from yura_chess.settings import Settings
 from yura_chess.storage.analysis_repository import AnalysisRepository
 from yura_chess.storage.database import session_scope
@@ -584,7 +583,7 @@ async def test_the_summary_offered_when_the_game_ends_answers_the_next_utterance
     )
     summary = await conversation.handle(OWNER, "разбери партию", context(2), mated.state)
 
-    assert NEXT_STEP_PROMPT in mated.speech.text
+    assert "разобрать партию" in mated.speech.text
     assert "Вы выиграли." in summary.speech.text
 
 

@@ -26,7 +26,7 @@ from yura_chess.application.command_router import (
     route,
 )
 from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle, PauseStyle
-from yura_chess.presentation.response_composer import NEXT_STEP_PROMPT
+from yura_chess.presentation.response_composer import HARDER_REMATCH_COMMAND, NEXT_STEP_PROMPT
 from yura_chess.voice.move_resolver import recognize, resolve
 from yura_chess.voice.normalizer import normalize
 from yura_chess.voice.types import ResolutionStatus, TokenKind
@@ -2240,6 +2240,43 @@ def test_the_puzzle_commands_keep_their_own_question(utterance: str, question: P
 def test_every_phrase_the_game_over_prompt_names_is_a_command(utterance: str, kind: CommandKind) -> None:
     assert utterance in NEXT_STEP_PROMPT
     assert route(utterance, chess.Board()).kind is kind
+
+
+def test_the_harder_rematch_the_win_prompt_names_raises_the_level() -> None:
+    routed = route(HARDER_REMATCH_COMMAND, chess.Board())
+
+    assert routed.kind is CommandKind.REMATCH
+    assert routed.rematch is not None and routed.rematch.harder
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "мои результаты",
+        "мою статистику",
+        "статистика",
+        "покажи статистику",
+        "какие у меня результаты",
+        "сколько я выиграл",
+        "сколько раз я проиграла",
+        "сколько партий я у тебя выиграл",
+        "сколько у меня побед",
+        "сколько ничьих",
+        "какой у меня счет",
+        "наш счет",
+        "общий счет",
+    ],
+)
+def test_asking_for_the_players_record_is_routed_to_results(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is CommandKind.RESULTS
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["сколько я выиграл фигур", "сколько я проиграл фигур", "какой счет", "статистика матча вчера", "я выиграл"],
+)
+def test_material_and_unrelated_scores_are_not_the_players_record(utterance: str) -> None:
+    assert route(utterance, chess.Board()).kind is not CommandKind.RESULTS
 
 
 @pytest.mark.parametrize(

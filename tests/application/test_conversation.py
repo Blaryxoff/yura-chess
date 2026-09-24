@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import chess
 import pytest
 from sqlalchemy import func, select
@@ -22,13 +24,14 @@ from yura_chess.application.conversation import (
     ConversationState,
     _board_after_player,
     _engine_sound,
+    _harder_level,
     _player_move_echo,
     _player_sound,
 )
 from yura_chess.application.game_service import RequestContext
 from yura_chess.application.puzzle_service import PuzzleService
 from yura_chess.domain.analysis import MoveCandidate, PositionAnalysis, Score
-from yura_chess.domain.game import GameStatus, PlayerColor
+from yura_chess.domain.game import EngineSettings, GameState, GameStatus, PlayerColor
 from yura_chess.domain.preferences import BoardOrientation, DetailLevel, NotationStyle, PauseStyle
 from yura_chess.domain.results import GameEnd, GameOutcome, TurnResult, TurnStatus
 from yura_chess.presentation.board_image import position_hash
@@ -3225,3 +3228,107 @@ async def test_a_question_about_yura_without_a_game_offers_one(
 
     assert reply.speech.text == "Я здесь, слушаю вас. Скажите «новая игра», чтобы начать."
     assert reply.state.game_id is None
+
+
+def _won_by(winner: PlayerColor | None, player: PlayerColor = PlayerColor.WHITE) -> TurnResult:
+    return TurnResult(
+        game_id="finished-game",
+        revision=2,
+        fen=chess.STARTING_FEN,
+        moves=(),
+        player_color=player,
+        game_status=GameStatus.FINISHED,
+        status=TurnStatus.GAME_OVER,
+        outcome=GameOutcome(GameEnd.CHECKMATE, winner) if winner else GameOutcome(GameEnd.STALEMATE),
+    )
+
+
+def _game_at(level: int) -> GameState:
+    return GameState(
+        id="finished-game",
+        owner_key=OWNER,
+        status=GameStatus.FINISHED,
+        player_color=PlayerColor.WHITE,
+        initial_fen=chess.STARTING_FEN,
+        revision=2,
+        engine=EngineSettings(skill_level=level),
+        moves=(),
+        created_at=datetime(2026, 9, 25),
+        updated_at=datetime(2026, 9, 25),
+    )
+
+
+@pytest.mark.parametrize(
+    ("winner", "level", "offered"),
+    [
+        (PlayerColor.WHITE, 15, 17),
+        (PlayerColor.WHITE, 19, MAX_SKILL_LEVEL),
+        (PlayerColor.WHITE, MAX_SKILL_LEVEL, None),
+        (PlayerColor.BLACK, 5, None),
+        (None, 5, None),
+    ],
+)
+def test_only_a_win_below_the_top_level_offers_a_harder_rematch(
+    winner: PlayerColor | None, level: int, offered: int | None
+) -> None:
+    assert _harder_level(_won_by(winner), _game_at(level)) == offered
+
+
+_SCHOLARS_MATE = ("e2e4", "e7e5", "f1c4", "b8c6", "d1h5", "g8f6", "h5f7")
+_FOOLS_MATE = ("f2f3", "e7e5", "g2g4", "d8h4")
+_STALEMATE_FEN = "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"
+
+
+async def test_the_record_counts_only_games_played_out_to_mate_or_a_draw(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        seeded = [
+            (
+                repository.create_game(OWNER, PlayerColor.WHITE, EngineSettings(skill_level=7)),
+                _SCHOLARS_MATE,
+                GameStatus.FINISHED,
+            ),
+            (
+                repository.create_game(OWNER, PlayerColor.WHITE, EngineSettings(skill_level=3)),
+                _FOOLS_MATE,
+                GameStatus.FINISHED,
+            ),
+            (
+                repository.create_game(OWNER, PlayerColor.WHITE, EngineSettings(skill_level=12)),
+                _FOOLS_MATE[:2],
+                GameStatus.RESIGNED,
+            ),
+            (
+                repository.create_game(OWNER, PlayerColor.WHITE, EngineSettings(skill_level=20)),
+                ("e2e4",),
+                GameStatus.ACTIVE,
+            ),
+        ]
+        for game, moves, status in seeded:
+            repository.append_moves(game.id, OWNER, game.revision, moves, status=status)
+        drawn = repository.create_game(OWNER, PlayerColor.BLACK, initial_fen=_STALEMATE_FEN)
+        repository.append_moves(drawn.id, OWNER, drawn.revision, (), status=GameStatus.FINISHED)
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, "мои результаты", context(1))
+
+    assert reply.speech.text == (
+        "Я считаю только партии, которые закончились матом или ничьей. Всего партий: 3. "
+        "Побед: 1. Поражений: 1. Ничьих: 1. Самый высокий уровень, на котором вы выиграли: 7."
+    )
+    with session_scope(session_factory) as session:
+        assert len(GameRepository(session).find_played_out(OWNER)) == 3
+
+
+async def test_a_player_without_a_played_out_game_hears_what_is_counted(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+
+    reply = await conversation.handle(OWNER, "статистика", context(1))
+
+    assert reply.speech.text == "Я считаю только партии, которые закончились матом или ничьей. Таких партий пока нет."

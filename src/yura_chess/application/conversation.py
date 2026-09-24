@@ -52,7 +52,7 @@ from yura_chess.domain.preferences import (
     PauseStyle,
     PlayerPreferences,
 )
-from yura_chess.domain.results import GameEnd, TurnResult, TurnStatus
+from yura_chess.domain.results import GameEnd, PlayerRecord, TurnResult, TurnStatus
 from yura_chess.presentation import help_speech
 from yura_chess.presentation.commentary import comment_on
 from yura_chess.presentation.game_facts import answer_game_fact
@@ -533,6 +533,7 @@ class ConversationService:
             CommandKind.TRAINING,
             CommandKind.LEVEL_QUERY,
             CommandKind.LEVEL,
+            CommandKind.RESULTS,
             CommandKind.GAME_FACT,
             CommandKind.POSITION_QUERY,
             CommandKind.REPEAT_HEARD,
@@ -811,6 +812,12 @@ class ConversationService:
                     clarification_open=state.clarification is not None,
                     reviewing=state.reviewing,
                 ),
+                self._with_game(next_state, game) if game is not None else next_state,
+            )
+
+        if routed.kind is CommandKind.RESULTS:
+            return ConversationReply(
+                _record_speech(self._games.player_record(owner_key)),
                 self._with_game(next_state, game) if game is not None else next_state,
             )
 
@@ -1266,7 +1273,9 @@ class ConversationService:
         # echo announces is the player's own and needs the same guard.
         if echoed is not None and echoed.endswith(" Шах.") and commentary is not None and "шах" in commentary.lower():
             commentary = None
-        speech = compose_turn(result, board_before_engine, preferences.notation_style, commentary)
+        speech = compose_turn(
+            result, board_before_engine, preferences.notation_style, commentary, _harder_level(result, loaded)
+        )
         if (
             preferences.detail_level is DetailLevel.DETAILED
             and _player_to_move(result)
@@ -1578,6 +1587,28 @@ def _routing_outcome(kind: CommandKind) -> str:
     if kind is CommandKind.CLARIFY:
         return "clarification"
     return "handled"
+
+
+def _harder_level(result: TurnResult, game: GameState | None) -> int | None:
+    outcome = result.outcome
+    if game is None or outcome is None or outcome.winner is not result.player_color:
+        return None
+    if game.engine.skill_level >= MAX_SKILL_LEVEL:
+        return None
+    return min(MAX_SKILL_LEVEL, game.engine.skill_level + REMATCH_LEVEL_STEP)
+
+
+def _record_speech(record: PlayerRecord) -> Speech:
+    counted = "Я считаю только партии, которые закончились матом или ничьей."
+    if record.total == 0:
+        return Speech.of(f"{counted} Таких партий пока нет.")
+    text = (
+        f"{counted} Всего партий: {record.total}. "
+        f"Побед: {record.wins}. Поражений: {record.losses}. Ничьих: {record.draws}."
+    )
+    if record.strongest_win is not None:
+        text += f" Самый высокий уровень, на котором вы выиграли: {record.strongest_win}."
+    return Speech.of(text)
 
 
 def _conversational_reply(

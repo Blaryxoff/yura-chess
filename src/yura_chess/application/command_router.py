@@ -47,6 +47,8 @@ class CommandKind(StrEnum):
     CLAIM_DRAW = "claim_draw"
     UNDO = "undo"
     LEVEL_QUERY = "level_query"
+    # The player's record over games played out to mate or a draw.
+    RESULTS = "results"
     # Naming a difficulty, or asking how it is chosen, as opposed to asking which one is set.
     LEVEL = "level"
     # A question about the game itself: colour, move number, captures, castling.
@@ -780,6 +782,17 @@ _CONTROL_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
             r"\b(?:до)?расстав(?:лю|им|ить|ляю|ил|ила|или)\b|принес\w* (?:свои )?шахмат|"
             r"игра\w* (?:на|с) (?:своей )?доск|подожди,? (?:я )?расстав|"
             r"ты играешь (?:за )?черн"
+        ),
+    ),
+    (
+        CommandKind.RESULTS,
+        re.compile(
+            r"\bмо(?:и|й|я|ю)\s+(?:результат\w*|статистик\w*|успех\w*|достижени\w*)|"
+            r"^(?:покажи |скажи |назови )?(?:статистик\w*|результат\w*)$|"
+            r"\bу меня (?:статистик\w*|результат\w*|счет)|"
+            r"сколько (?:раз |партий |игр )?(?:я |мы )?(?:у тебя )?"
+            r"(?:выиграл|проиграл)а?(?: (?:у тебя|раз|партий|игр))?$|"
+            r"сколько (?:у меня )?(?:побед|поражений|ничьих)|счет (?:наших )?партий|общий счет|^(?:мой|наш) счет$"
         ),
     ),
     (

@@ -51,6 +51,7 @@ _DRAW_TEXTS: dict[GameEnd, str] = {
 }
 
 NEXT_STEP_PROMPT = "Теперь можно разобрать партию, начать новую игру или решить задачу."
+HARDER_REMATCH_COMMAND = "реванш сложнее"
 
 
 def compose_turn(
@@ -58,6 +59,7 @@ def compose_turn(
     board_before: chess.Board | None = None,
     notation: NotationStyle = NotationStyle.FULL,
     commentary: str | None = None,
+    harder_level: int | None = None,
 ) -> Speech:
     """Say what the turn did; `board_before` is the position the engine moved in.
 
@@ -72,6 +74,11 @@ def compose_turn(
     if commentary is not None and "Шах." in move_text and "шах" in commentary.lower():
         commentary = None
     prompt = NEXT_STEP_PROMPT if result.outcome is not None else None
+    if prompt is not None and harder_level is not None:
+        prompt = (
+            f"Можно сыграть реванш посложнее — на уровне {harder_level}. "
+            f"Для этого скажите: «{HARDER_REMATCH_COMMAND}». Еще можно разобрать партию или решить задачу."
+        )
     parts = [text for text in (move_text, outcome_text, commentary, prompt) if text]
     if not parts:
         if result.status is TurnStatus.ENGINE_UNAVAILABLE:

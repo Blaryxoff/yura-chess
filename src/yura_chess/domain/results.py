@@ -71,6 +71,35 @@ def claimable_draw(board: chess.Board) -> GameEnd | None:
     return None
 
 
+def final_outcome(game: GameState) -> GameOutcome | None:
+    """How the finished game ended, read from its own history and status.
+
+    A draw the player demanded leaves no automatic outcome on the board, so a
+    finished game without one is read as the draw that was claimable in it.
+    """
+    if game.status is GameStatus.RESIGNED:
+        winner = PlayerColor.BLACK if game.player_color is PlayerColor.WHITE else PlayerColor.WHITE
+        return GameOutcome(GameEnd.RESIGNATION, winner)
+    board = game.board()
+    outcome = automatic_outcome(board)
+    if outcome is not None or game.status is not GameStatus.FINISHED:
+        return outcome
+    claimed = claimable_draw(board)
+    return GameOutcome(claimed) if claimed is not None else None
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerRecord:
+    wins: int = 0
+    losses: int = 0
+    draws: int = 0
+    strongest_win: int | None = None
+
+    @property
+    def total(self) -> int:
+        return self.wins + self.losses + self.draws
+
+
 @dataclass(frozen=True, slots=True)
 class TurnResult:
     """What one request did to the game, independent of any voice protocol."""

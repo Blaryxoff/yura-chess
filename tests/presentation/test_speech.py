@@ -35,7 +35,7 @@ from yura_chess.presentation.position_speech import (
     answer_position_query,
     read_board,
 )
-from yura_chess.presentation.response_composer import NEXT_STEP_PROMPT, compose_turn
+from yura_chess.presentation.response_composer import HARDER_REMATCH_COMMAND, NEXT_STEP_PROMPT, compose_turn
 from yura_chess.voice.normalizer import normalize
 from yura_chess.voice.types import TokenKind
 
@@ -509,6 +509,29 @@ def test_checkmate_names_the_winner_from_the_player_side() -> None:
     )
 
     assert speech.text == f"Мат. Черные выиграли. Вы проиграли. {NEXT_STEP_PROMPT}"
+
+
+def test_a_won_game_offers_the_harder_rematch_by_its_command() -> None:
+    speech = compose_turn(
+        _result(
+            TurnStatus.GAME_OVER,
+            outcome=GameOutcome(GameEnd.CHECKMATE, PlayerColor.WHITE),
+            game_status=GameStatus.FINISHED,
+        ),
+        harder_level=17,
+    )
+
+    assert speech.text == (
+        "Мат. Белые выиграли. Вы выиграли. Можно сыграть реванш посложнее — на уровне 17. "
+        f"Для этого скажите: «{HARDER_REMATCH_COMMAND}». Еще можно разобрать партию или решить задачу."
+    )
+    assert NEXT_STEP_PROMPT not in speech.text
+
+
+def test_the_harder_offer_is_never_made_while_the_game_goes_on() -> None:
+    speech = compose_turn(_result(TurnStatus.OK), harder_level=17)
+
+    assert HARDER_REMATCH_COMMAND not in speech.text
 
 
 def test_a_finished_game_ends_by_naming_what_to_do_next() -> None:

@@ -29,10 +29,12 @@ from yura_chess.domain.game import EngineSettings, GameMode, GameState, GameStat
 from yura_chess.domain.results import (
     GameEnd,
     GameOutcome,
+    PlayerRecord,
     TurnResult,
     TurnStatus,
     automatic_outcome,
     claimable_draw,
+    final_outcome,
 )
 from yura_chess.engine.stockfish import EngineSearchTimeoutError, EngineUnavailableError
 from yura_chess.storage.database import session_scope
@@ -202,6 +204,24 @@ class GameService:
         """Find the latest game that can be reviewed."""
         with session_scope(self._session_factory) as session:
             return GameRepository(session).find_latest_finished(owner_key)
+
+    def player_record(self, owner_key: str) -> PlayerRecord:
+        with session_scope(self._session_factory) as session:
+            games = GameRepository(session).find_played_out(owner_key)
+        wins = losses = draws = 0
+        strongest_win: int | None = None
+        for game in games:
+            outcome = final_outcome(game)
+            if outcome is None:
+                continue
+            if outcome.winner is None:
+                draws += 1
+            elif outcome.winner is game.player_color:
+                wins += 1
+                strongest_win = max(strongest_win or 0, game.engine.skill_level)
+            else:
+                losses += 1
+        return PlayerRecord(wins, losses, draws, strongest_win)
 
     def request_was_seen(self, owner_key: str, request: RequestContext) -> bool:
         """Check a replay key before conversation-only behavior can bypass it."""
