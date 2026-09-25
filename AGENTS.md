@@ -35,6 +35,9 @@ Before implementation, read the active product and dev plans under `docs/plans/`
   technical documentation; public site examples use correctly written player phrases.
 - `asr_transcripts.outcome` records how the build deployed at the time routed the phrase, not how HEAD routes it. Read
   the corpus for what players say; re-measure routing through `route()` before concluding anything about today.
+- `games.status = 'resigned'` is not a resignation count: starting a new game marks every older active game resigned
+  (`GameRepository.resign_active_games`). Production analysis separates explicit resignations (a resign request) from
+  replaced games, and player-facing statistics count only `finished` games.
 - Never commit `.env`, credentials, Yandex tokens, certificates, databases, generated board images, or Stockfish binaries.
 
 ## Local verification
