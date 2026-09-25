@@ -31,7 +31,7 @@ from yura_chess.presentation.position_speech import (
     RANK_LINE,
     WHOLE_BOARD_ONLY,
 )
-from yura_chess.voice.illegal_move import Explanation, IllegalReason, explain
+from yura_chess.voice.illegal_move import Explanation, IllegalReason, explain, explain_named_opponent_piece
 from yura_chess.voice.move_resolver import promotion_choice, recognize, resolve
 from yura_chess.voice.normalizer import MAX_UTTERANCE_LENGTH, normalize
 from yura_chess.voice.types import MoveResolution, Normalized, ResolutionStatus, TokenKind
@@ -1695,7 +1695,9 @@ def _from_resolution(
             return RoutedCommand(CommandKind.UNKNOWN, normalized, resolution=resolution)
         # Nothing legal matched a move the player did describe: say why, rather
         # than asking them to repeat a move that would stay illegal.
-        explanation = explain(resolution.recognized, board)
+        explanation = explain_named_opponent_piece(resolution.recognized, board) or explain(
+            resolution.recognized, board
+        )
         if explanation.reason is IllegalReason.UNCLEAR:
             return RoutedCommand(
                 CommandKind.CLARIFY,

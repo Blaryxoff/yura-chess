@@ -116,6 +116,27 @@ def explain(recognized: RecognizedMove, board: chess.Board) -> Explanation:
     return _explain_geometry(board, piece, source, destination)
 
 
+def explain_named_opponent_piece(recognized: RecognizedMove, board: chess.Board) -> Explanation | None:
+    """A lone square that holds the opponent's piece of the named kind: the player took the wrong side."""
+    if recognized.piece is None or recognized.destination is None:
+        return None
+    if recognized.source or recognized.source_file or recognized.source_rank:
+        return None
+    square = _parse_square(recognized.destination)
+    occupant = board.piece_at(square) if square is not None else None
+    if square is None or occupant is None or occupant.color == board.turn:
+        return None
+    if occupant.symbol().upper() != recognized.piece:
+        return None
+    side, own = ("белыми", "белых") if board.turn == chess.WHITE else ("черными", "черных")
+    return Explanation(
+        IllegalReason.OPPONENT_PIECE,
+        f"На поле {_name(square)} стоит {_PIECE_NAMES[occupant.piece_type]} соперника. "
+        f"Вы играете {side}. Назовите ход {own}.",
+        source=_name(square),
+    )
+
+
 def _explain_pseudo_legal(recognized: RecognizedMove, board: chess.Board, move: chess.Move) -> Explanation:
     """The move itself is legal, so the utterance described something else wrong."""
     if recognized.capture and not board.is_capture(move):

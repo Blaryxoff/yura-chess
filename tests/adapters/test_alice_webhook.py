@@ -1091,6 +1091,22 @@ async def test_a_help_card_is_optional_and_the_voice_answer_is_unchanged(
     assert all(title.casefold() in spoken_text for title in titles)
 
 
+def test_the_stuck_count_survives_the_session_state_and_a_tampered_one_is_dropped() -> None:
+    sent = _session_state_update(ConversationState(game_id="game-1", revision=2, stuck_turns=1))
+    restored = _conversation_state(
+        AliceRequest.model_validate(alice_request(2, session_state=sent.model_dump(exclude_none=True)))
+    )
+    tampered = [
+        _conversation_state(
+            AliceRequest.model_validate(alice_request(3, session_state={"game_id": "game-1", "stuck_turns": value}))
+        ).stuck_turns
+        for value in (99, -1, True, "1")
+    ]
+
+    assert restored.stuck_turns == 1
+    assert tampered == [0, 0, 0, 0]
+
+
 def test_the_review_page_flag_survives_the_alice_session_state() -> None:
     """«дальше» keeps turning the review's pages after a round trip through Alice."""
     sent = _session_state_update(ConversationState(game_id="game-1", revision=2, reviewing=True))
@@ -1228,6 +1244,7 @@ def test_no_durable_identifier_other_than_the_game_reaches_the_client() -> None:
         "position_page",
         "help",
         "reviewing",
+        "stuck_turns",
     }
 
 

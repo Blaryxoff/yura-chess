@@ -25,6 +25,7 @@ from yura_chess.application.conversation import (
     _board_after_player,
     _engine_sound,
     _harder_level,
+    _move_command,
     _player_move_echo,
     _player_sound,
 )
@@ -256,8 +257,8 @@ async def test_incomplete_and_compound_moves_get_specific_non_mutating_clarifica
     glued = await conversation.handle(OWNER, "ферзь д 23", context(5), sequenced.state)
 
     assert incomplete.speech.text == "Куда пойти конем? Назовите поле."
-    assert glued.speech.text == "Куда пойти ферзем? Назовите поле."
-    assert compound.speech.text == "Я услышал несколько ходов. Назовите только ваш текущий ход."
+    assert glued.speech.text.startswith("Куда пойти ферзем? Назовите поле.")
+    assert compound.speech.text.startswith("Я услышал несколько ходов. Назовите только ваш текущий ход.")
     assert sequenced.speech.text == "Я услышал несколько ходов. Назовите только ваш текущий ход."
     with session_scope(session_factory) as session:
         assert GameRepository(session).load(started.state.game_id or "", OWNER).moves == ()
@@ -540,7 +541,7 @@ async def test_a_bare_yes_with_nothing_pending_says_so_and_leaves_the_game_alone
 
     reply = await conversation.handle(OWNER, "да", context(2), started.state)
 
-    assert reply.speech.text == "Сейчас нечего подтверждать. Назовите ход или попросите помощь."
+    assert reply.speech.text == "Подтверждать нечего. Ваш ход. Назовите фигуру и поле назначения."
     assert reply.turn is None
     with session_scope(session_factory) as session:
         assert GameRepository(session).load(started.state.game_id or "", OWNER).moves == ()
@@ -555,6 +556,19 @@ async def test_a_bare_no_with_nothing_pending_gets_the_same_answer(
     started = await conversation.handle(OWNER, "", context(1))
 
     reply = await conversation.handle(OWNER, "нет", context(2), started.state)
+
+    assert reply.speech.text == "Подтверждать нечего. Ваш ход. Назовите фигуру и поле назначения."
+
+
+async def test_a_bare_yes_after_the_first_move_keeps_the_general_answer(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    moved = await conversation.handle(OWNER, "пешка е два е четыре", context(2), started.state)
+
+    reply = await conversation.handle(OWNER, "да", context(3), moved.state)
 
     assert reply.speech.text == "Сейчас нечего подтверждать. Назовите ход или попросите помощь."
 
@@ -3332,3 +3346,214 @@ async def test_a_player_without_a_played_out_game_hears_what_is_counted(
     reply = await conversation.handle(OWNER, "статистика", context(1))
 
     assert reply.speech.text == "Я считаю только партии, которые закончились матом или ничьей. Таких партий пока нет."
+
+
+def _levels(settings: Settings) -> Settings:
+    return settings.model_copy(update={"engine_skill_level": 15, "new_player_skill_level": 5})
+
+
+async def test_a_new_player_starts_at_the_gentler_level_and_hears_it_when_asking(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, _levels(offline_settings))
+
+    asked = await conversation.handle(OWNER, "какой уровень", context(1))
+    started = await conversation.handle(OWNER, "новая игра", context(2))
+
+    assert asked.speech.text.startswith("Уровень сложности по умолчанию — 5 из 20.")
+    assert started.speech.text.startswith("Новая партия. Вы играете белыми, уровень 5.")
+
+
+async def test_an_empty_earlier_game_does_not_make_a_player_experienced(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        repository = GameRepository(session)
+        empty = repository.create_game(OWNER, PlayerColor.WHITE, EngineSettings(skill_level=15))
+        repository.append_moves(empty.id, OWNER, empty.revision, (), status=GameStatus.RESIGNED)
+    conversation = subject(session_factory, _levels(offline_settings))
+
+    started = await conversation.handle(OWNER, "новая игра черными", context(1))
+
+    assert started.speech.text.startswith("Новая партия. Вы играете черными, уровень 5.")
+
+
+async def test_a_player_who_has_moved_before_keeps_the_configured_level(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, _levels(offline_settings))
+    first = await conversation.handle(OWNER, "новая игра", context(1))
+    moved = await conversation.handle(OWNER, "пешка е два е четыре", context(2), first.state)
+    asked = await conversation.handle(OWNER, "новая игра", context(3), moved.state)
+
+    second = await conversation.handle(OWNER, "да", context(4), asked.state)
+
+    assert first.speech.text.startswith("Новая партия. Вы играете белыми, уровень 5.")
+    assert second.speech.text.startswith("Новая партия. Вы играете белыми, уровень 15.")
+
+
+async def test_a_named_level_outranks_the_new_player_default(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, _levels(offline_settings))
+
+    started = await conversation.handle(OWNER, "новая игра уровень семь", context(1))
+
+    assert started.speech.text.startswith("Новая партия. Вы играете белыми, уровень 7.")
+
+
+@pytest.mark.parametrize("utterance", ["давай", "ваш ход", "шах"])
+async def test_first_turn_small_talk_is_answered_with_whose_turn_it_is(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    utterance: str,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    reply = await conversation.handle(OWNER, utterance, context(2), started.state)
+
+    assert reply.speech.text == "Ваш ход. Назовите фигуру и поле назначения."
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).load(started.state.game_id or "", OWNER).moves == ()
+
+
+async def test_a_bare_check_after_the_first_move_is_not_taken_for_small_talk(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    moved = await conversation.handle(OWNER, "пешка е два е четыре", context(2), started.state)
+
+    reply = await conversation.handle(OWNER, "шах", context(3), moved.state)
+
+    assert reply.speech.text != "Ваш ход. Назовите фигуру и поле назначения."
+
+
+async def test_the_second_stuck_turn_names_the_side_and_a_legal_example_from_the_named_piece(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    first = await conversation.handle(OWNER, "пешка е 2", context(2), started.state)
+    second = await conversation.handle(OWNER, "пешка е 2", context(3), first.state)
+    third = await conversation.handle(OWNER, "пешка е 2", context(4), second.state)
+
+    assert first.speech.text == "Куда пойти пешкой с e2? Назовите поле назначения."
+    assert second.speech.text == (
+        "Куда пойти пешкой с e2? Назовите поле назначения. "
+        "Вы играете белыми. Это не подсказка, а пример команды: «пешка e2 e3»."
+    )
+    assert second.speech.tts is not None and "«пешка е два е три»" in second.speech.tts
+    assert third.speech.text == first.speech.text
+    assert route("пешка e2 e3", chess.Board()).move == "e2e3"
+    with session_scope(session_factory) as session:
+        assert GameRepository(session).load(started.state.game_id or "", OWNER).moves == ()
+
+
+async def test_a_handled_command_resets_the_stuck_count(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    stuck = await conversation.handle(OWNER, "абракадабра", context(2), started.state)
+    handled = await conversation.handle(OWNER, "какая позиция", context(3), stuck.state)
+    again = await conversation.handle(OWNER, "абракадабра", context(4), handled.state)
+
+    assert stuck.state.stuck_turns == 1
+    assert handled.state.stuck_turns == 0
+    assert "пример команды" not in again.speech.text
+
+
+async def test_a_clarification_offering_candidates_is_not_counted_as_stuck(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).create_game(
+            OWNER, PlayerColor.WHITE, initial_fen="4k3/8/8/8/8/8/8/R3K2R w - - 0 1"
+        )
+    conversation = subject(session_factory, offline_settings)
+    state = ConversationState(game_id=game.id, revision=game.revision, stuck_turns=1)
+
+    reply = await conversation.handle(OWNER, "д 1", context(1), state)
+
+    assert reply.state.clarification is not None and len(reply.state.clarification.candidates) == 2
+    assert reply.state.stuck_turns == 0
+    assert "пример команды" not in reply.speech.text
+
+
+@pytest.mark.parametrize(
+    "fen",
+    [
+        chess.STARTING_FEN,
+        "4k3/8/8/8/8/8/8/R2q1K2 w - - 0 1",
+        "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",
+        "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+        "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+        "1n2k3/P7/8/8/8/8/8/4K3 w - - 0 1",
+        "4k3/8/8/8/8/8/1p6/R3K3 b - - 0 1",
+        "4k3/8/8/8/8/8/3Q4/4K3 w - - 0 1",
+    ],
+)
+def test_every_example_command_routes_back_to_exactly_its_move(fen: str) -> None:
+    board = chess.Board(fen)
+
+    for move in board.legal_moves:
+        routed = route(_move_command(board, move), board)
+        assert (routed.kind, routed.move) == (CommandKind.MOVE, move.uci()), _move_command(board, move)
+
+
+async def test_a_black_player_owed_the_opening_reply_is_never_told_they_play_white(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).create_game(OWNER, PlayerColor.BLACK)
+    conversation = subject(session_factory, offline_settings)
+    state = ConversationState(game_id=game.id, revision=game.revision)
+
+    reply = await conversation.handle(OWNER, "конь г 8", context(1), state)
+
+    assert "белыми" not in reply.speech.text
+    assert reply.turn is not None and reply.turn.engine_move is not None
+
+
+@pytest.mark.parametrize("opening", ["дай задачу", "помощь"])
+async def test_no_game_example_is_offered_inside_a_puzzle_or_open_help(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+    opening: str,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+    opened = await conversation.handle(OWNER, opening, context(2), started.state)
+
+    first = await conversation.handle(OWNER, "абракадабра", context(3), opened.state)
+    second = await conversation.handle(OWNER, "абракадабра", context(4), first.state)
+
+    assert "пример команды" not in first.speech.text
+    assert "пример команды" not in second.speech.text
+
+
+async def test_the_example_after_an_opponent_piece_diagnosis_names_the_side_once(
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "", context(1))
+
+    first = await conversation.handle(OWNER, "пешка е 7", context(2), started.state)
+    second = await conversation.handle(OWNER, "пешка е 7", context(3), first.state)
+
+    assert second.speech.text.count("Вы играете белыми.") == 1
+    assert "пример команды" in second.speech.text

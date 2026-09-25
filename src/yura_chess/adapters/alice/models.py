@@ -183,6 +183,7 @@ class ConversationSessionState(_AliceModel):
     # True while a review is being dictated, so «дальше» turns its page. Which
     # review, and how far it has come, stays server-side.
     reviewing: bool = False
+    stuck_turns: int = Field(default=0, ge=0, le=2)
 
 
 class AliceResponse(_AliceModel):

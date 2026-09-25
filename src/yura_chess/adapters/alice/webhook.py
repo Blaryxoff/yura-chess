@@ -54,7 +54,13 @@ from yura_chess.application.command_router import (
     TrainingQuestion,
     TrainingRequest,
 )
-from yura_chess.application.conversation import ConversationReply, ConversationService, ConversationState, PendingAction
+from yura_chess.application.conversation import (
+    STUCK_TURNS_BEFORE_EXAMPLE,
+    ConversationReply,
+    ConversationService,
+    ConversationState,
+    PendingAction,
+)
 from yura_chess.application.game_service import RequestContext
 from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key, traffic_source
 from yura_chess.domain.results import TurnResult, TurnStatus
@@ -452,6 +458,7 @@ def _conversation_state(payload: AliceRequest, salt: SecretStr | None = None) ->
     last_heard_raw = raw.get("last_heard")
     last_reply_raw = raw.get("last_reply")
     page = raw.get("position_page", 0)
+    stuck = raw.get("stuck_turns", 0)
     help_raw = raw.get("help")
     help_state = None
     if isinstance(help_raw, dict):
@@ -471,6 +478,7 @@ def _conversation_state(payload: AliceRequest, salt: SecretStr | None = None) ->
         position_page=page if isinstance(page, int) and 0 <= page <= 3 else 0,
         help=help_state,
         reviewing=raw.get("reviewing") is True,
+        stuck_turns=stuck if type(stuck) is int and 0 <= stuck <= STUCK_TURNS_BEFORE_EXAMPLE else 0,
     )
 
 
@@ -524,6 +532,7 @@ def _session_state_update(
         position_page=max(0, min(state.position_page, 3)),
         help=HelpSessionState(topic=state.help.topic, page=state.help.page) if state.help is not None else None,
         reviewing=state.reviewing,
+        stuck_turns=max(0, min(state.stuck_turns, STUCK_TURNS_BEFORE_EXAMPLE)),
     )
     return _within_state_limit(session_state)
 

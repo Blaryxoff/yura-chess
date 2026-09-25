@@ -205,6 +205,10 @@ class GameService:
         with session_scope(self._session_factory) as session:
             return GameRepository(session).find_latest_finished(owner_key)
 
+    def has_player_move(self, owner_key: str) -> bool:
+        with session_scope(self._session_factory) as session:
+            return GameRepository(session).has_player_move(owner_key)
+
     def player_record(self, owner_key: str) -> PlayerRecord:
         with session_scope(self._session_factory) as session:
             games = GameRepository(session).find_played_out(owner_key)

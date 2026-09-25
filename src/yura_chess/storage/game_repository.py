@@ -206,6 +206,15 @@ class GameRepository:
         row = self._session.scalars(statement).one_or_none()
         return _to_state(row) if row is not None else None
 
+    def has_player_move(self, owner_key: str) -> bool:
+        statement = (
+            select(GameMoveRow.game_id)
+            .join(GameRow, GameRow.id == GameMoveRow.game_id)
+            .where(GameRow.owner_key == owner_key, GameMoveRow.actor == MoveActor.PLAYER.value)
+            .limit(1)
+        )
+        return self._session.scalar(statement) is not None
+
     def find_played_out(self, owner_key: str) -> list[GameState]:
         statement = select(GameRow).where(GameRow.owner_key == owner_key, GameRow.status == GameStatus.FINISHED.value)
         return [_to_state(row) for row in self._session.scalars(statement)]

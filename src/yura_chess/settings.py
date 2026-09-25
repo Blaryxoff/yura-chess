@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     engine_threads: int = Field(default=1, ge=1)
     engine_hash_mb: int = Field(default=64, ge=1)
     engine_skill_level: int = Field(default=5, ge=0, le=20)
+    new_player_skill_level: int = Field(default=5, ge=0, le=20)
     engine_acquire_timeout_seconds: float = Field(default=0.5, gt=0.0, le=1.0)
     # The Alice webhook budget is 4.5 s; a search may never eat more than three of them.
     engine_move_deadline_seconds: float = Field(default=3.0, gt=0.0, le=3.0)

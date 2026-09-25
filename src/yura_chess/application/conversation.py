@@ -58,6 +58,7 @@ from yura_chess.presentation.commentary import comment_on
 from yura_chess.presentation.game_facts import answer_game_fact
 from yura_chess.presentation.help_speech import HelpAnswer, HelpMode, HelpState
 from yura_chess.presentation.move_speech import (
+    PIECE_NAMES,
     PIECE_NAMES_ACCUSATIVE,
     PLAYER_MOVE_PREFIX,
     SoundEvent,
@@ -87,10 +88,14 @@ from yura_chess.storage.usage_repository import UsageRepository
 from yura_chess.storage.usage_repository import request_key as usage_request_key
 from yura_chess.voice.move_resolver import promotion_choice, recognize
 from yura_chess.voice.normalizer import normalize
+from yura_chess.voice.types import RecognizedMove
 
 MAX_SKILL_LEVEL = MAX_LEVEL
 # One rematch step up is two of the twenty engine levels: less is not audible.
 REMATCH_LEVEL_STEP = 2
+STUCK_TURNS_BEFORE_EXAMPLE = 2
+_YOUR_TURN_NUDGE = "Ваш ход. Назовите фигуру и поле назначения."
+_FIRST_TURN_NUDGED = frozenset({"давай", "ваш ход", "шах"})
 
 _BLACK = re.compile(r"\bчерн")
 _LEVEL_SCALE_ANSWER = (
@@ -158,6 +163,7 @@ class ConversationState:
     # True while a review is being read, so «дальше» turns its page rather than
     # the board's. The durable cursor itself lives server-side.
     reviewing: bool = False
+    stuck_turns: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +191,7 @@ class ConversationReply:
     # always complete without it. A puzzle position arrives here because it
     # belongs to no game and so has no `turn`.
     card: BoardCard | TextCard | None = None
+    stuck: bool = False
     # Only explicit skill-exit commands end the Alice session. The game remains
     # server-side and can be resumed on the next launch.
     end_session: bool = False
@@ -273,6 +280,7 @@ class ConversationService:
                 reply = self._replayed_turn_reply(owner_key, utterance, replayed, prior_state, preferences)
             else:
                 reply = await self._handle(owner_key, utterance, request, prior_state, preferences)
+                reply = self._with_stuck_example(owner_key, utterance, prior_state, reply)
         if route(utterance).kind not in {CommandKind.REPEAT_REPLY, CommandKind.REPEAT_SLOW}:
             # Stored before the pauses are added, so a repeat reads words rather
             # than speech markup.
@@ -480,6 +488,7 @@ class ConversationService:
                     reviewing=state.reviewing,
                 ),
                 state,
+                stuck=routed.kind is CommandKind.AMBIGUOUS_TURN,
             )
         if (
             pending_action is not None
@@ -869,7 +878,7 @@ class ConversationService:
                     next_state,
                 )
             if routed.kind is CommandKind.LEVEL_QUERY:
-                level = self._settings.engine_skill_level
+                level = self._starting_level(owner_key)
                 hint = _hint(preferences, "Чтобы выбрать другой, скажите: «новая игра, уровень пять».")
                 return ConversationReply(
                     Speech.of(f"Уровень сложности по умолчанию — {level} из 20.{hint}"),
@@ -931,7 +940,7 @@ class ConversationService:
                 replace(self._with_game(next_state, game), position_page=answer.page),
                 card=self._game_card(game, board, preferences),
             )
-        if game.pending_engine_turn is not None and routed.normalized.has_move_tokens:
+        if game.status is GameStatus.ACTIVE and _engine_to_move(game, board) and routed.normalized.has_move_tokens:
             result = await self._games.continue_game(owner_key, game.id, request)
             reply = self._turn_reply(owner_key, result, next_state, preferences)
             return replace(
@@ -944,10 +953,11 @@ class ConversationService:
             return ConversationReply(
                 self._clarification_speech(pending, board, engine_to_move),
                 replace(self._with_game(next_state, game), clarification=pending),
+                stuck=pending is not None and not pending.candidates,
             )
         if routed.kind is CommandKind.ILLEGAL_MOVE:
             text = routed.explanation.text if routed.explanation is not None else "Так пойти нельзя."
-            return ConversationReply(Speech.of(text), self._with_game(next_state, game))
+            return ConversationReply(Speech.of(text), self._with_game(next_state, game), stuck=True)
 
         if routed.kind is CommandKind.RESIGN:
             return ConversationReply(
@@ -970,14 +980,28 @@ class ConversationService:
             reply = self._turn_reply(owner_key, result, next_state, preferences, echo_player_move=True)
             return self._with_training_warning(owner_key, reply)
 
+        first_turn = (
+            open_puzzle is None
+            and game.status is GameStatus.ACTIVE
+            and game.last_player_move_at is None
+            and not _engine_to_move(game, board)
+        )
         if confirmation_answer(utterance) is not None:
+            if first_turn:
+                return ConversationReply(
+                    Speech.of(f"Подтверждать нечего. {_YOUR_TURN_NUDGE}"), self._with_game(next_state, game), stuck=True
+                )
             return ConversationReply(
                 Speech.of("Сейчас нечего подтверждать." + _hint(preferences, "Назовите ход или попросите помощь.")),
                 self._with_game(next_state, game),
+                stuck=True,
             )
+        if first_turn and routed.normalized.text in _FIRST_TURN_NUDGED:
+            return ConversationReply(Speech.of(_YOUR_TURN_NUDGE), self._with_game(next_state, game), stuck=True)
         return ConversationReply(
             Speech.of("Не понял команду." + _hint(preferences, "Скажите ход или попросите помощь.")),
             self._with_game(next_state, game),
+            stuck=True,
         )
 
     def _with_puzzle_card(
@@ -1141,7 +1165,7 @@ class ConversationService:
         spoken = normalize(utterance).text
         player_color = PlayerColor.BLACK if _BLACK.search(spoken) else PlayerColor.WHITE
         named_level = parse_level_value(spoken)
-        level = named_level if named_level is not None else self._settings.engine_skill_level
+        level = named_level if named_level is not None else self._starting_level(owner_key)
         result = await self._games.start_game(
             owner_key,
             request,
@@ -1171,6 +1195,37 @@ class ConversationService:
             speech=Speech.of(f"Новая партия. Вы играете {side}, уровень {level}. {reply.speech.text}"),
             sound=_opening_sound(reply),
         )
+
+    def _with_stuck_example(
+        self, owner_key: str, utterance: str, prior: ConversationState, reply: ConversationReply
+    ) -> ConversationReply:
+        reset = replace(reply, state=replace(reply.state, stuck_turns=0))
+        if not reply.stuck or prior.help is not None or prior.reviewing or reply.state.help is not None:
+            return reset
+        if self._puzzles.find_open(owner_key) is not None:
+            return reset
+        streak = min(prior.stuck_turns + 1, STUCK_TURNS_BEFORE_EXAMPLE)
+        stuck_reply = replace(reply, state=replace(reply.state, stuck_turns=streak))
+        if streak < STUCK_TURNS_BEFORE_EXAMPLE:
+            return stuck_reply
+        game = self._load(owner_key, reply.state.game_id)
+        if game is None or game.status is not GameStatus.ACTIVE or reply.state.pending_action is not None:
+            return stuck_reply
+        board = game.board()
+        if _engine_to_move(game, board):
+            return stuck_reply
+        example = _spoken_example(board, recognize(normalize(utterance).signature))
+        side = f"Вы играете {'белыми' if game.player_color is PlayerColor.WHITE else 'черными'}."
+        said_side = "" if side in reply.speech.text else f" {side}"
+        return replace(
+            reset,
+            speech=Speech.of(f"{reply.speech.text}{said_side} Это не подсказка, а пример команды: «{example}»."),
+        )
+
+    def _starting_level(self, owner_key: str) -> int:
+        if self._games.has_player_move(owner_key):
+            return self._settings.engine_skill_level
+        return self._settings.new_player_skill_level
 
     async def _rematch(
         self,
@@ -1587,6 +1642,49 @@ def _routing_outcome(kind: CommandKind) -> str:
     if kind is CommandKind.CLARIFY:
         return "clarification"
     return "handled"
+
+
+def _spoken_example(board: chess.Board, named: RecognizedMove) -> str:
+    moves = list(board.legal_moves)
+    named_square = next(
+        (
+            square
+            for square in (_square_or_none(named.source), _square_or_none(named.destination))
+            if square is not None and (piece := board.piece_at(square)) is not None and piece.color == board.turn
+        ),
+        None,
+    )
+    from_named = [move for move in moves if move.from_square == named_square]
+    named_type = chess.Piece.from_symbol(named.piece).piece_type if named.piece else None
+    of_named_piece = [move for move in moves if board.piece_type_at(move.from_square) == named_type]
+    example = min(from_named or of_named_piece or moves, key=lambda move: _example_rank(board, move))
+    return _move_command(board, example)
+
+
+def _move_command(board: chess.Board, move: chess.Move) -> str:
+    if board.is_castling(move):
+        return "короткая рокировка" if board.is_kingside_castling(move) else "длинная рокировка"
+    piece = board.piece_type_at(move.from_square)
+    assert piece is not None
+    command = f"{PIECE_NAMES[piece]} {chess.square_name(move.from_square)} {chess.square_name(move.to_square)}"
+    return f"{command} {PIECE_NAMES[move.promotion]}" if move.promotion else command
+
+
+def _example_rank(board: chess.Board, move: chess.Move) -> tuple[bool, bool, bool, bool, bool, float, str]:
+    pawn = board.piece_type_at(move.from_square) == chess.PAWN
+    return (
+        board.is_capture(move),
+        board.gives_check(move),
+        move.promotion is not None,
+        not pawn,
+        abs(chess.square_rank(move.to_square) - chess.square_rank(move.from_square)) > 1,
+        abs(chess.square_file(move.to_square) - 3.5),
+        move.uci(),
+    )
+
+
+def _square_or_none(name: str | None) -> int | None:
+    return chess.parse_square(name) if name is not None else None
 
 
 def _harder_level(result: TurnResult, game: GameState | None) -> int | None:

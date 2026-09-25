@@ -2474,3 +2474,40 @@ def test_a_move_that_names_its_square_is_still_played_after_the_same_opening_wor
 
     assert routed.kind is CommandKind.MOVE
     assert routed.move == "e2e4"
+
+
+@pytest.mark.parametrize(
+    ("moves", "utterance", "expected"),
+    [
+        ((), "пешка е 7", "На поле e7 стоит пешка соперника. Вы играете белыми. Назовите ход белых."),
+        ((), "конь б 8", "На поле b8 стоит конь соперника. Вы играете белыми. Назовите ход белых."),
+        (("e2e4",), "конь г 1", "На поле g1 стоит конь соперника. Вы играете черными. Назовите ход черных."),
+    ],
+)
+def test_naming_the_opponents_piece_says_whose_it_is_and_leaves_nothing_pending(
+    moves: tuple[str, ...], utterance: str, expected: str
+) -> None:
+    board = chess.Board()
+    for uci in moves:
+        board.push_uci(uci)
+
+    routed = route(utterance, board)
+
+    assert routed.kind is CommandKind.ILLEGAL_MOVE
+    assert routed.explanation is not None and routed.explanation.text == expected
+    assert routed.clarification is None
+
+
+@pytest.mark.parametrize("utterance", ["конь е 7", "пешка е 2", "слон е 4"])
+def test_a_lone_square_without_the_named_opponent_piece_still_asks_for_the_move(utterance: str) -> None:
+    routed = route(utterance, chess.Board())
+
+    assert routed.kind is CommandKind.CLARIFY
+    assert routed.explanation is None
+
+
+def test_a_full_move_of_the_opponents_piece_keeps_the_general_diagnosis() -> None:
+    routed = route("пешка е 7 е 5", chess.Board())
+
+    assert routed.explanation is not None
+    assert routed.explanation.text == "На поле e7 стоит фигура соперника — пешка."
