@@ -31,7 +31,7 @@ def test_every_public_page_has_a_review_link_in_header_and_footer(html: str) -> 
 
 def test_review_guide_provides_the_steps_without_redirecting_readers_to_itself() -> None:
     html = website.REVIEWS_PAGE_HTML
-    skill_section = html.split('aria-labelledby="skill-review-heading">', 1)[1].split("</section>", 1)[0]
+    skill_section = html.split('<h2 id="skill-review-heading">', 1)[1].split('<h2 id="website-review-heading">', 1)[0]
 
     assert '<a href="/reviews" aria-current="page">Оставить отзыв</a>' in html
     assert 'href="/reviews/dialogs?source=guide"' in html
@@ -45,7 +45,7 @@ def test_review_guide_provides_the_steps_without_redirecting_readers_to_itself()
 
 def test_browser_review_guide_keeps_website_reviews_separate_from_skill_ratings() -> None:
     html = website.REVIEWS_PAGE_HTML
-    browser_section = html.split('aria-labelledby="website-review-heading">', 1)[1].split("</section>", 1)[0]
+    browser_section = html.split('<h2 id="website-review-heading">', 1)[1].split("</section>", 1)[0]
 
     assert "не увеличивают число оценок навыка" in browser_section
     assert "на компьютере" in browser_section

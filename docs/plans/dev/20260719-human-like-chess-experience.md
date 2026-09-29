@@ -349,7 +349,18 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 - [x] Проверить desktop/mobile layout, focused tests и полный локальный набор
 - [x] Mark completed
 
+### Task 25: Привести страницу отзывов к шаблону остальных инструкций
+
+**Files:** Modify website presentation, review speech and focused tests.
+
+- [x] Заменить специфические CSS правила страницы на общий header, hero-actions, launch-action и одну article panel как в `/how-to-play`
+- [x] Использовать общие заголовки шагов и согласовать короткую надпись CTA с голосовой инструкцией
+- [x] Проверить reference/mobile/desktop layout и тесты
+- [x] Mark completed
+
 ## Verification notes
+
+Task 25: `/reviews` использует общий header, hero-actions, launch-action и одну article panel как `/how-to-play`; отдельные CSS правила удалены. Computed styles совпали на ширинах 390 и 1440 px, horizontal overflow отсутствует, отступ CTA — 30 px. Focused presentation/health tests: 49 passed, 2 skipped; voice/review/speech tests: 128 passed, 39 skipped (DB-dependent cases проверяются в CI). Ruff lint/format и mypy прошли.
 
 Task 24: layout проверен на ширинах 390, 901, 1024 и 1440 px без горизонтального overflow; CTA получил отступ 32 px, название навыка занимает отдельную строку от 901 px. Focused tests: 49 passed, 2 skipped; полный локальный набор: 2453 passed, 26 skipped и ожидаемый fail проверки MariaDB на локальном MySQL. Ruff lint/format и mypy прошли.
 

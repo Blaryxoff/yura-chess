@@ -148,10 +148,6 @@ SITE_CSS = (
     h3 { margin: 26px 0 10px; font-size: clamp(20px, 2.6vw, 24px); color: var(--gold); }
     section > h2:not(:first-child) { margin-top: 26px; }
     .lead { max-width: 900px; margin: 0 auto; color: var(--muted); font-size: clamp(19px, 3vw, 24px); }
-    .reviews-header .support-action { margin-top: 32px; }
-    @media (min-width: 901px) {
-      .reviews-header .skill-name { display: block; }
-    }
     .hero-actions {
       display: flex;
       justify-content: center;
@@ -1370,33 +1366,36 @@ REVIEWS_PAGE_HTML = _document(
     ),
     path=REVIEWS_PATH,
     structured_data=[_page_schema(_REVIEWS_TITLE, REVIEWS_PATH), _breadcrumb_schema(_REVIEWS_TITLE, REVIEWS_PATH)],
-    body=f"""    <header class="reviews-header">
+    body=f"""    <header>
       <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♞</a>
-      <h1>Оставить отзыв о <span class="skill-name">«Шахматах с Юрой»</span></h1>
+      <h1>Оставить отзыв о<br>«Шахматах с Юрой»</h1>
       <p class="lead">
         Расскажите, как вам игра: что понравилось и что стоит улучшить.
         Ваш опыт поможет другим игрокам выбрать навык, а нам — сделать его удобнее.
       </p>
-      <a class="support-action" href="{REVIEWS_PATH}/dialogs?source=guide">Оставить отзыв о навыке в Яндексе</a>
+      <div class="hero-actions">
+        <a class="launch-action" href="{REVIEWS_PATH}/dialogs?source=guide">Оставить отзыв в Яндексе</a>
+      </div>
     </header>
 
-    <section class="article" aria-labelledby="skill-review-heading">
+    <section class="article">
       <h2 id="skill-review-heading">Отзыв о навыке в Яндекс Диалогах</h2>
       <ol class="steps">
-        <li>Нажмите кнопку «Оставить отзыв о навыке в Яндексе» выше.
+        <li><strong>Откройте карточку навыка</strong>
+            Нажмите кнопку «Оставить отзыв в Яндексе» выше.
             Откроется карточка «Шахматы с Юрой» в каталоге Яндекс Диалогов.</li>
-        <li>Войдите с вашим Яндекс ID, если Яндекс попросит авторизоваться.</li>
-        <li>Найдите раздел «Оцените “Шахматы с Юрой”» и выберите число звёзд.
+        <li><strong>Войдите в Яндекс</strong>
+            Войдите с вашим Яндекс ID, если Яндекс попросит авторизоваться.</li>
+        <li><strong>Выберите оценку</strong>
+            Найдите раздел «Оцените “Шахматы с Юрой”» и выберите число звёзд.
             Если раздел не виден сразу, прокрутите карточку вниз.</li>
-        <li>Следуйте подсказкам формы Яндекса: напишите впечатления об игре и отправьте отзыв.</li>
+        <li><strong>Напишите отзыв</strong>
+            Следуйте подсказкам формы Яндекса: напишите впечатления об игре и отправьте отзыв.</li>
       </ol>
       <p>
         Можно рассказать, на каком устройстве вы играли, удобно ли называть ходы и слушать ответы,
         что хотелось бы изменить. Пишите о собственном опыте — любая честная оценка полезна.
       </p>
-    </section>
-
-    <section class="article" aria-labelledby="website-review-heading">
       <h2 id="website-review-heading">Отзыв о сайте в Яндекс Браузере</h2>
       <p>
         Через значок щита у адреса можно оценить <strong>сайт yurachess.ru</strong>.
@@ -1404,11 +1403,15 @@ REVIEWS_PAGE_HTML = _document(
         и не увеличивают число оценок навыка.
       </p>
       <ol class="steps">
-        <li>Откройте yurachess.ru в Яндекс Браузере на компьютере.</li>
-        <li>Нажмите значок щита слева от адреса — откроется панель «Нейропротект».</li>
-        <li>Выберите строку «Нет отзывов» или строку с количеством отзывов,
+        <li><strong>Откройте сайт в Яндекс Браузере</strong>
+            Откройте yurachess.ru в Яндекс Браузере на компьютере.</li>
+        <li><strong>Откройте панель защиты</strong>
+            Нажмите значок щита слева от адреса — откроется панель «Нейропротект».</li>
+        <li><strong>Перейдите к отзывам</strong>
+            Выберите строку «Нет отзывов» или строку с количеством отзывов,
             затем «Оставить отзыв».</li>
-        <li>Выберите звёзды, напишите впечатления о сайте и нажмите «Отправить».</li>
+        <li><strong>Отправьте отзыв</strong>
+            Выберите звёзды, напишите впечатления о сайте и нажмите «Отправить».</li>
       </ol>
       <p>
         Вид панели зависит от версии браузера. Если на телефоне нет такой строки,
