@@ -1397,7 +1397,7 @@ REVIEWS_PAGE_HTML = _document(
     </section>
 
     <section class="article" aria-labelledby="website-review-heading">
-      <h2 id="website-review-heading">Отдельно: отзыв о сайте в Яндекс Браузере</h2>
+      <h2 id="website-review-heading">Отзыв о сайте в Яндекс Браузере</h2>
       <p>
         Через значок щита у адреса можно оценить <strong>сайт yurachess.ru</strong>.
         Эти отзывы хранятся отдельно от отзывов о навыке в Яндекс Диалогах
