@@ -8,7 +8,7 @@ from time import monotonic
 from typing import Literal
 
 from fastapi import FastAPI, Request, Response, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -41,6 +41,8 @@ from yura_chess.presentation.website import (
     INDEXNOW_KEY_PATH,
     PUZZLES_PAGE_HTML,
     PUZZLES_PATH,
+    REVIEWS_PAGE_HTML,
+    REVIEWS_PATH,
     ROBOTS_PATH,
     ROBOTS_TEXT,
     SITEMAP_PATH,
@@ -48,6 +50,7 @@ from yura_chess.presentation.website import (
     STATISTICS_PATH,
     WEBMASTER_VERIFICATION_HTML,
     WEBMASTER_VERIFICATION_PATH,
+    YANDEX_REVIEW_URL,
     render_landing_page,
     render_statistics_page,
 )
@@ -60,6 +63,7 @@ from yura_chess.storage.database import (
     create_session_factory,
     session_scope,
 )
+from yura_chess.storage.feedback_repository import ClickSource, FeedbackRepository
 from yura_chess.storage.game_repository import GameRepository
 from yura_chess.storage.review_repository import ReviewRepository
 from yura_chess.storage.transcript_repository import TranscriptRepository
@@ -242,6 +246,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _static_page(PUZZLES_PATH, PUZZLES_PAGE_HTML)
     _static_page(ACCESSIBILITY_PATH, ACCESSIBILITY_PAGE_HTML)
     _static_page(BLINDFOLD_PATH, BLINDFOLD_PAGE_HTML)
+    _static_page(REVIEWS_PATH, REVIEWS_PAGE_HTML)
+
+    @app.api_route(f"{REVIEWS_PATH}/dialogs", methods=["GET", "HEAD"], include_in_schema=False)
+    async def review_redirect(request: Request, source: ClickSource = "guide") -> RedirectResponse:
+        def record() -> None:
+            with session_scope(app.state.session_factory) as session:
+                FeedbackRepository(session).record_click(source)
+
+        purpose = request.headers.get("sec-purpose", request.headers.get("purpose", ""))
+        if request.method == "GET" and "prefetch" not in purpose.lower():
+            try:
+                await run_in_threadpool(record)
+            except Exception:
+                logger.exception("review link tracking is unavailable")
+        return RedirectResponse(
+            YANDEX_REVIEW_URL,
+            status_code=302,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
 
     @app.get(WEBMASTER_VERIFICATION_PATH, response_class=HTMLResponse, include_in_schema=False)
     async def webmaster_verification() -> HTMLResponse:

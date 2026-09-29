@@ -14,7 +14,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 from settings_fixtures import TEST_IDENTITY_SALT, UNREACHABLE_DATABASE_URL
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from yura_chess.adapters.alice.models import (
@@ -47,12 +47,14 @@ from yura_chess.application.conversation import ConversationService, Conversatio
 from yura_chess.application.player_identity import UnidentifiedRequestError, owner_key, traffic_source
 from yura_chess.domain.game import PlayerColor
 from yura_chess.main import create_app
+from yura_chess.presentation.feedback_speech import REVIEW_BUTTON_URL, REVIEW_PROMPT
 from yura_chess.presentation.help_speech import HelpState, HelpTopic
 from yura_chess.presentation.move_speech import PAUSE_MARKUP
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository, RevisionConflictError
-from yura_chess.storage.models import UsageUserRow
+from yura_chess.storage.models import PuzzleProfileRow, UsageRequestRow, UsageUserRow
+from yura_chess.storage.puzzle_repository import PuzzleRepository
 
 pytestmark = pytest.mark.anyio
 
@@ -182,101 +184,135 @@ async def test_an_absent_skill_id_setting_lets_any_skill_id_through(
     assert "user_state_update" in response.json()
 
 
-async def test_third_screen_session_offers_the_catalogue_review_once(
+def mate_request(session_factory: sessionmaker[Session], *, screen: bool = False) -> dict[str, Any]:
+    owner = owner_key(SecretStr(TEST_IDENTITY_SALT), USER_A, "device-1")
+    with session_scope(session_factory) as session:
+        game = GameRepository(session).create_game(
+            owner, PlayerColor.WHITE, initial_fen="6k1/5ppp/8/8/8/8/8/R5RK w - - 0 1"
+        )
+    return alice_request(
+        2, command="ладья а один а восемь", state={"game_id": game.id, "revision": game.revision}, screen=screen
+    )
+
+
+@pytest.mark.parametrize("screen", [False, True])
+async def test_finished_game_offers_review_on_voice_and_screen_and_replays_once(
+    screen: bool, session_factory: sessionmaker[Session]
+) -> None:
+    payload = mate_request(session_factory, screen=screen)
+    async with build_client(session_factory) as client:
+        offered = (await client.post("/alice/webhook", json=payload)).json()
+        replayed = (await client.post("/alice/webhook", json=payload)).json()
+        later = (
+            await client.post("/alice/webhook", json=alice_request(3, command="новая игра белыми", screen=screen))
+        ).json()
+
+    assert offered == replayed
+    assert REVIEW_PROMPT_TEXT in offered["response"]["text"]
+    assert REVIEW_PROMPT.spoken() in offered["response"]["tts"]
+    assert "не напоминай мне об отзывах" in offered["response"]["text"]
+    assert REVIEW_PROMPT_TEXT not in later["response"]["text"]
+    if screen:
+        assert offered["response"]["buttons"][0]["url"] == REVIEW_BUTTON_URL
+    else:
+        assert "buttons" not in offered["response"]
+    owner = owner_key(SecretStr(TEST_IDENTITY_SALT), USER_A, "device-1")
+    with session_scope(session_factory) as session:
+        assert session.get(UsageUserRow, owner).review_prompt_count == 1
+        marked = session.scalars(select(UsageRequestRow).where(UsageRequestRow.review_prompt_kind == "automatic")).all()
+        assert len(marked) == 1
+
+
+async def test_repeat_sessions_and_unknown_commands_do_not_prompt_for_reviews(
     session_factory: sessionmaker[Session],
 ) -> None:
     async with build_client(session_factory) as client:
-        opened = (
-            await client.post(
-                "/alice/webhook",
-                json=alice_request(1, session_id="visit-1", new=True, screen=True),
-            )
-        ).json()
-        returned = (
-            await client.post(
-                "/alice/webhook",
-                json=alice_request(1, session_id="visit-2", new=True, screen=True),
-            )
-        ).json()
-        offered_response = await client.post(
-            "/alice/webhook",
-            json=alice_request(1, session_id="visit-3", new=True, screen=True),
-        )
-        replayed_response = await client.post(
-            "/alice/webhook",
-            json=alice_request(1, session_id="visit-3", new=True, screen=True),
-        )
-        later_response = await client.post(
-            "/alice/webhook",
-            json=alice_request(1, session_id="visit-4", new=True, screen=True),
-        )
-
-    offered = offered_response.json()
-    replayed = replayed_response.json()
-    later = later_response.json()
-    expected = {
-        "title": "Оставить отзыв",
-        "url": "https://dialogs.yandex.ru/store/skills/9ec272d2-shahmaty-s-yuroj#ratings",
-        "hide": True,
-    }
-    assert "buttons" not in opened["response"]
-    assert "buttons" not in returned["response"]
-    assert "оставьте, пожалуйста, отзыв" in offered["response"]["text"]
-    assert offered["response"]["buttons"] == [expected]
-    assert replayed["response"]["buttons"] == [expected]
-    assert "buttons" not in later["response"]
+        for index in range(4):
+            response = (
+                await client.post(
+                    "/alice/webhook", json=alice_request(1, session_id=f"visit-{index}", new=True, screen=True)
+                )
+            ).json()
+            assert "buttons" not in response["response"]
+            assert REVIEW_PROMPT_TEXT not in response["response"]["text"]
+        failed = (await client.post("/alice/webhook", json=alice_request(2, command="абракадабра", screen=True))).json()
+        assert REVIEW_PROMPT_TEXT not in failed["response"]["text"]
 
 
-@pytest.mark.parametrize(("third_command", "third_has_screen"), [("", False), ("абракадабра", True)])
-async def test_review_eligibility_survives_a_voice_only_or_failed_third_session(
-    third_command: str,
-    third_has_screen: bool,
+@pytest.mark.parametrize("screen", [False, True])
+async def test_requested_review_instructions_are_available_without_starting_a_game_and_count_once(
+    screen: bool, session_factory: sessionmaker[Session], database_engine: Engine
+) -> None:
+    payload = alice_request(1, command="где оставить отзыв", new=True, screen=screen)
+    async with build_client(session_factory) as client:
+        first = (await client.post("/alice/webhook", json=payload)).json()
+        replayed = (await client.post("/alice/webhook", json=payload)).json()
+    assert first == replayed
+    assert "yurachess.ru/reviews" in first["response"]["text"]
+    assert "юра чесс точка ру" in first["response"]["tts"]
+    assert "На колонке" in first["response"]["text"]
+    assert games_count(database_engine) == 0
+    if screen:
+        assert first["response"]["buttons"][0]["url"] == REVIEW_BUTTON_URL
+    else:
+        assert "buttons" not in first["response"]
+    with session_scope(session_factory) as session:
+        marked = session.scalars(select(UsageRequestRow).where(UsageRequestRow.review_prompt_kind == "requested")).all()
+        assert len(marked) == 1
+
+
+async def test_voice_opt_out_survives_new_session_but_explicit_instructions_remain_available(
     session_factory: sessionmaker[Session],
 ) -> None:
+    payload = mate_request(session_factory)
     async with build_client(session_factory) as client:
-        await client.post("/alice/webhook", json=alice_request(1, session_id="visit-1", new=True))
-        await client.post("/alice/webhook", json=alice_request(1, session_id="visit-2", new=True))
-        skipped = (
+        await client.post("/alice/webhook", json=alice_request(1, command="не проси отзывы", new=True))
+        finished = (await client.post("/alice/webhook", json=payload)).json()
+        requested = (
             await client.post(
-                "/alice/webhook",
-                json=alice_request(
-                    1,
-                    session_id="visit-3",
-                    command=third_command,
-                    new=True,
-                    screen=third_has_screen,
-                ),
+                "/alice/webhook", json=alice_request(1, command="где оставить отзыв", session_id="next", new=True)
             )
         ).json()
-        offered = (
-            await client.post(
-                "/alice/webhook",
-                json=alice_request(1, session_id="visit-4", new=True, screen=True),
-            )
-        ).json()
+    assert REVIEW_PROMPT_TEXT not in finished["response"]["text"]
+    assert "yurachess.ru/reviews" in requested["response"]["text"]
+    owner = owner_key(SecretStr(TEST_IDENTITY_SALT), USER_A, "device-1")
+    with session_scope(session_factory) as session:
+        assert session.get(UsageUserRow, owner).review_prompts_disabled
 
-    assert "buttons" not in skipped["response"]
-    assert offered["response"]["buttons"][0]["url"].endswith("#ratings")
+
+@pytest.mark.parametrize("prior_streak", [0, 2])
+async def test_clean_puzzle_milestone_prompts_voice_players_and_replays_without_double_counting(
+    prior_streak: int, session_factory: sessionmaker[Session]
+) -> None:
+    owner = owner_key(SecretStr(TEST_IDENTITY_SALT), USER_A, "device-1")
+    with session_scope(session_factory) as session:
+        session.add(PuzzleProfileRow(owner_key=owner, clean_streak=prior_streak))
+        session.flush()
+        PuzzleRepository(session).start_attempt(owner, "001cr")
+    payload = alice_request(1, command="слон д семь е восемь")
+    async with build_client(session_factory) as client:
+        solved = (await client.post("/alice/webhook", json=payload)).json()
+        replayed = (await client.post("/alice/webhook", json=payload)).json()
+    assert "решена" in solved["response"]["text"]
+    assert solved == replayed
+    assert (REVIEW_PROMPT_TEXT in solved["response"]["text"]) is (prior_streak == 2)
+    assert "buttons" not in solved["response"]
+    with session_scope(session_factory) as session:
+        assert session.get(UsageUserRow, owner).review_prompt_count == int(prior_streak == 2)
 
 
 async def test_review_claim_rolls_back_when_the_prompt_response_cannot_be_cached(
     monkeypatch: pytest.MonkeyPatch,
     session_factory: sessionmaker[Session],
 ) -> None:
+    payload = mate_request(session_factory, screen=True)
     async with build_client(session_factory) as client:
-        await client.post("/alice/webhook", json=alice_request(1, session_id="visit-1", new=True))
-        await client.post("/alice/webhook", json=alice_request(1, session_id="visit-2", new=True))
 
         def fail_to_store(*args: object, **kwargs: object) -> None:
             raise RuntimeError("cache unavailable")
 
         monkeypatch.setattr(GameRepository, "store_alice_response", fail_to_store)
-        response = (
-            await client.post(
-                "/alice/webhook",
-                json=alice_request(1, session_id="visit-3", new=True, screen=True),
-            )
-        ).json()
+        response = (await client.post("/alice/webhook", json=payload)).json()
 
     owner = owner_key(SecretStr(TEST_IDENTITY_SALT), USER_A, "device-1")
     with session_scope(session_factory) as session:
@@ -286,7 +322,7 @@ async def test_review_claim_rolls_back_when_the_prompt_response_cannot_be_cached
     assert prompted_at is None
 
 
-async def test_an_engaged_resignation_offers_a_review_on_screen(
+async def test_a_resignation_does_not_prompt_for_a_review(
     session_factory: sessionmaker[Session],
 ) -> None:
     async with build_client(session_factory) as client:
@@ -326,8 +362,8 @@ async def test_an_engaged_resignation_offers_a_review_on_screen(
             )
         ).json()
 
-    assert resigned["response"]["buttons"][0]["url"].endswith("#ratings")
-    assert "отзыв" in resigned["response"]["text"]
+    assert "buttons" not in resigned["response"]
+    assert REVIEW_PROMPT_TEXT not in resigned["response"]["text"]
 
 
 @pytest.mark.parametrize("command", ["помощь", "что ты умеешь"])
@@ -796,7 +832,7 @@ def test_review_prompt_is_preserved_at_alice_text_and_tts_limits() -> None:
     assert len(prompted.response.text) <= TEXT_LIMIT
     assert len(prompted.response.tts or "") <= TTS_LIMIT
     assert prompted.response.text.endswith(REVIEW_PROMPT_TEXT)
-    assert (prompted.response.tts or "").endswith(REVIEW_PROMPT_TEXT)
+    assert (prompted.response.tts or "").endswith(REVIEW_PROMPT.spoken())
 
 
 async def test_a_foreign_game_id_reveals_nothing_and_never_touches_that_game(

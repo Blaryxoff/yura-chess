@@ -328,7 +328,20 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 - [x] Подготовить production masters из исходных WAV/OGG, загрузить их в Yandex Dialogs и проверить пять custom IDs в staging
 - [x] Mark completed
 
+### Task 23: Сделать отзывы доступными с сайта и голосом и измерять обращения
+
+**Files:** Modify website, routes, command routing, conversation, webhook, usage storage and nginx; Create review engagement migration, repository, operator report and focused tests.
+
+- [x] Добавить постоянные ссылки и `/reviews` с доступными инструкциями для Dialogs и отдельно для отзывов на сайт в Яндекс Браузере
+- [x] Распознавать «Где оставить отзыв?» и «Не проси отзывы» без изменения партии, задачи или ожидаемого подтверждения
+- [x] Предлагать отзыв после завершённой партии или трёх чистых задач на экранных и голосовых устройствах; не более двух просьб с интервалом 30 дней и с постоянным отказом
+- [x] Считать идемпотентные просьбы и запросы перехода отдельно от вручную наблюдаемых опубликованных оценок и текстовых отзывов
+- [x] Проверить миграцию, focused tests, полный локальный набор и доступность новых страниц в браузере
+- [x] Mark completed
+
 ## Verification notes
+
+Task 23: focused tests, Ruff lint/format, mypy и проверка Alembic прошли. Полный локальный набор: 2453 passed, 26 skipped; единственный fail — ожидаемая проверка `test_database_is_mariadb_11_4` на локальном MySQL 8.0.33. Проверка MariaDB 11.4 остаётся обязательной в CI. Browser QA проверил `/`, `/reviews`, `/commands` на 390×844 и 1440×900, реальные переходы, фиксированный redirect и независимые агрегаты: 19/20 пунктов прошли, дефектов не подтверждено. В пункте 20 блокирована только очистка общего Chrome/MCP/profile из-за неоднозначного владения процессами; тестовые вкладки закрыты или восстановлены. Собственный сервер остановлен, disposable DB удалена. Production deploy в эту задачу не входит.
 
 После каждой задачи запускаются focused tests затронутого слоя. После Task 19 обязательны все команды из `Validation Commands`; staging-команда выполняется через активный SSH tunnel, а пропуск `tests/e2e` недопустим. Для тестов storage и миграций используется MariaDB, а не SQLite. Fake engine допустим в unit tests, но staging smoke должен использовать реальный bounded Stockfish pool.
 

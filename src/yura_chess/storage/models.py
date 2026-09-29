@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     CHAR,
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -321,6 +322,8 @@ class UsageUserRow(Base):
     first_seen_at: Mapped[datetime] = mapped_column(DateTime)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime)
     review_prompted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    review_prompt_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    review_prompts_disabled: Mapped[bool] = mapped_column(Boolean, server_default="0")
 
 
 class UsageRequestRow(Base):
@@ -340,4 +343,22 @@ class UsageRequestRow(Base):
     command_kind: Mapped[str | None] = mapped_column(String(32))
     resolution_status: Mapped[str | None] = mapped_column(String(16))
     routing_outcome: Mapped[str | None] = mapped_column(String(24))
+    review_prompt_kind: Mapped[str | None] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ReviewClickDailyRow(Base):
+    __tablename__ = "review_click_daily"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    source: Mapped[str] = mapped_column(String(16), primary_key=True)
+    clicks: Mapped[int] = mapped_column(BigInteger, server_default="0")
+
+
+class PublishedReviewSnapshotRow(Base):
+    __tablename__ = "published_review_snapshots"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    platform: Mapped[str] = mapped_column(String(16), primary_key=True)
+    ratings: Mapped[int] = mapped_column(Integer)
+    reviews: Mapped[int] = mapped_column(Integer)

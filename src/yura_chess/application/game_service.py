@@ -38,9 +38,11 @@ from yura_chess.domain.results import (
 )
 from yura_chess.engine.stockfish import EngineSearchTimeoutError, EngineUnavailableError
 from yura_chess.storage.database import session_scope
+from yura_chess.storage.feedback_repository import FeedbackRepository
 from yura_chess.storage.game_repository import GameRepository
 from yura_chess.storage.models import RequestReplayRow
 from yura_chess.storage.usage_repository import UsageRepository
+from yura_chess.storage.usage_repository import request_key as usage_request_key
 
 logger = logging.getLogger(__name__)
 
@@ -255,11 +257,16 @@ class GameService:
         request: RequestContext,
         response_payload: str,
         game_id: str | None,
+        review_requested: bool = False,
     ) -> None:
         with session_scope(self._session_factory) as session:
             repository = GameRepository(session)
             replay, _ = self._claim(repository, request, owner_key, game_id)
             repository.store_alice_response(replay, response_payload, game_id)
+            if review_requested:
+                FeedbackRepository(session).record_prompt(
+                    owner_key, usage_request_key(request.skill_id, request.session_id, request.message_id), "requested"
+                )
 
     def store_alice_response_with_review_prompt(
         self,
@@ -273,6 +280,10 @@ class GameService:
             repository = GameRepository(session)
             replay, _ = self._claim(repository, request, owner_key, game_id)
             prompted = UsageRepository(session).claim_review_prompt(owner_key)
+            if prompted:
+                FeedbackRepository(session).record_prompt(
+                    owner_key, usage_request_key(request.skill_id, request.session_id, request.message_id), "automatic"
+                )
             repository.store_alice_response(
                 replay,
                 prompted_response_payload if prompted else response_payload,

@@ -60,6 +60,8 @@ class CommandKind(StrEnum):
     REPEAT_REPLY = "repeat_reply"
     HELP = "help"
     HELP_EXIT = "help_exit"
+    FEEDBACK = "feedback"
+    FEEDBACK_DISMISS = "feedback_dismiss"
     EXIT = "exit"
     # Leaving asked in passing rather than commanded; answered with a question.
     EXIT_CONFIRM = "exit_confirm"
@@ -1315,6 +1317,19 @@ def _route_once(
                 clarification=PendingClarification(heard=normalized.text),
             )
         return RoutedCommand(CommandKind.UNKNOWN, normalized)
+
+    if re.fullmatch(
+        r"(?:(?:алиса|юра) )?(?:(?:не проси|не просите|больше не проси) отзывы?|"
+        r"не напоминай(?: мне)? (?:об|про) отзывах|(?:выключи|отключи) просьбы об отзывах)",
+        normalized.text,
+    ):
+        return RoutedCommand(CommandKind.FEEDBACK_DISMISS, normalized, clarification=None)
+    if re.fullmatch(
+        r"(?:(?:алиса|юра) )?(?:(?:где|как)(?: мне| можно)? (?:оставить|написать) отзыв(?: о навыке| об игре)?|"
+        r"(?:хочу )?(?:оставить|написать) отзыв(?: о навыке| об игре)?|где поставить оценку|отзыв)",
+        normalized.text,
+    ):
+        return RoutedCommand(CommandKind.FEEDBACK, normalized, clarification=None)
 
     if is_rules_request(normalized.text):
         return RoutedCommand(CommandKind.HELP, normalized, clarification=None)

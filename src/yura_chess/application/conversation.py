@@ -55,6 +55,7 @@ from yura_chess.domain.preferences import (
 from yura_chess.domain.results import GameEnd, PlayerRecord, TurnResult, TurnStatus
 from yura_chess.presentation import help_speech
 from yura_chess.presentation.commentary import comment_on
+from yura_chess.presentation.feedback_speech import REVIEW_DISMISSED, REVIEW_INSTRUCTIONS
 from yura_chess.presentation.game_facts import answer_game_fact
 from yura_chess.presentation.help_speech import HelpAnswer, HelpMode, HelpState
 from yura_chess.presentation.move_speech import (
@@ -204,6 +205,7 @@ class ConversationReply:
     # The cue for the engine's move, sounded where «Мой ход» begins, so that an
     # answer carrying both plies is heard as both.
     engine_sound: SoundEvent | None = None
+    review_requested: bool = False
 
 
 class ChessEngine(MoveSearch, PositionSearch, Protocol):
@@ -319,8 +321,9 @@ class ConversationService:
         request: RequestContext,
         response_payload: str,
         game_id: str | None,
+        review_requested: bool = False,
     ) -> None:
-        self._games.store_alice_response(owner_key, request, response_payload, game_id)
+        self._games.store_alice_response(owner_key, request, response_payload, game_id, review_requested)
 
     def store_response_with_review_prompt(
         self,
@@ -411,6 +414,11 @@ class ConversationService:
             else routed.kind
         )
         self._record(owner_key, routed, board, request, state.pending_action, interpreted_kind)
+
+        if routed.kind is CommandKind.FEEDBACK:
+            return ConversationReply(REVIEW_INSTRUCTIONS, state, review_requested=True)
+        if routed.kind is CommandKind.FEEDBACK_DISMISS:
+            return ConversationReply(REVIEW_DISMISSED, state)
 
         repeated = {CommandKind.REPEAT_HEARD, CommandKind.REPEAT_SLOW}
         next_heard = state.last_heard if routed.kind in repeated else routed.normalized.text
@@ -1584,6 +1592,8 @@ class ConversationService:
                 resolution_status=resolution.status.value if resolution is not None and not confirmation else None,
                 routing_outcome=routing_outcome,
             )
+            if routed.kind is CommandKind.FEEDBACK_DISMISS:
+                UsageRepository(session).disable_review_prompts(owner_key)
             if routed.normalized.text:
                 TranscriptRepository(session, self._settings.asr_transcript_text_limit).record(
                     owner_key,

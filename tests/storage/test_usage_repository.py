@@ -34,6 +34,8 @@ def test_usage_schema_cannot_store_raw_identifiers_or_conversation_data() -> Non
         "first_seen_at",
         "last_seen_at",
         "review_prompted_at",
+        "review_prompt_count",
+        "review_prompts_disabled",
     }
     assert request_columns == {
         "request_key",
@@ -43,6 +45,7 @@ def test_usage_schema_cannot_store_raw_identifiers_or_conversation_data() -> Non
         "command_kind",
         "resolution_status",
         "routing_outcome",
+        "review_prompt_kind",
         "created_at",
     }
 
@@ -130,6 +133,48 @@ def test_three_clean_puzzles_unlock_the_review_prompt(session: Session) -> None:
     session.flush()
 
     assert repository.claim_review_prompt(REAL_OWNER, now) is True
+
+
+def test_review_prompts_have_one_reminder_after_thirty_days_and_permanent_opt_out(session: Session) -> None:
+    repository = UsageRepository(session)
+    now = datetime(2026, 8, 30, 12)
+    repository.record_request(REAL_OWNER, "skill", "session", "1", "real", now)
+    session.add(PuzzleProfileRow(owner_key=REAL_OWNER, clean_streak=3))
+    session.flush()
+
+    assert repository.claim_review_prompt(REAL_OWNER, now)
+    assert not repository.claim_review_prompt(REAL_OWNER, now + timedelta(days=30, microseconds=-1))
+    assert repository.claim_review_prompt(REAL_OWNER, now + timedelta(days=30))
+    assert not repository.claim_review_prompt(REAL_OWNER, now + timedelta(days=60))
+    repository.disable_review_prompts(REAL_OWNER)
+    user = session.get(UsageUserRow, REAL_OWNER)
+    assert user.review_prompt_count == 2
+    assert user.review_prompts_disabled
+
+
+def test_opt_out_blocks_eligible_prompts_without_affecting_another_user(session: Session) -> None:
+    repository = UsageRepository(session)
+    now = datetime(2026, 8, 30, 12)
+    for owner in (REAL_OWNER, TEST_OWNER):
+        repository.record_request(owner, "skill", owner, "1", "real", now)
+        session.add(PuzzleProfileRow(owner_key=owner, clean_streak=3))
+    session.flush()
+    repository.disable_review_prompts(REAL_OWNER)
+
+    assert not repository.claim_review_prompt(REAL_OWNER, now)
+    assert repository.claim_review_prompt(TEST_OWNER, now)
+
+
+def test_replaced_games_and_repeat_visits_do_not_unlock_review_prompts(session: Session) -> None:
+    repository = UsageRepository(session)
+    now = datetime(2026, 8, 30, 12)
+    for index in range(3):
+        repository.record_request(REAL_OWNER, "skill", f"visit-{index}", "1", "real", now)
+    games = GameRepository(session)
+    game = games.create_game(REAL_OWNER, PlayerColor.WHITE)
+    games.append_moves(game.id, REAL_OWNER, game.revision, ("e2e4", "e7e5"), GameStatus.RESIGNED)
+
+    assert not repository.claim_review_prompt(REAL_OWNER, now)
 
 
 def test_dashboard_separates_real_test_and_all_traffic(session: Session) -> None:

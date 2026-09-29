@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 
 import chess
@@ -22,6 +23,7 @@ from yura_chess.application.conversation import (
     ConversationReply,
     ConversationService,
     ConversationState,
+    PendingAction,
     _board_after_player,
     _engine_sound,
     _harder_level,
@@ -113,6 +115,39 @@ async def test_voice_move_runs_through_router_game_and_speech(
     assert "Ваш ход: пешка e2 e4" in reply.speech.text
     assert "Мой ход" in reply.speech.text
     assert reply.speech.tts is not None and "alice-sounds-game-ping-1.opus" in reply.speech.tts
+
+
+@pytest.mark.parametrize("command", ["где оставить отзыв", "не проси отзывы"])
+@pytest.mark.parametrize("navigation", ["help", "review", "confirmation", "clarification"])
+async def test_feedback_commands_preserve_the_game_and_conversation_navigation(
+    command: str,
+    navigation: str,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    started = await conversation.handle(OWNER, "новая игра белыми", context(1))
+    state = replace(
+        started.state,
+        help=HelpState(HelpTopic.SETTINGS, 1) if navigation == "help" else None,
+        reviewing=navigation == "review",
+        pending_action=PendingAction(CommandKind.RESIGN, "сдаюсь") if navigation == "confirmation" else None,
+        clarification=PendingClarification("конь", ("g1f3",)) if navigation == "clarification" else None,
+    )
+    with session_scope(session_factory) as session:
+        before = GameRepository(session).load(state.game_id, OWNER)
+
+    reply = await conversation.handle(OWNER, command, context(2), state)
+
+    with session_scope(session_factory) as session:
+        after = GameRepository(session).load(state.game_id, OWNER)
+    assert after == before
+    assert reply.state.game_id == state.game_id
+    assert reply.state.help == state.help
+    assert reply.state.reviewing == state.reviewing
+    assert reply.state.pending_action == state.pending_action
+    assert reply.state.clarification == state.clarification
+    assert reply.review_requested is (command == "где оставить отзыв")
 
 
 async def test_start_sound_and_durable_voice_switch(

@@ -139,26 +139,25 @@ class UsageRepository:
         )
 
     def claim_review_prompt(self, owner_key: str, claimed_at: datetime | None = None) -> bool:
+        now = claimed_at or datetime.now(UTC).replace(tzinfo=None)
         result = self._session.execute(
             text(
                 """
                 UPDATE usage_users u
-                SET u.review_prompted_at = :claimed_at
+                SET u.review_prompted_at = :claimed_at,
+                    u.review_prompt_count = u.review_prompt_count + 1
                 WHERE u.owner_key = :owner_key
                   AND u.traffic_source = 'real'
-                  AND u.review_prompted_at IS NULL
+                  AND u.review_prompts_disabled = 0
+                  AND u.review_prompt_count < 2
+                  AND (u.review_prompted_at IS NULL OR u.review_prompted_at <= :cutoff)
                   AND (
                     EXISTS (
                       SELECT 1
                       FROM games g
                       JOIN game_moves m ON m.game_id = g.id AND m.actor = 'player'
                       WHERE g.owner_key = u.owner_key
-                        AND g.status IN ('finished', 'resigned')
-                    )
-                    OR (
-                      (SELECT COUNT(DISTINCT r.session_key)
-                       FROM usage_requests r
-                       WHERE r.owner_key = u.owner_key) >= 3
+                        AND g.status = 'finished'
                     )
                     OR EXISTS (
                       SELECT 1
@@ -169,9 +168,15 @@ class UsageRepository:
                   )
                 """
             ),
-            {"owner_key": owner_key, "claimed_at": claimed_at or datetime.now(UTC).replace(tzinfo=None)},
+            {"owner_key": owner_key, "claimed_at": now, "cutoff": now - timedelta(days=30)},
         )
         return int(getattr(result, "rowcount", 0)) == 1
+
+    def disable_review_prompts(self, owner_key: str) -> None:
+        self._session.execute(
+            text("UPDATE usage_users SET review_prompts_disabled = 1 WHERE owner_key = :owner_key"),
+            {"owner_key": owner_key},
+        )
 
     def dashboard(
         self,

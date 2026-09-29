@@ -28,6 +28,7 @@ YANDEX_REVIEW_URL = f"{YANDEX_DIALOG_URL}#ratings"
 LANDING_PATH = "/"
 HOW_TO_PLAY_PATH = "/how-to-play"
 COMMANDS_PATH = "/commands"
+REVIEWS_PATH = "/reviews"
 COACH_PATH = "/coach"
 PUZZLES_PATH = "/puzzles"
 ACCESSIBILITY_PATH = "/accessibility"
@@ -59,6 +60,7 @@ SITEMAP_ENTRIES: tuple[tuple[str, str], ...] = (
     (STATISTICS_PATH, "0.7"),
     (HOW_TO_PLAY_PATH, "0.8"),
     (COMMANDS_PATH, "0.8"),
+    (REVIEWS_PATH, "0.6"),
     (ACCESSIBILITY_PATH, "0.8"),
     (BLINDFOLD_PATH, "0.7"),
     (COACH_PATH, "0.7"),
@@ -659,6 +661,7 @@ SITE_SCRIPT = """
 
 NAV_ITEMS: tuple[tuple[str, str], ...] = (
     (LANDING_PATH, "Навык"),
+    (REVIEWS_PATH, "Оставить отзыв"),
     (HOW_TO_PLAY_PATH, "Как играть"),
     (COMMANDS_PATH, "Команды"),
     (COACH_PATH, "Тренер"),
@@ -690,6 +693,7 @@ FOOTER_HTML = f"""<footer>
       </span>
     </a>
     <nav class="footer-nav" aria-label="Дополнительные страницы">
+      <a href="{REVIEWS_PATH}">Оставить отзыв</a>
       <a href="{HOW_TO_PLAY_PATH}">Как играть в шахматы голосом</a>
       <a href="{COMMANDS_PATH}">Голосовые команды</a>
       <a href="{COACH_PATH}">Шахматный тренер голосом</a>
@@ -1016,10 +1020,11 @@ LANDING_BODY = f"""    <header>
       <div class="support-actions">
         <a
           class="support-action"
-          href="{YANDEX_REVIEW_URL}"
+          href="{REVIEWS_PATH}/dialogs?source=landing"
           target="_blank"
           rel="noopener noreferrer"
-        >Оставить отзыв в Яндексе</a>
+        >Оставить отзыв о навыке</a>
+        <p><a href="{REVIEWS_PATH}">Где и как написать отзыв</a></p>
         <div class="support-donation">
           <a
             class="support-donation-link"
@@ -1339,6 +1344,85 @@ COMMANDS_PAGE_HTML = _document(
         <code>«дальше»</code>, <code>«назад»</code> и <code>«сначала»</code>.
         Если вы здесь впервые, начните с инструкции
         <a href="{HOW_TO_PLAY_PATH}">«Как играть в шахматы с Алисой голосом»</a>.
+      </p>
+
+      <h2>Отзывы о навыке</h2>
+      <ul>
+        <li><code>«Где оставить отзыв?»</code> — инструкция голосом и ссылка на устройствах с экраном</li>
+        <li><code>«Не напоминай мне об отзывах»</code> — отключить напоминания об отзыве</li>
+      </ul>
+      <p>Пошаговая инструкция доступна на странице <a href="{REVIEWS_PATH}">«Оставить отзыв»</a>.</p>
+    </section>
+""",
+)
+
+_REVIEWS_TITLE = "Оставить отзыв о «Шахматах с Юрой»"
+
+REVIEWS_PAGE_HTML = _document(
+    title="Оставить отзыв о навыке «Шахматы с Юрой» — инструкция",
+    description=(
+        "Как оценить навык «Шахматы с Юрой» в Яндекс Диалогах: вход через Яндекс ID, "
+        "выбор звёзд и текст отзыва. Отдельная инструкция для отзывов о сайте в Яндекс Браузере."
+    ),
+    path=REVIEWS_PATH,
+    structured_data=[_page_schema(_REVIEWS_TITLE, REVIEWS_PATH), _breadcrumb_schema(_REVIEWS_TITLE, REVIEWS_PATH)],
+    body=f"""    <header>
+      <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♞</a>
+      <h1>{_REVIEWS_TITLE}</h1>
+      <p class="lead">
+        Расскажите, как вам игра: что понравилось и что стоит улучшить.
+        Ваш опыт поможет другим игрокам выбрать навык, а нам — сделать его удобнее.
+      </p>
+      <a class="support-action" href="{REVIEWS_PATH}/dialogs?source=guide">Оставить отзыв о навыке в Яндексе</a>
+    </header>
+
+    <section class="article" aria-labelledby="skill-review-heading">
+      <h2 id="skill-review-heading">Отзыв о навыке в Яндекс Диалогах</h2>
+      <ol class="steps">
+        <li>Нажмите кнопку «Оставить отзыв о навыке в Яндексе» выше.
+            Откроется карточка «Шахматы с Юрой» в каталоге Яндекс Диалогов.</li>
+        <li>Войдите с вашим Яндекс ID, если Яндекс попросит авторизоваться.</li>
+        <li>Найдите раздел «Оцените “Шахматы с Юрой”» и выберите число звёзд.
+            Если раздел не виден сразу, прокрутите карточку вниз.</li>
+        <li>Следуйте подсказкам формы Яндекса: напишите впечатления об игре и отправьте отзыв.</li>
+      </ol>
+      <p>
+        Можно рассказать, на каком устройстве вы играли, удобно ли называть ходы и слушать ответы,
+        что хотелось бы изменить. Пишите о собственном опыте — любая честная оценка полезна.
+      </p>
+      <h3>Если вы играете на Станции</h3>
+      <p>
+        Отправить отзыв голосом через навык на Станции нельзя.
+        Откройте <strong>yurachess.ru</strong> на телефоне или компьютере и выберите
+        <strong>«Оставить отзыв»</strong> в верхнем меню сайта. Эта инструкция находится по адресу
+        <strong>yurachess.ru/reviews</strong>.
+      </p>
+      <p>
+        Во время игры спросите <code>«Где оставить отзыв?»</code>, чтобы услышать инструкцию ещё раз.
+        Если напоминания не нужны, скажите <code>«Не напоминай мне об отзывах»</code>.
+      </p>
+    </section>
+
+    <section class="article" aria-labelledby="website-review-heading">
+      <h2 id="website-review-heading">Отдельно: отзыв о сайте в Яндекс Браузере</h2>
+      <p>
+        Через значок щита у адреса можно оценить <strong>сайт yurachess.ru</strong>.
+        Эти отзывы хранятся отдельно от отзывов о навыке в Яндекс Диалогах
+        и не увеличивают число оценок навыка.
+      </p>
+      <ol class="steps">
+        <li>Откройте yurachess.ru в Яндекс Браузере на компьютере.</li>
+        <li>Нажмите значок щита слева от адреса — откроется панель «Нейропротект».</li>
+        <li>Выберите строку «Нет отзывов» или строку с количеством отзывов,
+            затем «Оставить отзыв».</li>
+        <li>Выберите звёзды, напишите впечатления о сайте и нажмите «Отправить».</li>
+      </ol>
+      <p>
+        Вид панели зависит от версии браузера. Если на телефоне нет такой строки,
+        используйте <a href="https://browser.yandex.ru/help/ru/recommendation/review">
+        справку Яндекс Браузера об отзывах</a>.
+        Отзыв о самой игре можно оставить через кнопку Яндекс Диалогов в начале этой страницы
+        с телефона или компьютера.
       </p>
     </section>
 """,

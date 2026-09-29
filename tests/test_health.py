@@ -35,6 +35,8 @@ from yura_chess.presentation.website import (
     LANDING_PATH,
     PUZZLES_PAGE_HTML,
     PUZZLES_PATH,
+    REVIEWS_PAGE_HTML,
+    REVIEWS_PATH,
     ROBOTS_PATH,
     ROBOTS_TEXT,
     SITEMAP_ENTRIES,
@@ -62,6 +64,62 @@ def test_liveness_does_not_depend_on_the_database(offline_settings: Settings) ->
         "version": "0.1.0",
         "components": None,
     }
+
+
+def test_reviews_guide_is_public_cacheable_and_has_a_revalidation_tag(offline_settings: Settings) -> None:
+    client = TestClient(create_app(offline_settings))
+    response = client.get(REVIEWS_PATH)
+    head = client.head(REVIEWS_PATH)
+    unchanged = client.get(REVIEWS_PATH, headers={"If-None-Match": response.headers["etag"]})
+
+    assert response.status_code == head.status_code == 200
+    assert response.text == REVIEWS_PAGE_HTML
+    assert head.content == b""
+    assert unchanged.status_code == 304
+    assert f'<link rel="canonical" href="https://yurachess.ru{REVIEWS_PATH}">' in response.text
+
+
+def test_review_redirect_counts_only_get_requests_and_has_a_fixed_destination(
+    monkeypatch: pytest.MonkeyPatch, offline_settings: Settings
+) -> None:
+    recorded: list[str] = []
+
+    @contextmanager
+    def fake_session(factory: object) -> Iterator[None]:
+        yield None
+
+    monkeypatch.setattr("yura_chess.main.session_scope", fake_session)
+    monkeypatch.setattr("yura_chess.main.FeedbackRepository.record_click", lambda self, source: recorded.append(source))
+    app = create_app(offline_settings)
+    app.state.session_factory = object()
+    client = TestClient(app)
+    for source in ("skill", "guide", "landing"):
+        response = client.get(f"/reviews/dialogs?source={source}&url=https://example.com", follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers["location"] == YANDEX_REVIEW_URL
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["x-robots-tag"] == "noindex, nofollow"
+    assert client.head("/reviews/dialogs", follow_redirects=False).status_code == 302
+    assert (
+        client.get("/reviews/dialogs", headers={"Sec-Purpose": "prefetch"}, follow_redirects=False).status_code == 302
+    )
+    assert client.get("/reviews/dialogs?source=arbitrary", follow_redirects=False).status_code == 422
+    assert client.post("/reviews/dialogs").status_code == 405
+    assert recorded == ["skill", "guide", "landing"]
+
+
+def test_review_redirect_still_works_when_tracking_is_unavailable(offline_settings: Settings) -> None:
+    client = TestClient(create_app(offline_settings))
+    response = client.get("/reviews/dialogs", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == YANDEX_REVIEW_URL
+
+
+def test_host_nginx_proxies_both_review_routes() -> None:
+    config = Path("deploy/nginx/yurachess.ru.conf").read_text()
+    patterns = re.findall(r"location ~ (\S+) \{", config)
+    assert all(any(re.fullmatch(pattern, path) for pattern in patterns) for path in ("/reviews", "/reviews/dialogs"))
 
 
 def test_public_landing_page_describes_the_skill_for_everyone(
@@ -131,8 +189,8 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     assert 'class="support-donation-link"' in response.text
     assert "Поддержать работу навыка" in response.text
     assert "Хотите помочь с оплатой сервера?" not in response.text
-    assert f'class="support-action"\n          href="{YANDEX_REVIEW_URL}"' in response.text
-    assert "Оставить отзыв в Яндексе" in response.text
+    assert f'class="support-action"\n          href="{REVIEWS_PATH}/dialogs?source=landing"' in response.text
+    assert "Оставить отзыв о навыке" in response.text
     assert "Отзыв поможет другим игрокам найти навык" in response.text
     assert "а нам — понять, что сделать лучше" in response.text
     assert '<link rel="icon" href="/favicon.svg"' in response.text
@@ -275,8 +333,9 @@ _COMMANDS_CATALOGUE_SECTIONS = (
     "Шахматные задачи",
     "Если Алиса не расслышала",
     "Справка голосом",
+    "Отзывы о навыке",
 )
-_COMMANDS_CATALOGUE_ITEM_COUNT = 31
+_COMMANDS_CATALOGUE_ITEM_COUNT = 33
 
 
 def test_commands_h1_matches_structured_data_and_keeps_the_full_list(offline_settings: Settings) -> None:
@@ -300,19 +359,19 @@ def test_commands_h1_matches_structured_data_and_keeps_the_full_list(offline_set
     assert breadcrumb["itemListElement"][-1]["name"] == _COMMANDS_TITLE
 
 
-def test_sitemap_lists_exactly_the_eight_canonical_pages_without_lastmod(offline_settings: Settings) -> None:
+def test_sitemap_lists_exactly_the_nine_canonical_pages_without_lastmod(offline_settings: Settings) -> None:
     with TestClient(create_app(offline_settings)) as client:
         response = client.get(SITEMAP_PATH)
 
-    assert len(SITEMAP_ENTRIES) == 8
-    assert response.text.count("<url>") == 8
-    assert response.text.count("<loc>") == 8
+    assert len(SITEMAP_ENTRIES) == 9
+    assert response.text.count("<url>") == 9
+    assert response.text.count("<loc>") == 9
     assert "<lastmod>" not in response.text
     for path, _ in SITEMAP_ENTRIES:
         assert f"<loc>https://yurachess.ru{path}</loc>" in response.text
 
 
-def test_all_eight_canonical_pages_have_unique_title_and_description() -> None:
+def test_all_nine_canonical_pages_have_unique_title_and_description() -> None:
     pages_by_path = {
         LANDING_PATH: LANDING_PAGE_HTML,
         STATISTICS_PATH: STATISTICS_PAGE_HTML,
@@ -322,9 +381,10 @@ def test_all_eight_canonical_pages_have_unique_title_and_description() -> None:
         BLINDFOLD_PATH: BLINDFOLD_PAGE_HTML,
         COACH_PATH: COACH_PAGE_HTML,
         PUZZLES_PATH: PUZZLES_PAGE_HTML,
+        REVIEWS_PATH: REVIEWS_PAGE_HTML,
     }
     assert set(pages_by_path) == {path for path, _ in SITEMAP_ENTRIES}
-    assert len(pages_by_path) == 8
+    assert len(pages_by_path) == 9
 
     titles = []
     descriptions = []
@@ -336,8 +396,8 @@ def test_all_eight_canonical_pages_have_unique_title_and_description() -> None:
         titles.append(title_match.group(1))
         descriptions.append(description_match.group(1))
 
-    assert len(set(titles)) == 8
-    assert len(set(descriptions)) == 8
+    assert len(set(titles)) == 9
+    assert len(set(descriptions)) == 9
 
 
 _TV_LONG_MARKERS = ("яндекс тв", "телевизор", "smart tv", "смарт-тв")
