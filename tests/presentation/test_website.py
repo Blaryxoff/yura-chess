@@ -29,7 +29,7 @@ def test_every_public_page_has_a_review_link_in_header_and_footer(html: str) -> 
     assert all('href="/reviews"' in nav and "Оставить отзыв" in nav for nav in navs)
 
 
-def test_review_guide_provides_the_steps_and_station_alternative() -> None:
+def test_review_guide_provides_the_steps_without_redirecting_readers_to_itself() -> None:
     html = website.REVIEWS_PAGE_HTML
     skill_section = html.split('aria-labelledby="skill-review-heading">', 1)[1].split("</section>", 1)[0]
 
@@ -39,9 +39,8 @@ def test_review_guide_provides_the_steps_and_station_alternative() -> None:
     assert "Оцените “Шахматы с Юрой”" in skill_section
     assert "звёзд" in skill_section
     assert "напишите впечатления об игре и отправьте отзыв" in skill_section
-    assert "Отправить отзыв голосом через навык на Станции нельзя" in skill_section
-    assert "yurachess.ru/reviews" in skill_section
-    assert "«Оставить отзыв»" in skill_section
+    assert "Если вы играете на Станции" not in skill_section
+    assert "Эта инструкция находится по адресу" not in skill_section
 
 
 def test_browser_review_guide_keeps_website_reviews_separate_from_skill_ratings() -> None:
@@ -77,6 +76,5 @@ def test_landing_review_cta_tracks_clicks_and_offers_instructions() -> None:
 
 
 def test_voice_review_and_dismissal_commands_are_discoverable() -> None:
-    for html in (website.COMMANDS_PAGE_HTML, website.REVIEWS_PAGE_HTML):
-        assert "«Где оставить отзыв?»" in html
-        assert "«Не напоминай мне об отзывах»" in html
+    assert "«Где оставить отзыв?»" in website.COMMANDS_PAGE_HTML
+    assert "«Не напоминай мне об отзывах»" in website.COMMANDS_PAGE_HTML

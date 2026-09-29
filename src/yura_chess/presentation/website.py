@@ -148,6 +148,10 @@ SITE_CSS = (
     h3 { margin: 26px 0 10px; font-size: clamp(20px, 2.6vw, 24px); color: var(--gold); }
     section > h2:not(:first-child) { margin-top: 26px; }
     .lead { max-width: 900px; margin: 0 auto; color: var(--muted); font-size: clamp(19px, 3vw, 24px); }
+    .reviews-header .support-action { margin-top: 32px; }
+    @media (min-width: 901px) {
+      .reviews-header .skill-name { display: block; }
+    }
     .hero-actions {
       display: flex;
       justify-content: center;
@@ -661,7 +665,6 @@ SITE_SCRIPT = """
 
 NAV_ITEMS: tuple[tuple[str, str], ...] = (
     (LANDING_PATH, "Навык"),
-    (REVIEWS_PATH, "Оставить отзыв"),
     (HOW_TO_PLAY_PATH, "Как играть"),
     (COMMANDS_PATH, "Команды"),
     (COACH_PATH, "Тренер"),
@@ -669,6 +672,7 @@ NAV_ITEMS: tuple[tuple[str, str], ...] = (
     (ACCESSIBILITY_PATH, "Без экрана"),
     (BLINDFOLD_PATH, "Вслепую"),
     (STATISTICS_PATH, "Статистика"),
+    (REVIEWS_PATH, "Оставить отзыв"),
 )
 
 
@@ -1366,9 +1370,9 @@ REVIEWS_PAGE_HTML = _document(
     ),
     path=REVIEWS_PATH,
     structured_data=[_page_schema(_REVIEWS_TITLE, REVIEWS_PATH), _breadcrumb_schema(_REVIEWS_TITLE, REVIEWS_PATH)],
-    body=f"""    <header>
+    body=f"""    <header class="reviews-header">
       <a class="piece home" href="{LANDING_PATH}" aria-label="На главную «Шахматы с Юрой»">♞</a>
-      <h1>{_REVIEWS_TITLE}</h1>
+      <h1>Оставить отзыв о <span class="skill-name">«Шахматах с Юрой»</span></h1>
       <p class="lead">
         Расскажите, как вам игра: что понравилось и что стоит улучшить.
         Ваш опыт поможет другим игрокам выбрать навык, а нам — сделать его удобнее.
@@ -1389,17 +1393,6 @@ REVIEWS_PAGE_HTML = _document(
       <p>
         Можно рассказать, на каком устройстве вы играли, удобно ли называть ходы и слушать ответы,
         что хотелось бы изменить. Пишите о собственном опыте — любая честная оценка полезна.
-      </p>
-      <h3>Если вы играете на Станции</h3>
-      <p>
-        Отправить отзыв голосом через навык на Станции нельзя.
-        Откройте <strong>yurachess.ru</strong> на телефоне или компьютере и выберите
-        <strong>«Оставить отзыв»</strong> в верхнем меню сайта. Эта инструкция находится по адресу
-        <strong>yurachess.ru/reviews</strong>.
-      </p>
-      <p>
-        Во время игры спросите <code>«Где оставить отзыв?»</code>, чтобы услышать инструкцию ещё раз.
-        Если напоминания не нужны, скажите <code>«Не напоминай мне об отзывах»</code>.
       </p>
     </section>
 
