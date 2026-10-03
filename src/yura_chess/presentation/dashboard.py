@@ -342,7 +342,6 @@ def render_summary(snapshot: DashboardSnapshot) -> str:
     return f"""<section id="statistics-summary" class="stats-summary">
       <div class="stats-summary-copy">
         <h2>Статистика</h2>
-        <p>За всё время</p>
         <a class="stats-summary-link" href="{STATISTICS_PATH}">Вся статистика <span aria-hidden="true">→</span></a>
       </div>
       <div class="stats-summary-cards">{cards}</div>

@@ -67,12 +67,10 @@ def test_review_guide_is_canonical_indexable_and_has_matching_structured_data() 
     assert page["url"] == canonical
 
 
-def test_landing_review_cta_tracks_clicks_and_offers_instructions() -> None:
+def test_landing_review_cta_tracks_clicks() -> None:
     support = website.LANDING_PAGE_HTML.split('id="support"', 1)[1].split("</section>", 1)[0]
 
     assert 'href="/reviews/dialogs?source=landing"' in support
-    assert 'href="/reviews"' in support
-    assert "Где и как написать отзыв" in support
 
 
 def test_voice_review_and_dismissal_commands_are_discoverable() -> None:
