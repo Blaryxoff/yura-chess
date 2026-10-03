@@ -44,13 +44,18 @@ Before implementation, read the active product and dev plans under `docs/plans/`
 
 - On this workstation, do not launch Docker Desktop for local tests. Start the existing DBngin instance with
   `open -a DBngin`; Laravel Herd is not needed for the Python/FastAPI test suite.
-- DBngin provides MySQL 8.0.33 at `127.0.0.1:3306` with local user `root` and no password. Create only the disposable
-  database `yura_chess_codex_test` and use
-  `YURA_CHESS_TEST_DATABASE_URL=mysql+pymysql://root@127.0.0.1:3306/yura_chess_codex_test?charset=utf8mb4`.
-- DBngin is a fast local compatibility smoke, not the authoritative database gate. The full local suite should pass
-  except for `test_database_is_mariadb_11_4`, which must continue to reject MySQL. CI and release verification still
-  require MariaDB 11.4; never weaken or skip that assertion in committed tests.
-- Drop only `yura_chess_codex_test` after the run. Never point tests at the development or production database.
+- DBngin provides MariaDB 12.3 at `127.0.0.1:3307` with local user `root` and no password. MySQL 8.0.33 also runs
+  on port 3306; do not use it for the database test suite. Create only the disposable database
+  `yura_chess_codex_test` on MariaDB and run tests with
+  `YURA_CHESS_TEST_DATABASE_URL=mysql+pymysql://root@127.0.0.1:3307/yura_chess_codex_test?charset=utf8mb4`
+  and `YURA_CHESS_TEST_MARIADB_VERSION=12.3`.
+- The local MariaDB 12.3 run is a compatibility smoke. Its test connections turn off
+  `innodb_snapshot_isolation` to match MariaDB 11.4's locking behavior without changing DBngin globally.
+  CI and release verification still require MariaDB 11.4;
+  without the local version override, `test_database_matches_expected_mariadb_version` enforces 11.4. Never weaken
+  or skip that assertion in committed tests.
+- Drop only `yura_chess_codex_test` from MariaDB on port 3307 after the run. Never point tests at the development
+  or production database.
 - CI gates formatting as well as lint: run `ruff format --check .` next to `ruff check src tests`. A branch that passes
   only the linter still fails the `quality` job.
 

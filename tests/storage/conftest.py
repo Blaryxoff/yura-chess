@@ -1,4 +1,4 @@
-"""Repository integration tests run against a real MariaDB 11.4.
+"""Repository integration tests run against a real MariaDB.
 
 The schema is created by running the Alembic migrations, so the migration itself
 is exercised on every run.

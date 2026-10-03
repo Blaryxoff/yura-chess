@@ -47,7 +47,12 @@ def database_engine() -> Iterator[Engine]:
     dsn = os.environ.get(TEST_DSN_ENV)
     if not dsn:
         pytest.skip(f"{TEST_DSN_ENV} is not set; these tests need a real MariaDB")
-    engine = create_engine(dsn, future=True)
+    connect_args = (
+        {"init_command": "SET SESSION innodb_snapshot_isolation=OFF"}
+        if os.environ.get("YURA_CHESS_TEST_MARIADB_VERSION") == "12.3"
+        else {}
+    )
+    engine = create_engine(dsn, future=True, connect_args=connect_args)
     config = Config("alembic.ini")
     config.set_main_option("script_location", "migrations")
     os.environ["ALEMBIC_DATABASE_URL"] = dsn

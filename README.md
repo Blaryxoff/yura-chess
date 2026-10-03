@@ -201,6 +201,15 @@ uv run pytest tests/voice/test_move_resolver.py  # точечный прогон
 Строка `YURA_CHESS_TEST_DATABASE_URL` из `.env.example` уже указывает на эту базу
 на порту `3307`; проверьте, что пароль в ней совпадает с `MARIADB_ROOT_PASSWORD`.
 
+На этом Mac для локальных тестов используется MariaDB 12.3 из DBngin вместо
+Docker: `open -a DBngin`, затем создайте только одноразовую базу
+`yura_chess_codex_test` на `127.0.0.1:3307`. Запускайте тесты с
+`YURA_CHESS_TEST_DATABASE_URL=mysql+pymysql://root@127.0.0.1:3307/yura_chess_codex_test?charset=utf8mb4`
+и `YURA_CHESS_TEST_MARIADB_VERSION=12.3`; после проверки удалите эту базу.
+MySQL 8.0.33 на порту `3306` для этих тестов не подходит. В тестовых соединениях
+MariaDB 12.3 отключается `innodb_snapshot_isolation`, чтобы сохранить поведение
+блокировок MariaDB 11.4 без изменения настроек DBngin.
+
 Тот же набор гейтов, что и в CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
 
 ```bash
@@ -214,8 +223,9 @@ uv run alembic upgrade head && uv run alembic check
 Ветка, прошедшая только линтер, всё равно падает на `quality`: `ruff format
 --check` — обязательный шаг. `mypy` работает в строгом режиме. Тесты с маркером
 `deployed` обращаются к публичному вебхуку и не используют локальную базу.
-Авторитетная база — MariaDB 11.4; тест `test_database_is_mariadb_11_4`
-намеренно отвергает MySQL, ослаблять его нельзя.
+Авторитетная база — MariaDB 11.4; без локального переопределения
+`YURA_CHESS_TEST_MARIADB_VERSION` тест `test_database_matches_expected_mariadb_version`
+требует версию 11.4 и отвергает MySQL.
 
 ## Деплой
 

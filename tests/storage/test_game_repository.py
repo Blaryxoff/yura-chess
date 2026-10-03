@@ -1,7 +1,8 @@
-"""Repository integration tests against a real MariaDB 11.4."""
+"""Repository integration tests against a real MariaDB."""
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta
 
 import chess
@@ -41,12 +42,13 @@ def _new_game(repository: GameRepository, session: Session, owner: str = OWNER) 
     return game.id
 
 
-def test_database_is_mariadb_11_4(database_engine: Engine) -> None:
+def test_database_matches_expected_mariadb_version(database_engine: Engine) -> None:
+    expected_version = os.environ.get("YURA_CHESS_TEST_MARIADB_VERSION", "11.4")
     with database_engine.connect() as connection:
         version = str(connection.execute(text("SELECT VERSION()")).scalar_one())
 
     assert "MariaDB" in version, f"expected MariaDB, got {version}"
-    assert version.startswith("11.4"), f"expected MariaDB 11.4, got {version}"
+    assert version.startswith(f"{expected_version}."), f"expected MariaDB {expected_version}, got {version}"
 
 
 def test_create_and_load_game(repository: GameRepository, session: Session) -> None:
