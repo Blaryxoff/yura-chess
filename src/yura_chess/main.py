@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import mimetypes
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -252,6 +253,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _static_page(BLINDFOLD_PATH, BLINDFOLD_PAGE_HTML)
     _static_page(REVIEWS_PATH, REVIEWS_PAGE_HTML)
     _static_page(STORY_PATH, STORY_PAGE_HTML)
+    mimetypes.add_type("image/webp", ".webp")
     app.mount(
         f"{STORY_PATH}/media",
         StaticFiles(directory=Path(__file__).parent / "presentation" / "assets"),

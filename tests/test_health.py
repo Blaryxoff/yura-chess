@@ -1,4 +1,5 @@
 import json
+import mimetypes
 import os
 import re
 from collections.abc import Iterator
@@ -89,6 +90,20 @@ def test_story_recording_is_streamed_without_truncation(offline_settings: Settin
     assert response.headers["content-type"] == "audio/mpeg"
     assert response.headers["content-range"] == "bytes 0-3/33975812"
     assert len(response.content) == 4
+
+
+def test_story_photo_has_webp_content_type_without_system_mapping(
+    monkeypatch: pytest.MonkeyPatch, offline_settings: Settings
+) -> None:
+    mimetypes.init()
+    monkeypatch.delitem(mimetypes.types_map, ".webp", raising=False)
+    monkeypatch.delitem(mimetypes.common_types, ".webp", raising=False)
+
+    client = TestClient(create_app(offline_settings))
+    response = client.head(f"{STORY_PATH}/media/yura-at-board.webp")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/webp"
 
 
 def test_review_redirect_counts_only_get_requests_and_has_a_fixed_destination(
