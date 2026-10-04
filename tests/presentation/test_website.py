@@ -12,6 +12,7 @@ from yura_chess.presentation import website
     "html",
     [
         website.LANDING_PAGE_HTML,
+        website.STORY_PAGE_HTML,
         website.HOW_TO_PLAY_PAGE_HTML,
         website.COMMANDS_PAGE_HTML,
         website.COACH_PAGE_HTML,
@@ -71,6 +72,32 @@ def test_landing_review_cta_tracks_clicks() -> None:
     support = website.LANDING_PAGE_HTML.split('id="support"', 1)[1].split("</section>", 1)[0]
 
     assert 'href="/reviews/dialogs?source=landing"' in support
+
+
+def test_story_page_links_family_archive_and_full_radio_recording() -> None:
+    html = website.STORY_PAGE_HTML
+
+    assert 'href="/story" aria-current="page"' in html
+    assert '<link rel="canonical" href="https://yurachess.ru/story">' in html
+    assert "<loc>https://yurachess.ru/story</loc>" in website.SITEMAP_XML
+    assert 'href="/story"' in website.LANDING_PAGE_HTML
+    assert html.count("/story/media/yura-") == 7
+    assert '<audio controls preload="none"' in html
+    assert '<source src="/story/media/yura-ransis-2017.mp3" type="audio/mpeg">' in html
+    assert "<summary>Полная расшифровка беседы</summary>" in html
+    assert html.count('href="https://www.radiopage.ransis.org/index.php?name=Files&amp;op=view_file&amp;lid=1602"') == 1
+    assert "Юрий Акакьевич Ичкитидзе" in html
+    assert "Прозвучавшая в данной программе позиция гостя" not in html
+    assert "<strong>Радио РАНСиС:</strong>" not in html
+    assert "молодёжью. Об этом следующий вопрос." in html
+    assert "<h2>Шахматы с 1956 года</h2>" in html
+    assert "<h2>Ставрополь, октябрь 1981 года</h2>" in html
+    assert 'class="story-kicker"' not in html
+    assert "Расшифровка готовится" not in html
+    assert "<strong>Алексей:</strong>" in html
+    assert "<strong>Юрий Акакьевич:</strong>" in html
+    assert "Говорящий не установлен" not in html
+    assert "Угу." not in html
 
 
 def test_voice_review_and_dismissal_commands_are_discoverable() -> None:

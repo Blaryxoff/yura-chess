@@ -150,11 +150,14 @@ sudo nginx -t && sudo systemctl reload nginx
 Verify the whole crawlable surface afterwards:
 
 ```bash
-for path in / /robots.txt /sitemap.xml /how-to-play /commands /coach /puzzles \
+for path in / /robots.txt /sitemap.xml /story /how-to-play /commands /coach /puzzles \
             /accessibility /blindfold /statistics /reviews /reviews/dialogs /favicon.svg \
             /3e123263cd3a154a8aa32da5bc28cebd.txt; do
   printf '%s -> %s\n' "$path" "$(curl -s -o /dev/null -w '%{http_code}' "https://yurachess.ru$path")"
 done
+
+curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' \
+  -H 'Range: bytes=0-3' https://yurachess.ru/story/media/yura-ransis-2017.mp3
 
 curl -sI https://chess.waxim.ru/how-to-play | grep -i '^location: https://yurachess.ru/how-to-play$'
 ```

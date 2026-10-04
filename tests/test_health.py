@@ -44,6 +44,8 @@ from yura_chess.presentation.website import (
     SITEMAP_XML,
     STATISTICS_PAGE_HTML,
     STATISTICS_PATH,
+    STORY_PAGE_HTML,
+    STORY_PATH,
     WEBMASTER_VERIFICATION_HTML,
     WEBMASTER_VERIFICATION_PATH,
     YANDEX_DIALOG_URL,
@@ -77,6 +79,16 @@ def test_reviews_guide_is_public_cacheable_and_has_a_revalidation_tag(offline_se
     assert head.content == b""
     assert unchanged.status_code == 304
     assert f'<link rel="canonical" href="https://yurachess.ru{REVIEWS_PATH}">' in response.text
+
+
+def test_story_recording_is_streamed_without_truncation(offline_settings: Settings) -> None:
+    client = TestClient(create_app(offline_settings))
+    response = client.get(f"{STORY_PATH}/media/yura-ransis-2017.mp3", headers={"Range": "bytes=0-3"})
+
+    assert response.status_code == 206
+    assert response.headers["content-type"] == "audio/mpeg"
+    assert response.headers["content-range"] == "bytes 0-3/33975812"
+    assert len(response.content) == 4
 
 
 def test_review_redirect_counts_only_get_requests_and_has_a_fixed_destination(
@@ -359,21 +371,22 @@ def test_commands_h1_matches_structured_data_and_keeps_the_full_list(offline_set
     assert breadcrumb["itemListElement"][-1]["name"] == _COMMANDS_TITLE
 
 
-def test_sitemap_lists_exactly_the_nine_canonical_pages_without_lastmod(offline_settings: Settings) -> None:
+def test_sitemap_lists_exactly_the_ten_canonical_pages_without_lastmod(offline_settings: Settings) -> None:
     with TestClient(create_app(offline_settings)) as client:
         response = client.get(SITEMAP_PATH)
 
-    assert len(SITEMAP_ENTRIES) == 9
-    assert response.text.count("<url>") == 9
-    assert response.text.count("<loc>") == 9
+    assert len(SITEMAP_ENTRIES) == 10
+    assert response.text.count("<url>") == 10
+    assert response.text.count("<loc>") == 10
     assert "<lastmod>" not in response.text
     for path, _ in SITEMAP_ENTRIES:
         assert f"<loc>https://yurachess.ru{path}</loc>" in response.text
 
 
-def test_all_nine_canonical_pages_have_unique_title_and_description() -> None:
+def test_all_ten_canonical_pages_have_unique_title_and_description() -> None:
     pages_by_path = {
         LANDING_PATH: LANDING_PAGE_HTML,
+        STORY_PATH: STORY_PAGE_HTML,
         STATISTICS_PATH: STATISTICS_PAGE_HTML,
         HOW_TO_PLAY_PATH: HOW_TO_PLAY_PAGE_HTML,
         COMMANDS_PATH: COMMANDS_PAGE_HTML,
@@ -384,7 +397,7 @@ def test_all_nine_canonical_pages_have_unique_title_and_description() -> None:
         REVIEWS_PATH: REVIEWS_PAGE_HTML,
     }
     assert set(pages_by_path) == {path for path, _ in SITEMAP_ENTRIES}
-    assert len(pages_by_path) == 9
+    assert len(pages_by_path) == 10
 
     titles = []
     descriptions = []
@@ -396,8 +409,8 @@ def test_all_nine_canonical_pages_have_unique_title_and_description() -> None:
         titles.append(title_match.group(1))
         descriptions.append(description_match.group(1))
 
-    assert len(set(titles)) == 9
-    assert len(set(descriptions)) == 9
+    assert len(set(titles)) == 10
+    assert len(set(descriptions)) == 10
 
 
 _TV_LONG_MARKERS = ("яндекс тв", "телевизор", "smart tv", "смарт-тв")

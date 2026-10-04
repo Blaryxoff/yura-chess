@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from yura_chess.presentation.dashboard import DASHBOARD_CSS
@@ -26,6 +27,7 @@ ALICE_SKILL_URL = "https://alice.yandex.ru/skill/1778b5e3-d1d2-487e-bcb2-cb335c1
 YANDEX_DIALOG_URL = "https://dialogs.yandex.ru/store/skills/9ec272d2-shahmaty-s-yuroj"
 YANDEX_REVIEW_URL = f"{YANDEX_DIALOG_URL}#ratings"
 LANDING_PATH = "/"
+STORY_PATH = "/story"
 HOW_TO_PLAY_PATH = "/how-to-play"
 COMMANDS_PATH = "/commands"
 REVIEWS_PATH = "/reviews"
@@ -57,6 +59,7 @@ Sitemap: {PUBLIC_SITE_URL}sitemap.xml
 # Every indexable page, with the weight given to it relative to the landing page.
 SITEMAP_ENTRIES: tuple[tuple[str, str], ...] = (
     (LANDING_PATH, "1.0"),
+    (STORY_PATH, "0.7"),
     (STATISTICS_PATH, "0.7"),
     (HOW_TO_PLAY_PATH, "0.8"),
     (COMMANDS_PATH, "0.8"),
@@ -260,6 +263,75 @@ SITE_CSS = (
     .article p:first-of-type { margin-top: 0; }
     .article li { color: var(--muted); }
     .article strong { color: var(--text); }
+    .story-hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, .82fr);
+      gap: clamp(28px, 5vw, 64px);
+      align-items: center;
+      padding: 42px 0 56px;
+      text-align: left;
+    }
+    .story-hero h1 { max-width: 10ch; }
+    .story-lead { max-width: 31ch; color: var(--muted); font-size: clamp(20px, 2.4vw, 26px); line-height: 1.4; }
+    .story-hero-image, .story-photo { margin: 0; }
+    .story-hero-image { transform: rotate(2deg); }
+    .story-hero-image img, .story-photo img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 3px;
+      box-shadow: 0 24px 50px #0006;
+    }
+    .story-chapter { padding: clamp(24px, 4vw, 44px); }
+    .story-chapter p { max-width: 65ch; color: var(--muted); }
+    .story-chapter p:last-child { margin-bottom: 0; }
+    .story-chapter--split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: clamp(24px, 4vw, 48px);
+      align-items: center;
+    }
+    .story-chapter--split .story-photo { align-self: center; }
+    .story-chapter--split.story-chapter--reverse .story-photo { order: -1; }
+    .story-photo-pair { display: grid; grid-template-columns: 1.25fr .8fr; gap: 22px; align-items: start; }
+    .story-photo-pair .story-photo:last-child { margin-top: 64px; }
+    .story-photo-pair .story-photo:last-child img { transform: rotate(2deg); }
+    .story-photo-pair .story-photo:first-child img { transform: rotate(-1deg); }
+    .story-source-note { font-size: 14px; }
+    .story-source-note a { text-underline-offset: 3px; }
+    .story-recording {
+      border-color: #6c5738;
+      background: linear-gradient(145deg, #302719, #24221e 68%);
+    }
+    .story-recording audio { display: block; width: 100%; max-width: 680px; margin: 24px 0 8px; }
+    .story-recording-caption { font-size: 14px; }
+    .story-transcript { margin-top: 28px; border-top: 1px solid var(--line); }
+    .story-transcript summary {
+      width: fit-content;
+      padding: 17px 0;
+      color: var(--gold);
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .story-transcript summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+    .story-transcript-body { padding: 12px 0 4px; }
+    .story-transcript-body p { margin: 0 0 15px; font-size: 15px; line-height: 1.65; }
+    .story-transcript-body strong { color: var(--gold); }
+    .story-transcript-time { margin-right: 9px; color: var(--gold); font-variant-numeric: tabular-nums; }
+    @supports (interpolate-size: allow-keywords) and selector(details::details-content) {
+      .story-transcript { interpolate-size: allow-keywords; }
+      .story-transcript::details-content {
+        block-size: 0;
+        opacity: 0;
+        overflow: clip;
+        transition: block-size 420ms ease, opacity 280ms ease,
+                    content-visibility 420ms allow-discrete;
+      }
+      .story-transcript[open]::details-content { block-size: auto; opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .story-transcript::details-content { transition: none; }
+    }
     .steps { padding-left: 22px; }
     .steps li { margin-top: 14px; }
     .steps li strong { display: block; color: var(--gold); }
@@ -416,6 +488,13 @@ SITE_CSS = (
       .support-actions { max-width: 360px; justify-self: center; }
     }
     @media (max-width: 760px) {
+      .story-hero, .story-chapter--split { grid-template-columns: 1fr; }
+      .story-hero { gap: 28px; padding: 32px 8px 48px; }
+      .story-hero h1 { max-width: none; }
+      .story-hero-image { width: min(100%, 520px); margin-inline: auto; transform: rotate(1deg); }
+      .story-chapter--split.story-chapter--reverse .story-photo { order: 0; }
+      .story-photo-pair { gap: 12px; }
+      .story-photo-pair .story-photo:last-child { margin-top: 34px; }
       .site-top { padding-top: 12px; }
       .site-nav { display: flex; width: 100%; }
       .site-nav a {
@@ -443,6 +522,12 @@ SITE_CSS = (
     @media (max-width: 520px) {
       main { width: min(1080px, calc(100% - 20px)); }
       section { padding: 14px; margin-bottom: 18px; }
+      .story-photo-pair { grid-template-columns: 1fr; gap: 16px; }
+      .story-photo-pair .story-photo:last-child {
+        width: 72%;
+        justify-self: end;
+        margin-top: 0;
+      }
       .feature { padding: 16px; }
       .support { padding: 18px 14px; }
     }
@@ -668,6 +753,7 @@ NAV_ITEMS: tuple[tuple[str, str], ...] = (
     (ACCESSIBILITY_PATH, "Без экрана"),
     (BLINDFOLD_PATH, "Вслепую"),
     (STATISTICS_PATH, "Статистика"),
+    (STORY_PATH, "История Юры"),
     (REVIEWS_PATH, "Оставить отзыв"),
 )
 
@@ -695,6 +781,7 @@ FOOTER_HTML = f"""<footer>
     <nav class="footer-nav" aria-label="Дополнительные страницы">
       <a href="{REVIEWS_PATH}">Оставить отзыв</a>
       <a href="{HOW_TO_PLAY_PATH}">Как играть в шахматы голосом</a>
+      <a href="{STORY_PATH}">История Юры</a>
       <a href="{COMMANDS_PATH}">Голосовые команды</a>
       <a href="{COACH_PATH}">Шахматный тренер голосом</a>
       <a href="{PUZZLES_PATH}">Шахматные задачи</a>
@@ -973,18 +1060,10 @@ LANDING_BODY = f"""    <header>
     <section id="story" class="article" aria-labelledby="story-title">
       <h2 id="story-title">Почему «Шахматы с Юрой»</h2>
       <p>
-        Юра — мой дедушка, Юрий Акакьевич. Он начал играть в шахматы в 1956 году и много лет учил играть других.
-        Из-за проблем со зрением пользоваться компьютером ему было трудно. Мне хотелось, чтобы он мог
-        сыграть партию самостоятельно — просто называя ходы вслух.
+        Юра — мой дедушка, Юрий Акакьевич Ичкитидзе. Он играл в шахматы с 1956 года, участвовал в турнирах
+        и много лет учил школьников. Я назвал навык в его честь.
       </p>
-      <p>
-        В 2020 году я написал в поддержку Яндекс.Станции с предложением добавить голосовую игру в шахматы,
-        чтобы дедушка мог играть с Алисой. В 2026 году я вернулся к этой идее и сделал собственный навык.
-      </p>
-      <p>
-        Дедушка попробовал «Шахматы с Юрой» и подсказал, что можно улучшить. Теперь навык доступен всем,
-        кому удобно играть, учиться и решать шахматные задачи голосом, без экрана.
-      </p>
+      <p><a href="{STORY_PATH}">История Юры и фотографии из семейного архива →</a></p>
     </section>
 
     <section>
@@ -1075,6 +1154,136 @@ LANDING_PAGE_HTML = _document(
     path=LANDING_PATH,
     structured_data=[SKILL_SCHEMA, LANDING_FAQ_SCHEMA],
     body=LANDING_BODY,
+)
+
+STORY_TRANSCRIPT_HTML = (Path(__file__).parent / "assets" / "yura-ransis-2017-transcript.html").read_text(
+    encoding="utf-8"
+)
+
+STORY_BODY = f"""    <header class="story-hero">
+      <div class="story-hero-copy">
+        <h1>Мой дедушка Юра</h1>
+        <p class="story-lead">Юрий Акакьевич Ичкитидзе — мой дедушка. Он играл в шахматы,
+          выступал на турнирах и учил других. Здесь можно увидеть его за доской
+          и услышать его голос.</p>
+      </div>
+      <figure class="story-hero-image">
+        <img src="/story/media/yura-at-board.webp" width="1321" height="848"
+             alt="Юрий Акакьевич сосредоточенно смотрит на шахматную доску"
+             fetchpriority="high">
+      </figure>
+    </header>
+
+    <section class="story-chapter story-chapter--split">
+      <div>
+        <h2>Шахматы с 1956 года</h2>
+        <p>В шестидесятые Юра проходил московские четвертьфиналы и полуфиналы.
+          Позднее, уже в радиостудии, дедушка вспоминал,
+          как трижды становился чемпионом Москвы. Он стал кандидатом в мастера спорта
+          и продолжал выступать на соревнованиях Всероссийского общества слепых.</p>
+      </div>
+      <figure class="story-photo">
+        <img src="/story/media/yura-young-portrait.webp" width="570" height="898"
+             alt="Юрий Акакьевич в молодости, чёрно-белый портрет" loading="lazy">
+      </figure>
+    </section>
+
+    <section class="story-chapter">
+      <h2>Ставрополь, октябрь 1981 года</h2>
+      <div class="story-photo-pair">
+        <figure class="story-photo">
+          <img src="/story/media/yura-stavropol-1981-game.webp" width="1384" height="932"
+               alt="Юрий Акакьевич играет с соперником на шахматном турнире в Ставрополе" loading="lazy">
+        </figure>
+        <figure class="story-photo">
+          <img src="/story/media/yura-stavropol-1981-portrait.webp" width="767" height="1086"
+               alt="Юрий Акакьевич склонился над шахматной доской в разгар партии" loading="lazy">
+        </figure>
+      </div>
+    </section>
+
+    <section class="story-chapter story-chapter--split story-chapter--reverse">
+      <div>
+        <h2>Петербург, 1993</h2>
+        <p>20 декабря Юра играл на первом открытом чемпионате среди инвалидов
+          в Санкт-Петербурге.</p>
+      </div>
+      <figure class="story-photo">
+        <img src="/story/media/yura-petersburg-1993.webp" width="1400" height="960"
+             alt="Юрий Акакьевич обдумывает ход на шахматном турнире в Санкт-Петербурге" loading="lazy">
+      </figure>
+    </section>
+
+    <section class="story-chapter story-chapter--split">
+      <div>
+        <h2>За доской снова и снова</h2>
+        <p>Дедушка продолжал выступать спустя шестьдесят лет после первых партий:
+          играл в чемпионатах России среди незрячих шахматистов в 2016 и 2017 годах,
+          а в 2018-м — в Moscow Open.</p>
+      </div>
+      <figure class="story-photo">
+        <img src="/story/media/yura-tournament-table.webp" width="1367" height="871"
+             alt="Юрий Акакьевич за шахматной доской; на столе видна табличка с его фамилией" loading="lazy">
+      </figure>
+    </section>
+
+    <section class="story-chapter">
+      <h2>Он учил играть других</h2>
+      <p>В московской школе-интернате № 1 дедушка вёл шахматный кружок. За семь лет
+        он подготовил семерых перворазрядников. Среди его учеников — Алексей Комиссаров
+        и Даниил Гаранин. В 2017 году Даниил ещё учился в десятом классе, но уже стал
+        кандидатом в мастера спорта и выступал на международных соревнованиях.</p>
+      <p>Дедушка объяснял, что шахматы учат незрячего ребёнка держать позицию в памяти
+        и ориентироваться в пространстве. Он связывал занятия за доской с повседневной
+        самостоятельностью: умением ориентироваться в классе, школе, во дворе.</p>
+    </section>
+
+    <section class="story-chapter story-recording">
+      <h2>Послушать дедушку</h2>
+      <p>21 мая 2017 года дедушка был гостем Радио РАНСиС. С ведущим Алексеем Клыковым
+        он говорил об учениках, соревнованиях и о том, как устроен шахматный спорт
+        для незрячих. Здесь — полная запись разговора.</p>
+      <audio controls preload="none" aria-label="Беседа с Юрием Акакьевичем Ичкитидзе на Радио РАНСиС">
+        <source src="/story/media/yura-ransis-2017.mp3" type="audio/mpeg">
+        Ваш браузер не поддерживает аудиоплеер.
+      </audio>
+      <p class="story-recording-caption">Радио РАНСиС, 21 мая 2017 года · 35 минут ·
+        <a href="https://www.radiopage.ransis.org/index.php?name=Files&amp;op=view_file&amp;lid=1602">
+          страница записи</a></p>
+      <details class="story-transcript">
+        <summary>Полная расшифровка беседы</summary>
+        <div class="story-transcript-body">
+          {STORY_TRANSCRIPT_HTML}
+        </div>
+      </details>
+    </section>
+
+    <section class="story-chapter">
+      <h2>Для дедушки</h2>
+      <p>Дедушке было трудно пользоваться шахматными программами на компьютере, хотя позицию
+        он привык держать в памяти. Мне хотелось, чтобы дома он мог просто назвать ход вслух
+        и услышать ответ. Эта идея появилась у меня ещё в 2020 году, а сделать её самому
+        получилось в 2026-м.</p>
+      <p>Дедушка попробовал навык, начал несколько партий и подсказал, что можно улучшить.
+        К тому времени он уже решил закончить активную шахматную жизнь. Навык я назвал
+        «Шахматы с Юрой» — в его честь.</p>
+      <p class="story-source-note">О шахматной карьере Юры:
+        <a href="https://ratings.ruchess.ru/people/15710/tournaments">турнирная карточка ФШР</a> и
+        <a href="https://www.fss.org.ru/userfiles/ufiles/spisok_sbornoy_2015_leto.pdf">
+          список Федерации спорта слепых</a>.
+        Все фотографии — из семейного архива.</p>
+    </section>
+"""
+
+STORY_PAGE_HTML = _document(
+    title="Мой дедушка Юра — история Юрия Акакьевича Ичкитидзе",
+    description="История Юрия Акакьевича Ичкитидзе: шахматные турниры, ученики и фотографии из семейного архива.",
+    path=STORY_PATH,
+    structured_data=[
+        _page_schema("Мой дедушка Юра", STORY_PATH),
+        _breadcrumb_schema("История Юры", STORY_PATH),
+    ],
+    body=STORY_BODY,
 )
 
 STATISTICS_PAGE_HTML = _document(

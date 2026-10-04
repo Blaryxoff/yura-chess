@@ -38,7 +38,7 @@ yura-chess-shell = "yura_chess.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-yura_chess = ["data/*.tsv", "data/*.json", "data/*.jsonl"]
+yura_chess = ["data/*.tsv", "data/*.json", "data/*.jsonl", "presentation/assets/*.webp", "presentation/assets/*.mp3", "presentation/assets/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

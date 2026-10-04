@@ -4,11 +4,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
+from pathlib import Path
 from time import monotonic
 from typing import Literal
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -48,6 +50,8 @@ from yura_chess.presentation.website import (
     SITEMAP_PATH,
     SITEMAP_XML,
     STATISTICS_PATH,
+    STORY_PAGE_HTML,
+    STORY_PATH,
     WEBMASTER_VERIFICATION_HTML,
     WEBMASTER_VERIFICATION_PATH,
     YANDEX_REVIEW_URL,
@@ -247,6 +251,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _static_page(ACCESSIBILITY_PATH, ACCESSIBILITY_PAGE_HTML)
     _static_page(BLINDFOLD_PATH, BLINDFOLD_PAGE_HTML)
     _static_page(REVIEWS_PATH, REVIEWS_PAGE_HTML)
+    _static_page(STORY_PATH, STORY_PAGE_HTML)
+    app.mount(
+        f"{STORY_PATH}/media",
+        StaticFiles(directory=Path(__file__).parent / "presentation" / "assets"),
+        name="story-media",
+    )
 
     @app.api_route(f"{REVIEWS_PATH}/dialogs", methods=["GET", "HEAD"], include_in_schema=False)
     async def review_redirect(request: Request, source: ClickSource = "guide") -> RedirectResponse:
