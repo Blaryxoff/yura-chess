@@ -116,6 +116,10 @@ Secrets that exist only on Firebat and never in git:
   window; raw payloads and command text never enter permanent analytics.
   `usage_puzzle_plays` stores one pseudonymous row per puzzle run with a submitted
   answer. Repeated requests and later answers in the same run do not add a row.
+  Migration 0021 restores one play for each legacy attempt whose saved result or
+  progress proves a move was submitted, dated by its last update. This is a
+  lower bound: earlier repeats of the same puzzle were overwritten, and legacy
+  attempt timestamps may be later than the submitted move.
 - Public launches count sessions by their first recorded request. Active users,
   sessions, new/returning users, and actions count recognized chess, puzzle, help,
   question, and preference requests; empty launches, exits, confirmations, and
