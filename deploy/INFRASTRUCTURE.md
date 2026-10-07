@@ -127,7 +127,8 @@ Secrets that exist only on Firebat and never in git:
   sessions, new/returning users, and actions count recognized chess, puzzle, help,
   question, and preference requests; empty launches, exits, confirmations, and
   unrelated speech do not qualify. A party qualifies only after a stored player
-  move, and completed games require `status = 'finished'`. Historical requests
+  move, and completed games include `finished` and `resigned` statuses, including
+  games automatically replaced by a new one. Historical requests
   without routing categories cannot be reconstructed fully, so older active
   totals are incomplete.
 - Synthetic game state is retained for `YURA_CHESS_TEST_GAME_RETENTION_DAYS`

@@ -265,7 +265,7 @@ class UsageRepository:
                JOIN usage_users u ON u.owner_key = g.owner_key
                WHERE m.actor = 'player'{source_filter}{move_time}) AS player_moves,
               (SELECT COUNT(*) FROM games g JOIN usage_users u ON u.owner_key = g.owner_key
-               WHERE g.status = 'finished'{source_filter}{finish_time}) AS finished_games,
+               WHERE g.status IN ('finished', 'resigned'){source_filter}{finish_time}) AS finished_games,
               (SELECT COUNT(*) FROM puzzle_attempts p JOIN usage_users u ON u.owner_key = p.owner_key
                WHERE 1=1{source_filter}{puzzle_time}) AS puzzle_plays
             """

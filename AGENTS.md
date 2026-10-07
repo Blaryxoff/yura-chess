@@ -37,7 +37,7 @@ Before implementation, read the active product and dev plans under `docs/plans/`
   the corpus for what players say; re-measure routing through `route()` before concluding anything about today.
 - `games.status = 'resigned'` is not a resignation count: starting a new game marks every older active game resigned
   (`GameRepository.resign_active_games`). Production analysis separates explicit resignations (a resign request) from
-  replaced games, and player-facing statistics count only `finished` games.
+  replaced games. The player-facing completed-games counter includes both `finished` and `resigned` games.
 - Never commit `.env`, credentials, Yandex tokens, certificates, databases, generated board images, or Stockfish binaries.
 
 ## Local verification

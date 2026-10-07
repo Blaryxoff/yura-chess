@@ -273,18 +273,21 @@ def test_launch_is_grouped_on_the_first_request_even_when_action_is_later(sessio
     assert (july.totals.launches, july.totals.actions, july.totals.users, july.totals.sessions) == (0, 1, 1, 1)
 
 
-def test_replaced_games_are_not_completed_games(session: Session) -> None:
+def test_replaced_games_are_counted_as_completed_games(session: Session) -> None:
     now = datetime(2026, 7, 23, 12)
     usage = UsageRepository(session)
     record_action(usage, REAL_OWNER, "session", "1", now)
     games = GameRepository(session)
-    replaced = games.create_game(REAL_OWNER, PlayerColor.WHITE)
-    games.append_moves(replaced.id, REAL_OWNER, replaced.revision, ("e2e4", "e7e5"), GameStatus.RESIGNED)
+    games.create_game(REAL_OWNER, PlayerColor.WHITE)
+    games.resign_active_games(REAL_OWNER)
     completed = games.create_game(REAL_OWNER, PlayerColor.WHITE)
     games.append_moves(completed.id, REAL_OWNER, completed.revision, ("e2e4", "e7e5"), GameStatus.FINISHED)
+    for row in session.scalars(select(GameRow)):
+        row.updated_at = now
     session.commit()
 
-    assert usage.dashboard("real", now + timedelta(hours=1), period="all").totals.finished_games == 1
+    assert usage.dashboard("real", now + timedelta(hours=1), period="all").totals.finished_games == 2
+    assert usage.dashboard("real", now + timedelta(hours=1), period="month").totals.finished_games == 2
 
 
 def test_dashboard_chart_supports_month_year_and_all_time_periods(session: Session) -> None:
