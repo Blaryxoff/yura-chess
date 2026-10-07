@@ -13,11 +13,12 @@ from yura_chess.storage.game_repository import GameRepository
 from yura_chess.storage.models import (
     GameMoveRow,
     GameRow,
+    PuzzleAttemptRow,
     PuzzleProfileRow,
-    UsagePuzzlePlayRow,
     UsageRequestRow,
     UsageUserRow,
 )
+from yura_chess.storage.puzzle_repository import PuzzleRepository
 from yura_chess.storage.usage_repository import DailyUsage, UsageRepository
 
 REAL_OWNER = "a" * 64
@@ -329,9 +330,7 @@ def test_chart_series_carry_every_selectable_metric(session: Session) -> None:
     games = GameRepository(session)
     game = games.create_game(REAL_OWNER, PlayerColor.WHITE)
     games.append_moves(game.id, REAL_OWNER, game.revision, ("e2e4", "e7e5"))
-    session.add(
-        UsagePuzzlePlayRow(run_key="00000000-0000-4000-8000-000000000001", owner_key=REAL_OWNER, created_at=played)
-    )
+    session.add(PuzzleAttemptRow(owner_key=REAL_OWNER, puzzle_id="opened", revision=1, created_at=played))
     session.flush()
     rows = {row.id: row for row in session.scalars(select(GameRow))}
     rows[game.id].created_at = played
@@ -349,6 +348,25 @@ def test_chart_series_carry_every_selectable_metric(session: Session) -> None:
     assert (bucket.launches, bucket.actions, bucket.users, bucket.sessions) == (1, 1, 1, 1)
     assert (bucket.player_moves, bucket.engaged_games, bucket.puzzle_plays) == (1, 1, 1)
     assert month[date(2026, 7, 21)] == DailyUsage(date(2026, 7, 21))
+
+
+def test_opened_puzzle_counts_without_a_move_and_reopening_does_not_add_one(session: Session) -> None:
+    opened = datetime(2026, 7, 22, 12)
+    usage = UsageRepository(session)
+    usage.record_request(REAL_OWNER, "skill", "session", "1", "real", opened)
+    puzzles = PuzzleRepository(session)
+    puzzles.start_attempt(REAL_OWNER, "opened")
+    puzzles.start_attempt(REAL_OWNER, "opened")
+    attempt = session.get(PuzzleAttemptRow, (REAL_OWNER, "opened"))
+    assert attempt is not None
+    attempt.created_at = opened
+    session.commit()
+
+    month = usage.dashboard("real", opened, period="month")
+    all_time = usage.dashboard("real", opened, period="all")
+
+    assert month.totals.puzzle_plays == all_time.totals.puzzle_plays == 1
+    assert sum(day.puzzle_plays for day in month.daily) == 1
 
 
 def test_new_and_returning_users_split_the_active_ones(session: Session) -> None:

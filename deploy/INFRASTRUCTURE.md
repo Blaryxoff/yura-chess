@@ -120,13 +120,16 @@ Secrets that exist only on Firebat and never in git:
   progress proves a move was submitted, dated by its last update. This is a
   lower bound: earlier repeats of the same puzzle were overwritten, and legacy
   attempt timestamps may be later than the submitted move.
+- Public puzzle statistics count `puzzle_attempts`: one per owner and puzzle
+  from its first opening, including attempts without a submitted move. Reopening
+  the same puzzle does not add another count or change its reporting date.
 - Public launches count sessions by their first recorded request. Active users,
   sessions, new/returning users, and actions count recognized chess, puzzle, help,
   question, and preference requests; empty launches, exits, confirmations, and
   unrelated speech do not qualify. A party qualifies only after a stored player
   move, and completed games require `status = 'finished'`. Historical requests
-  without routing categories and puzzle runs before `usage_puzzle_plays` cannot
-  be reconstructed fully, so older active and puzzle totals are incomplete.
+  without routing categories cannot be reconstructed fully, so older active
+  totals are incomplete.
 - Synthetic game state is retained for `YURA_CHESS_TEST_GAME_RETENTION_DAYS`
   (seven days by default) and then deleted with its game-scoped children. Durable
   aggregate `usage_users`, `usage_requests`, and `usage_puzzle_plays` rows remain available for release diagnostics.

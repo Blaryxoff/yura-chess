@@ -266,7 +266,7 @@ class UsageRepository:
                WHERE m.actor = 'player'{source_filter}{move_time}) AS player_moves,
               (SELECT COUNT(*) FROM games g JOIN usage_users u ON u.owner_key = g.owner_key
                WHERE g.status = 'finished'{source_filter}{finish_time}) AS finished_games,
-              (SELECT COUNT(*) FROM usage_puzzle_plays p JOIN usage_users u ON u.owner_key = p.owner_key
+              (SELECT COUNT(*) FROM puzzle_attempts p JOIN usage_users u ON u.owner_key = p.owner_key
                WHERE 1=1{source_filter}{puzzle_time}) AS puzzle_plays
             """
         )
@@ -336,7 +336,7 @@ class UsageRepository:
         )
         collect(
             "p.created_at",
-            "usage_puzzle_plays p JOIN usage_users u ON u.owner_key = p.owner_key",
+            "puzzle_attempts p JOIN usage_users u ON u.owner_key = p.owner_key",
             "",
             "COUNT(*) puzzle_plays",
         )
