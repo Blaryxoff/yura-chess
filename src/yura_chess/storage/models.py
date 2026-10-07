@@ -286,6 +286,7 @@ class PuzzleAttemptRow(Base):
         server_default="active",
     )
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    run_key: Mapped[str | None] = mapped_column(CHAR(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), index=True)
 
@@ -344,6 +345,18 @@ class UsageRequestRow(Base):
     resolution_status: Mapped[str | None] = mapped_column(String(16))
     routing_outcome: Mapped[str | None] = mapped_column(String(24))
     review_prompt_kind: Mapped[str | None] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class UsagePuzzlePlayRow(Base):
+    __tablename__ = "usage_puzzle_plays"
+    __table_args__ = (
+        Index("ix_usage_puzzle_plays_created_owner", "created_at", "owner_key"),
+        {"mysql_charset": "utf8mb4", "mysql_collate": "utf8mb4_unicode_ci"},
+    )
+
+    run_key: Mapped[str] = mapped_column(CHAR(36), primary_key=True)
+    owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), ForeignKey("usage_users.owner_key"))
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 

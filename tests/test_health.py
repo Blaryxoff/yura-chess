@@ -159,7 +159,7 @@ def test_public_landing_page_describes_the_skill_for_everyone(
         "all",
         datetime(2026, 7, 23, 12, 0, 0),
         totals,
-        (DailyUsage(date(2026, 7, 23), requests=2),),
+        (DailyUsage(date(2026, 7, 23), actions=2),),
     )
     monkeypatch.setattr(
         "yura_chess.main.UsageRepository.dashboard",
@@ -257,7 +257,7 @@ def test_public_landing_page_describes_the_skill_for_everyone(
     ):
         assert f'href="{path}"' in response.text
     # The compact summary does not bring the full dashboard controls onto the landing page.
-    assert "Что значит «пользователь»?" not in response.text
+    assert "Как считаются пользователи?" not in response.text
     assert 'class="stats-hint"' not in response.text
     assert 'class="stats-chart" aria-hidden="true"' not in response.text
     assert 'class="stats-table visually-hidden"' not in response.text
@@ -544,7 +544,7 @@ def test_statistics_expose_the_chart_data_as_a_table(
     assert "<h2>Статистика</h2>" not in response.text
     assert '<a href="/statistics" aria-current="page">Статистика</a>' in response.text
     assert 'aria-label="Подробная статистика"' in response.text
-    assert "Что значит «пользователь»?" in response.text
+    assert "Как считаются пользователи?" in response.text
     assert '<button type="button" class="stats-hint"' in response.text
     assert 'aria-expanded="false"' in response.text
     assert 'class="stats-value-shown" aria-hidden="true"' in response.text
@@ -552,7 +552,8 @@ def test_statistics_expose_the_chart_data_as_a_table(
     assert '<div class="visually-hidden"><table class="stats-table">' in response.text
     assert 'class="stats-table visually-hidden"' not in response.text
     assert '<th scope="col">Партий с ходом</th>' in response.text
-    assert 'href="/statistics?period=year&amp;metric=engaged_games#statistics"' in response.text
+    assert 'href="/statistics?period=year&amp;metric=engaged_games#statistics"' not in response.text
+    assert 'href="/statistics?period=all&amp;metric=engaged_games#statistics"' in response.text
     assert 'action="/statistics#statistics"' in response.text
 
 
@@ -689,7 +690,7 @@ def test_public_statistics_pages_use_real_traffic_and_accept_period_filters(
         "month",
         datetime(2026, 7, 23, 12, 0, 0),
         totals,
-        (DailyUsage(date(2026, 7, 23), requests=2),),
+        (DailyUsage(date(2026, 7, 23), actions=2),),
     )
 
     @contextmanager
@@ -720,7 +721,9 @@ def test_public_statistics_pages_use_real_traffic_and_accept_period_filters(
     assert statistics.status_code == year.status_code == 200
     assert default.headers["cache-control"] == "public, max-age=60, stale-while-revalidate=300"
     # The landing summary is all-time; the detailed page owns period filtering.
-    assert queries == [("real", "all"), ("real", "month"), ("real", "year")]
+    assert queries == [("real", "all"), ("real", "month")]
+    assert year.history and year.history[0].status_code == 302
+    assert year.history[0].headers["location"] == "/statistics?period=all&metric=engaged_games#statistics"
     assert '<link rel="canonical" href="https://yurachess.ru/">' in landing_with_noise.text
     assert '<link rel="canonical" href="https://yurachess.ru/statistics">' in year.text
     assert invalid.status_code == 200
@@ -750,7 +753,7 @@ def test_statistics_metrics_share_one_query_per_period(
                 period,  # type: ignore[arg-type]
                 datetime(2026, 7, 23, 12, 0, 0),
                 totals,
-                (DailyUsage(date(2026, 7, 23), requests=2),),
+                (DailyUsage(date(2026, 7, 23), actions=2),),
             )
 
     monkeypatch.setattr("yura_chess.main.session_scope", fake_session_scope)
@@ -759,13 +762,13 @@ def test_statistics_metrics_share_one_query_per_period(
     with TestClient(create_app(offline_settings)) as client:
         responses = [
             client.get(f"{STATISTICS_PATH}?period={period}&metric={metric}")
-            for period in ("month", "year", "all")
+            for period in ("month", "all")
             for metric in metrics
         ]
 
-    assert [response.status_code for response in responses] == [200] * 9
+    assert [response.status_code for response in responses] == [200] * 6
     # The metric picks a column out of the snapshot; only the period reaches the database.
-    assert queries == [("real", "month"), ("real", "year"), ("real", "all")]
+    assert queries == [("real", "month"), ("real", "all")]
 
 
 def test_analytics_failure_serves_the_pages_without_their_counters(
@@ -808,7 +811,7 @@ def test_analytics_failure_keeps_serving_the_last_good_counters(
         "all",
         datetime(2026, 7, 23, 12, 0, 0),
         totals,
-        (DailyUsage(date(2026, 7, 23), requests=2),),
+        (DailyUsage(date(2026, 7, 23), actions=2),),
     )
 
     @contextmanager

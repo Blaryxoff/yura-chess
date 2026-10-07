@@ -20,6 +20,7 @@ TEST_DSN_ENV = "YURA_CHESS_TEST_DATABASE_URL"
 _TABLES = (
     "review_click_daily",
     "published_review_snapshots",
+    "usage_puzzle_plays",
     "usage_requests",
     "usage_users",
     "board_image_cache",

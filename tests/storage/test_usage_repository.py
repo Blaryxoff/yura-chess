@@ -13,8 +13,8 @@ from yura_chess.storage.game_repository import GameRepository
 from yura_chess.storage.models import (
     GameMoveRow,
     GameRow,
-    PuzzleAttemptRow,
     PuzzleProfileRow,
+    UsagePuzzlePlayRow,
     UsageRequestRow,
     UsageUserRow,
 )
@@ -22,6 +22,19 @@ from yura_chess.storage.usage_repository import DailyUsage, UsageRepository
 
 REAL_OWNER = "a" * 64
 TEST_OWNER = "b" * 64
+
+
+def record_action(repository: UsageRepository, owner: str, session_id: str, message_id: str, when: datetime) -> None:
+    repository.record_request(
+        owner,
+        "skill",
+        session_id,
+        message_id,
+        "real",
+        when,
+        command_kind="help",
+        routing_outcome="handled",
+    )
 
 
 def test_usage_schema_cannot_store_raw_identifiers_or_conversation_data() -> None:
@@ -181,7 +194,7 @@ def test_dashboard_separates_real_test_and_all_traffic(session: Session) -> None
     now = datetime(2026, 7, 23, 12, 0, 0)
     usage = UsageRepository(session)
     usage.record_request(REAL_OWNER, "skill", "real-session", "1", "real", now)
-    usage.record_request(REAL_OWNER, "skill", "real-session", "2", "real", now + timedelta(minutes=1))
+    record_action(usage, REAL_OWNER, "real-session", "2", now + timedelta(minutes=1))
     usage.record_request(TEST_OWNER, "skill", "test-session", "1", "test", now)
     games = GameRepository(session)
     real_game = games.create_game(REAL_OWNER, PlayerColor.WHITE)
@@ -193,17 +206,91 @@ def test_dashboard_separates_real_test_and_all_traffic(session: Session) -> None
     test = usage.dashboard("test", now + timedelta(hours=1), period="all").totals
     all_traffic = usage.dashboard("all", now + timedelta(hours=1), period="all").totals
 
-    assert (real.requests, real.users, real.sessions) == (2, 1, 1)
-    assert (real.games, real.engaged_games, real.player_moves, real.finished_games) == (1, 1, 1, 1)
-    assert (test.requests, test.users, test.sessions, test.games) == (1, 1, 1, 1)
-    assert (all_traffic.requests, all_traffic.users, all_traffic.sessions, all_traffic.games) == (3, 2, 2, 2)
+    assert (real.launches, real.actions, real.users, real.sessions) == (1, 1, 1, 1)
+    assert (real.engaged_games, real.player_moves, real.finished_games) == (1, 1, 1)
+    assert (test.launches, test.actions, test.users, test.sessions) == (1, 0, 0, 0)
+    assert (all_traffic.launches, all_traffic.actions, all_traffic.users, all_traffic.sessions) == (2, 1, 1, 1)
+
+
+def test_launches_do_not_make_an_accidental_visitor_active(session: Session) -> None:
+    now = datetime(2026, 7, 23, 12)
+    usage = UsageRepository(session)
+    usage.record_request(REAL_OWNER, "skill", "accidental", "0", "real", now)
+    usage.record_request(
+        REAL_OWNER,
+        "skill",
+        "accidental",
+        "1",
+        "real",
+        now + timedelta(minutes=1),
+        command_kind="exit",
+        routing_outcome="handled",
+    )
+    usage.record_request(
+        TEST_OWNER,
+        "skill",
+        "intentional",
+        "0",
+        "real",
+        now,
+        command_kind="move",
+        resolution_status="ambiguous",
+        routing_outcome="handled",
+    )
+    usage.record_request(
+        TEST_OWNER,
+        "skill",
+        "intentional",
+        "1",
+        "real",
+        now + timedelta(minutes=2),
+        command_kind="illegal_move",
+        routing_outcome="illegal_move",
+    )
+    session.commit()
+
+    snapshot = usage.dashboard("real", now + timedelta(hours=1))
+
+    assert (snapshot.totals.launches, snapshot.totals.actions, snapshot.totals.users, snapshot.totals.sessions) == (
+        2,
+        1,
+        1,
+        1,
+    )
+    assert snapshot.daily[-1].new_users == 1
+
+
+def test_launch_is_grouped_on_the_first_request_even_when_action_is_later(session: Session) -> None:
+    usage = UsageRepository(session)
+    first = datetime(2026, 6, 1, 12)
+    usage.record_request(REAL_OWNER, "skill", "one-session", "0", "real", first)
+    record_action(usage, REAL_OWNER, "one-session", "1", datetime(2026, 7, 1, 12))
+    session.commit()
+
+    july = usage.dashboard("real", datetime(2026, 7, 2, 12), period="month")
+
+    assert (july.totals.launches, july.totals.actions, july.totals.users, july.totals.sessions) == (0, 1, 1, 1)
+
+
+def test_replaced_games_are_not_completed_games(session: Session) -> None:
+    now = datetime(2026, 7, 23, 12)
+    usage = UsageRepository(session)
+    record_action(usage, REAL_OWNER, "session", "1", now)
+    games = GameRepository(session)
+    replaced = games.create_game(REAL_OWNER, PlayerColor.WHITE)
+    games.append_moves(replaced.id, REAL_OWNER, replaced.revision, ("e2e4", "e7e5"), GameStatus.RESIGNED)
+    completed = games.create_game(REAL_OWNER, PlayerColor.WHITE)
+    games.append_moves(completed.id, REAL_OWNER, completed.revision, ("e2e4", "e7e5"), GameStatus.FINISHED)
+    session.commit()
+
+    assert usage.dashboard("real", now + timedelta(hours=1), period="all").totals.finished_games == 1
 
 
 def test_dashboard_chart_supports_month_year_and_all_time_periods(session: Session) -> None:
     now = datetime(2026, 7, 23, 12, 0, 0)
     usage = UsageRepository(session)
-    usage.record_request(REAL_OWNER, "skill", "old-session", "1", "real", datetime(2025, 5, 2, 12, 0, 0))
-    usage.record_request(REAL_OWNER, "skill", "current-session", "1", "real", now)
+    record_action(usage, REAL_OWNER, "old-session", "1", datetime(2025, 5, 2, 12, 0, 0))
+    record_action(usage, REAL_OWNER, "current-session", "1", now)
     session.commit()
 
     month_snapshot = usage.dashboard("real", now, period="month")
@@ -214,35 +301,37 @@ def test_dashboard_chart_supports_month_year_and_all_time_periods(session: Sessi
     all_time = all_time_snapshot.daily
 
     assert len(month) == 30
-    assert (month[0].day, month[-1].day, sum(point.requests for point in month)) == (
+    assert (month[0].day, month[-1].day, sum(point.actions for point in month)) == (
         date(2026, 6, 24),
         date(2026, 7, 23),
         1,
     )
     assert len(year) == 12
-    assert (year[0].day, year[-1].day, sum(point.requests for point in year)) == (
+    assert (year[0].day, year[-1].day, sum(point.actions for point in year)) == (
         date(2025, 8, 1),
         date(2026, 7, 1),
         1,
     )
-    assert (all_time[0].day, all_time[-1].day, sum(point.requests for point in all_time)) == (
+    assert (all_time[0].day, all_time[-1].day, sum(point.actions for point in all_time)) == (
         date(2025, 5, 1),
         date(2026, 7, 1),
         2,
     )
-    assert month_snapshot.totals.requests == year_snapshot.totals.requests == 1
-    assert all_time_snapshot.totals.requests == 2
+    assert month_snapshot.totals.actions == year_snapshot.totals.actions == 1
+    assert all_time_snapshot.totals.actions == 2
 
 
 def test_chart_series_carry_every_selectable_metric(session: Session) -> None:
     played = datetime(2026, 7, 22, 12, 0, 0)
     usage = UsageRepository(session)
     usage.record_request(REAL_OWNER, "skill", "session", "1", "real", played)
-    usage.record_request(REAL_OWNER, "skill", "session", "2", "real", played + timedelta(minutes=1))
+    record_action(usage, REAL_OWNER, "session", "2", played + timedelta(minutes=1))
     games = GameRepository(session)
     game = games.create_game(REAL_OWNER, PlayerColor.WHITE)
     games.append_moves(game.id, REAL_OWNER, game.revision, ("e2e4", "e7e5"))
-    session.add(PuzzleAttemptRow(owner_key=REAL_OWNER, puzzle_id="abc123", created_at=played, updated_at=played))
+    session.add(
+        UsagePuzzlePlayRow(run_key="00000000-0000-4000-8000-000000000001", owner_key=REAL_OWNER, created_at=played)
+    )
     session.flush()
     rows = {row.id: row for row in session.scalars(select(GameRow))}
     rows[game.id].created_at = played
@@ -255,10 +344,10 @@ def test_chart_series_carry_every_selectable_metric(session: Session) -> None:
     day = month[date(2026, 7, 22)]
     bucket = all_time[date(2026, 7, 1)]
 
-    assert (day.requests, day.users, day.sessions, day.new_users) == (2, 1, 1, 1)
-    assert (day.games, day.player_moves, day.engaged_games, day.puzzle_attempts) == (1, 1, 1, 1)
-    assert (bucket.requests, bucket.users, bucket.sessions) == (2, 1, 1)
-    assert (bucket.games, bucket.player_moves, bucket.engaged_games, bucket.puzzle_attempts) == (1, 1, 1, 1)
+    assert (day.launches, day.actions, day.users, day.sessions, day.new_users) == (1, 1, 1, 1, 1)
+    assert (day.player_moves, day.engaged_games, day.puzzle_plays) == (1, 1, 1)
+    assert (bucket.launches, bucket.actions, bucket.users, bucket.sessions) == (1, 1, 1, 1)
+    assert (bucket.player_moves, bucket.engaged_games, bucket.puzzle_plays) == (1, 1, 1)
     assert month[date(2026, 7, 21)] == DailyUsage(date(2026, 7, 21))
 
 
@@ -267,9 +356,10 @@ def test_new_and_returning_users_split_the_active_ones(session: Session) -> None
     first = datetime(2026, 7, 21, 12, 0, 0)
     second = datetime(2026, 7, 22, 12, 0, 0)
     usage = UsageRepository(session)
-    usage.record_request(REAL_OWNER, "skill", "first-visit", "1", "real", first)
-    usage.record_request(REAL_OWNER, "skill", "second-visit", "2", "real", second)
+    record_action(usage, REAL_OWNER, "first-visit", "1", first)
+    record_action(usage, REAL_OWNER, "second-visit", "2", second)
     usage.record_request(newcomer, "skill", "only-visit", "1", "real", second)
+    record_action(usage, newcomer, "only-visit", "2", second + timedelta(minutes=1))
     session.commit()
 
     snapshot = usage.dashboard("real", second, period="month")
@@ -289,20 +379,20 @@ def test_new_and_returning_users_split_the_active_ones(session: Session) -> None
 
 def test_dashboard_groups_utc_timestamps_by_moscow_day_and_month(session: Session) -> None:
     usage = UsageRepository(session)
-    usage.record_request(REAL_OWNER, "skill", "june", "1", "real", datetime(2026, 6, 30, 20, 59, 59))
-    usage.record_request(REAL_OWNER, "skill", "july", "1", "real", datetime(2026, 6, 30, 21, 0, 0))
-    usage.record_request(REAL_OWNER, "skill", "before-midnight", "1", "real", datetime(2026, 7, 23, 20, 59, 59))
-    usage.record_request(REAL_OWNER, "skill", "after-midnight", "1", "real", datetime(2026, 7, 23, 21, 0, 0))
+    record_action(usage, REAL_OWNER, "june", "1", datetime(2026, 6, 30, 20, 59, 59))
+    record_action(usage, REAL_OWNER, "july", "1", datetime(2026, 6, 30, 21, 0, 0))
+    record_action(usage, REAL_OWNER, "before-midnight", "1", datetime(2026, 7, 23, 20, 59, 59))
+    record_action(usage, REAL_OWNER, "after-midnight", "1", datetime(2026, 7, 23, 21, 0, 0))
     session.commit()
 
     month = usage.dashboard("real", datetime(2026, 7, 23, 21, 30, 0), period="month").daily
     all_time = usage.dashboard("real", datetime(2026, 7, 23, 21, 30, 0), period="all").daily
 
-    daily_requests = {point.day: point.requests for point in month}
-    monthly_requests = {point.day: point.requests for point in all_time}
+    daily_actions = {point.day: point.actions for point in month}
+    monthly_actions = {point.day: point.actions for point in all_time}
     assert month[-1].day == date(2026, 7, 24)
-    assert (daily_requests[date(2026, 7, 23)], daily_requests[date(2026, 7, 24)]) == (1, 1)
-    assert (monthly_requests[date(2026, 6, 1)], monthly_requests[date(2026, 7, 1)]) == (1, 3)
+    assert (daily_actions[date(2026, 7, 23)], daily_actions[date(2026, 7, 24)]) == (1, 1)
+    assert (monthly_actions[date(2026, 6, 1)], monthly_actions[date(2026, 7, 1)]) == (1, 3)
 
 
 def test_every_recordable_command_kind_fits_the_column() -> None:

@@ -220,7 +220,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def statistics_page(
         period: Literal["month", "year", "all"] = "month",
         metric: ChartMetric = "engaged_games",
-    ) -> HTMLResponse:
+    ) -> Response:
+        if period == "year":
+            return RedirectResponse(f"{STATISTICS_PATH}?period=all&metric={metric}#statistics", status_code=302)
         snapshot = await dashboard_snapshot("real", period)
         dashboard = (
             render_dashboard_unavailable()

@@ -14,17 +14,17 @@ ChartMetric = Literal[
     "engaged_games",
     "player_moves",
     "returning_users",
-    "puzzle_attempts",
-    "games",
+    "puzzle_plays",
     "sessions",
     "users",
     "new_users",
-    "requests",
+    "launches",
+    "actions",
 ]
 
 STATISTICS_PATH = "/statistics"
 
-_PERIOD_LABELS = {"month": "Месяц", "year": "Год", "all": "Всё время"}
+_PERIOD_LABELS = {"month": "Месяц", "all": "Всё время"}
 _TOTAL_TITLES = {
     "month": "Последние 30 дней",
     "year": "Последние 12 месяцев",
@@ -40,12 +40,12 @@ _METRIC_LABELS: dict[str, tuple[str, str]] = {
     "engaged_games": ("Партии с ходом", "Партий с ходом"),
     "player_moves": ("Ходы игроков", "Ходов"),
     "returning_users": ("Вернувшиеся", "Вернувшихся"),
-    "puzzle_attempts": ("Шахматные задачи", "Задач"),
-    "games": ("Новые партии", "Партий"),
+    "puzzle_plays": ("Задач сыграно", "Задач сыграно"),
     "sessions": ("Сессии", "Сессий"),
     "users": ("Пользователи", "Пользователей"),
     "new_users": ("Новые пользователи", "Новых"),
-    "requests": ("Запросы", "Запросов"),
+    "launches": ("Запуски навыка", "Запусков"),
+    "actions": ("Запросы", "Запросов"),
 }
 
 DASHBOARD_CSS = """
@@ -321,7 +321,10 @@ _UNAVAILABLE = "Статистика временно недоступна"
 
 def render_summary(snapshot: DashboardSnapshot) -> str:
     values = (
-        (snapshot.totals.users, plural_form(snapshot.totals.users, ("игрок", "игрока", "игроков"))),
+        (
+            snapshot.totals.users,
+            plural_form(snapshot.totals.users, ("игрок", "игрока", "игроков")),
+        ),
         (
             snapshot.totals.engaged_games,
             plural_form(snapshot.totals.engaged_games, ("партия с ходом", "партии с ходом", "партий с ходом")),
@@ -434,7 +437,8 @@ def _users_hint(form: str) -> str:
     return (
         '<button type="button" class="stats-hint" aria-describedby="users-hint" '
         f'aria-expanded="false">{form}</button>'
-        '<span class="stats-tip" id="users-hint" role="tooltip"><strong>Что значит «пользователь»?</strong>'
+        '<span class="stats-tip" id="users-hint" role="tooltip"><strong>Как считаются пользователи?</strong>'
+        "Считаем тех, кто совершил действие внутри навыка. "
         "Мы не сохраняем исходный идентификатор Алисы и не можем восстановить его из сохранённых данных. "
         "Повторные визиты, запросы и сессии считаются без открытых идентификаторов.</span>"
     )
@@ -451,10 +455,13 @@ def _cards(totals: UsageTotals) -> str:
             totals.users,
             _users_hint(plural_form(totals.users, ("пользователь", "пользователя", "пользователей"))),
         ),
-        (totals.requests, plural_form(totals.requests, ("запрос", "запроса", "запросов"))),
+        (
+            totals.actions,
+            plural_form(totals.actions, ("запрос", "запроса", "запросов")),
+        ),
         (totals.sessions, plural_form(totals.sessions, ("сессия", "сессии", "сессий"))),
         (totals.player_moves, plural_form(totals.player_moves, ("ход игрока", "хода игроков", "ходов игроков"))),
-        (totals.games, plural_form(totals.games, ("новая партия", "новые партии", "новых партий"))),
+        (totals.launches, plural_form(totals.launches, ("запуск навыка", "запуска навыка", "запусков навыка"))),
         (
             totals.engaged_games,
             plural_form(totals.engaged_games, ("партия с ходом", "партии с ходом", "партий с ходом")),
@@ -467,10 +474,10 @@ def _cards(totals: UsageTotals) -> str:
             ),
         ),
         (
-            totals.puzzle_attempts,
+            totals.puzzle_plays,
             plural_form(
-                totals.puzzle_attempts,
-                ("шахматная задача", "шахматные задачи", "шахматных задач"),
+                totals.puzzle_plays,
+                ("задача сыграна", "задачи сыграны", "задач сыграно"),
             ),
         ),
     )

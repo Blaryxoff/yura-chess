@@ -183,6 +183,7 @@ class PuzzleService:
             if not created:
                 return _stored_reply(replay) or self._replayed(owner_key, PuzzleRepository(session))
             puzzles = PuzzleRepository(session)
+            puzzles.record_play(owner_key, open_puzzle.puzzle.id)
             board = open_puzzle.board()
             expected = chess.Move.from_uci(open_puzzle.expected)
             move = chess.Move.from_uci(move_uci)

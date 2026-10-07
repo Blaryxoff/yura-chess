@@ -32,31 +32,67 @@ def _in_moscow(column: str) -> str:
 _DAY_BUCKET = "DATE({moment})"
 _MONTH_BUCKET = "DATE_SUB(DATE({moment}), INTERVAL DAYOFMONTH({moment}) - 1 DAY)"
 
+_ACTION_KINDS = (
+    "help",
+    "position_query",
+    "game_fact",
+    "level_query",
+    "results",
+    "level",
+    "training",
+    "review",
+    "puzzle",
+    "feedback",
+    "preference",
+    "rematch",
+    "color_choice",
+    "claim_draw",
+    "undo",
+    "resign",
+    "continue",
+    "board_setup",
+    "screen",
+    "orientation",
+    "why",
+    "persona",
+    "navigate_back",
+    "move",
+)
+
+
+def _action_filter(alias: str) -> str:
+    kinds = ", ".join(f"'{kind}'" for kind in _ACTION_KINDS)
+    return (
+        f"(({alias}.routing_outcome = 'handled' AND {alias}.command_kind IN ({kinds})"
+        f" AND ({alias}.command_kind <> 'move' OR {alias}.resolution_status = 'resolved'))"
+        f" OR ({alias}.command_kind = 'illegal_move' AND {alias}.routing_outcome = 'illegal_move'))"
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class UsageTotals:
-    requests: int
+    launches: int
+    actions: int
     users: int
     sessions: int
-    games: int
     engaged_games: int
     player_moves: int
     finished_games: int
-    puzzle_attempts: int
+    puzzle_plays: int
 
 
 @dataclass(frozen=True, slots=True)
 class DailyUsage:
     day: date
-    requests: int = 0
+    launches: int = 0
+    actions: int = 0
     users: int = 0
     new_users: int = 0
     returning_users: int = 0
     sessions: int = 0
-    games: int = 0
     player_moves: int = 0
     engaged_games: int = 0
-    puzzle_attempts: int = 0
+    puzzle_plays: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,22 +238,26 @@ class UsageRepository:
     def _totals(self, source: DashboardSource, cutoff: datetime | None) -> UsageTotals:
         source_filter = "" if source == "all" else " AND u.traffic_source = :source"
         request_time = "" if cutoff is None else " AND r.created_at >= :cutoff"
-        game_time = "" if cutoff is None else " AND g.created_at >= :cutoff"
+        launch_time = "" if cutoff is None else " WHERE s.launched_at >= :cutoff"
         move_time = "" if cutoff is None else " AND m.created_at >= :cutoff"
         finish_time = "" if cutoff is None else " AND g.updated_at >= :cutoff"
         puzzle_time = "" if cutoff is None else " AND p.created_at >= :cutoff"
+        action = _action_filter("r")
         statement = text(
             f"""
             SELECT
+              (SELECT COUNT(*) FROM (
+                 SELECT r.session_key, MIN(r.created_at) AS launched_at
+                 FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
+                 WHERE 1=1{source_filter} GROUP BY r.session_key
+               ) s{launch_time}) AS launches,
               (SELECT COUNT(*) FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
-               WHERE 1=1{source_filter}{request_time}) AS requests,
+               WHERE {action}{source_filter}{request_time}) AS actions,
               (SELECT COUNT(DISTINCT r.owner_key) FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
-               WHERE 1=1{source_filter}{request_time}) AS users,
+               WHERE {action}{source_filter}{request_time}) AS users,
               (SELECT COUNT(DISTINCT r.session_key)
                FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
-               WHERE 1=1{source_filter}{request_time}) AS sessions,
-              (SELECT COUNT(*) FROM games g JOIN usage_users u ON u.owner_key = g.owner_key
-               WHERE 1=1{source_filter}{game_time}) AS games,
+               WHERE {action}{source_filter}{request_time}) AS sessions,
               (SELECT COUNT(DISTINCT g.id) FROM games g JOIN usage_users u ON u.owner_key = g.owner_key
                JOIN game_moves m ON m.game_id = g.id AND m.actor = 'player'
                WHERE 1=1{source_filter}{move_time}) AS engaged_games,
@@ -225,9 +265,9 @@ class UsageRepository:
                JOIN usage_users u ON u.owner_key = g.owner_key
                WHERE m.actor = 'player'{source_filter}{move_time}) AS player_moves,
               (SELECT COUNT(*) FROM games g JOIN usage_users u ON u.owner_key = g.owner_key
-               WHERE g.status IN ('finished', 'resigned'){source_filter}{finish_time}) AS finished_games,
-              (SELECT COUNT(*) FROM puzzle_attempts p JOIN usage_users u ON u.owner_key = p.owner_key
-               WHERE 1=1{source_filter}{puzzle_time}) AS puzzle_attempts
+               WHERE g.status = 'finished'{source_filter}{finish_time}) AS finished_games,
+              (SELECT COUNT(*) FROM usage_puzzle_plays p JOIN usage_users u ON u.owner_key = p.owner_key
+               WHERE 1=1{source_filter}{puzzle_time}) AS puzzle_plays
             """
         )
         parameters: dict[str, object] = {}
@@ -265,23 +305,28 @@ class UsageRepository:
                 values = buckets.setdefault(row["bucket"], {})
                 values.update({name: int(count) for name, count in row.items() if name != "bucket"})
 
-        # A user is new to the bucket their very first request falls in, and returning
-        # in every later one, so the two always add up to the active users beside them.
-        first_bucket = bucket.format(moment=_in_moscow("u.first_seen_at"))
+        first_bucket = bucket.format(moment=_in_moscow("a.first_at"))
         active_bucket = bucket.format(moment=_in_moscow("r.created_at"))
+        first_actions = (
+            "(SELECT r0.owner_key, MIN(r0.created_at) first_at FROM usage_requests r0 "
+            f"WHERE {_action_filter('r0')} GROUP BY r0.owner_key) a"
+        )
         collect(
             "r.created_at",
-            "usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key",
-            "",
-            "COUNT(*) requests, COUNT(DISTINCT r.owner_key) users, COUNT(DISTINCT r.session_key) sessions,"
+            f"usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key JOIN {first_actions}"
+            " ON a.owner_key = r.owner_key",
+            f" AND {_action_filter('r')}",
+            "COUNT(*) actions, COUNT(DISTINCT r.owner_key) users, COUNT(DISTINCT r.session_key) sessions,"
             f" COUNT(DISTINCT CASE WHEN {first_bucket} = {active_bucket} THEN r.owner_key END) new_users,"
             f" COUNT(DISTINCT CASE WHEN {first_bucket} < {active_bucket} THEN r.owner_key END) returning_users",
         )
         collect(
-            "g.created_at",
-            "games g JOIN usage_users u ON u.owner_key = g.owner_key",
+            "s.launched_at",
+            "(SELECT r.session_key, r.owner_key, MIN(r.created_at) launched_at "
+            "FROM usage_requests r GROUP BY r.session_key, r.owner_key) s "
+            "JOIN usage_users u ON u.owner_key = s.owner_key",
             "",
-            "COUNT(*) games",
+            "COUNT(*) launches",
         )
         collect(
             "m.created_at",
@@ -291,9 +336,9 @@ class UsageRepository:
         )
         collect(
             "p.created_at",
-            "puzzle_attempts p JOIN usage_users u ON u.owner_key = p.owner_key",
+            "usage_puzzle_plays p JOIN usage_users u ON u.owner_key = p.owner_key",
             "",
-            "COUNT(*) puzzle_attempts",
+            "COUNT(*) puzzle_plays",
         )
         return buckets
 

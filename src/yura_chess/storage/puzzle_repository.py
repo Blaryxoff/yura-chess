@@ -18,6 +18,9 @@ pseudonymous owner key is the only subject of a row.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from uuid import uuid4
+
 from sqlalchemy import select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.exc import IntegrityError
@@ -29,7 +32,7 @@ from yura_chess.domain.puzzle import (
     PuzzleBucket,
     PuzzleProfile,
 )
-from yura_chess.storage.models import PuzzleAttemptRow, PuzzleProfileRow
+from yura_chess.storage.models import PuzzleAttemptRow, PuzzleProfileRow, UsagePuzzlePlayRow
 
 
 class UnknownPuzzleAttemptError(LookupError):
@@ -108,6 +111,20 @@ class PuzzleRepository:
             self._reset(row)
         self._session.flush()
         return _to_attempt(row)
+
+    def record_play(self, owner_key: str, puzzle_id: str) -> None:
+        row = self._find_attempt(owner_key, puzzle_id, for_update=True)
+        if row is None:
+            raise UnknownPuzzleAttemptError(puzzle_id)
+        if row.run_key is None:
+            row.run_key = str(uuid4())
+            self._session.flush()
+        event = mysql_insert(UsagePuzzlePlayRow).values(
+            run_key=row.run_key,
+            owner_key=owner_key,
+            created_at=datetime.now(UTC).replace(tzinfo=None),
+        )
+        self._session.execute(event.on_duplicate_key_update(run_key=event.inserted.run_key))
 
     def find_attempt(self, owner_key: str, puzzle_id: str) -> PuzzleAttempt | None:
         """A puzzle that was never attempted is not an error."""
@@ -207,6 +224,7 @@ class PuzzleRepository:
         row.hints = 0
         row.streak = 0
         row.status = PuzzleAttemptStatus.ACTIVE.value
+        row.run_key = str(uuid4())
         row.revision += 1
 
     def _insert_attempt(self, owner_key: str, puzzle_id: str) -> PuzzleAttemptRow:
@@ -219,6 +237,7 @@ class PuzzleRepository:
             streak=0,
             status=PuzzleAttemptStatus.ACTIVE.value,
             revision=1,
+            run_key=str(uuid4()),
         )
         try:
             # A savepoint keeps a lost insert race from discarding the caller's transaction.

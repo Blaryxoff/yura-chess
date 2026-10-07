@@ -6,6 +6,7 @@ import random
 
 import chess
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -21,6 +22,7 @@ from yura_chess.presentation.move_speech import SoundEvent
 from yura_chess.settings import Settings
 from yura_chess.storage.database import session_scope
 from yura_chess.storage.game_repository import GameRepository
+from yura_chess.storage.models import UsagePuzzlePlayRow
 from yura_chess.storage.puzzle_repository import PuzzleRepository
 
 pytestmark = pytest.mark.anyio
@@ -233,6 +235,32 @@ def test_a_replayed_correct_move_does_not_advance_the_line_twice(
     after = attempt(session_factory, MATE_IN_TWO)
     assert (after.node, after.mistakes, after.revision) == (before.node, before.mistakes, before.revision)
     assert "не решает" not in replayed.speech.text
+
+
+def test_puzzle_play_counts_first_answer_once_per_run_including_repeats(
+    session_factory: sessionmaker[Session],
+) -> None:
+    puzzles = service(session_factory, MATE_IN_TWO, MATE_IN_TWO)
+
+    def play_count() -> int:
+        with session_scope(session_factory) as session:
+            return len(session.scalars(select(UsagePuzzlePlayRow)).all())
+
+    start(puzzles, 1)
+    assert play_count() == 0
+    puzzles.hint(OWNER, open_puzzle(puzzles), context(2))
+    assert play_count() == 0
+
+    puzzles.play(OWNER, open_puzzle(puzzles), "b3b4", context(3))
+    puzzles.play(OWNER, open_puzzle(puzzles), "b3b4", context(3))
+    puzzles.play(OWNER, open_puzzle(puzzles), "e2e6", context(4))
+    puzzles.play(OWNER, open_puzzle(puzzles), "e6f7", context(5))
+    assert play_count() == 1
+
+    start(puzzles, 6)
+    assert play_count() == 1
+    puzzles.play(OWNER, open_puzzle(puzzles), "e2e6", context(7))
+    assert play_count() == 2
 
 
 def test_hints_escalate_once_per_request(session_factory: sessionmaker[Session]) -> None:

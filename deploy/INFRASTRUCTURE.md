@@ -108,15 +108,24 @@ Secrets that exist only on Firebat and never in git:
   threshold or hard cache ceiling. An evicted position is regenerated on demand.
 - CPU and memory limits and `restart: unless-stopped` are set per service.
 - Logs use the `json-file` driver capped at 10 MB × 5 files per service.
-- Aggregate usage survives log rotation in `usage_users` and `usage_requests`.
+- Aggregate usage survives log rotation in `usage_users`, `usage_requests`, and `usage_puzzle_plays`.
   These tables contain only HMAC/hashed keys, timestamps and a real/test label;
   request rows also keep the immutable release id and bounded routing categories
   (`command_kind`, resolver status and outcome). Retained normalized transcripts
   link to them only through the hashed request key and keep their shorter retention
   window; raw payloads and command text never enter permanent analytics.
+  `usage_puzzle_plays` stores one pseudonymous row per puzzle run with a submitted
+  answer. Repeated requests and later answers in the same run do not add a row.
+- Public launches count sessions by their first recorded request. Active users,
+  sessions, new/returning users, and actions count recognized chess, puzzle, help,
+  question, and preference requests; empty launches, exits, confirmations, and
+  unrelated speech do not qualify. A party qualifies only after a stored player
+  move, and completed games require `status = 'finished'`. Historical requests
+  without routing categories and puzzle runs before `usage_puzzle_plays` cannot
+  be reconstructed fully, so older active and puzzle totals are incomplete.
 - Synthetic game state is retained for `YURA_CHESS_TEST_GAME_RETENTION_DAYS`
   (seven days by default) and then deleted with its game-scoped children. Durable
-  aggregate `usage_users` and `usage_requests` rows remain available for release diagnostics.
+  aggregate `usage_users`, `usage_requests`, and `usage_puzzle_plays` rows remain available for release diagnostics.
 - MariaDB and persisted timestamps stay in UTC. Public usage reports shift UTC
   timestamps to Moscow time before applying day, month and period boundaries.
 - Health checks: the container healthcheck polls `/health/live` (liveness only —
