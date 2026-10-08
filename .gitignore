@@ -16,6 +16,7 @@ build/
 *.egg-info/
 stockfish
 var/
+/photo/
 .DS_Store
 .claude/
 .cursor/
