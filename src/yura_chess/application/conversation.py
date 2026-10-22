@@ -474,6 +474,7 @@ class ConversationService:
 
         if help_navigation is None and routed.kind in {
             CommandKind.ATTENTION,
+            CommandKind.SKILL_LAUNCH,
             CommandKind.SOCIAL,
             CommandKind.PERSONA,
             CommandKind.PAUSE,
@@ -1754,6 +1755,20 @@ def _conversational_reply(
         expectation = "Можно разобрать партию или начать новую."
     else:
         expectation = "Скажите «новая игра», чтобы начать."
+
+    if kind is CommandKind.SKILL_LAUNCH:
+        if pending_action is None:
+            if help_open:
+                expectation = "Скажите «дальше», чтобы продолжить справку, или «закрой справку»."
+            elif reviewing:
+                expectation = "Скажите «дальше», чтобы продолжить разбор, или «выйти из разбора»."
+            elif not solving_puzzle and not engine_to_move and game is not None and game.status is GameStatus.ACTIVE:
+                expectation = (
+                    "Уточните ход: назовите фигуру и поле назначения."
+                    if clarification_open
+                    else "Ваш ход. Назовите фигуру и поле назначения."
+                )
+        return Speech.of(f"Навык «Шахматы с Юрой» уже открыт. {expectation}")
 
     if kind is CommandKind.AMBIGUOUS_TURN:
         if (

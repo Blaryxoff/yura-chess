@@ -67,6 +67,7 @@ class CommandKind(StrEnum):
     EXIT_CONFIRM = "exit_confirm"
     PLATFORM = "platform"
     ATTENTION = "attention"
+    SKILL_LAUNCH = "skill_launch"
     SOCIAL = "social"
     BACKCHANNEL = "backchannel"
     PAUSE = "pause"
@@ -431,6 +432,7 @@ _PLATFORM_REQUEST = re.compile(f"{_PLATFORM_MEDIA}|{_PLATFORM_VOLUME}|{_PLATFORM
 
 
 _CONVERSATION_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
+    (CommandKind.SKILL_LAUNCH, re.compile(r"^(?:давай )?запусти навык шахматы с юрой$")),
     # Before the platform handoff: «алиса измени голос» is about Yura, not about Alice.
     (CommandKind.PERSONA, _PERSONA_REQUEST),
     (CommandKind.PLATFORM, _PLATFORM_REQUEST),

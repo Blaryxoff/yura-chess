@@ -39,6 +39,45 @@ CAPTURE_FEN = "4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1"
 
 
 @pytest.mark.parametrize(
+    "utterance",
+    [
+        "запусти навык шахматы с юрой",
+        "давай запусти навык шахматы с юрой",
+        "Алиса, запусти навык «Шахматы с Юрой»",
+    ],
+)
+@pytest.mark.parametrize("fen", [None, chess.STARTING_FEN, TWO_KNIGHTS_FEN])
+def test_skill_launch_requires_the_named_skill_and_never_resolves_a_move(utterance: str, fen: str | None) -> None:
+    pending = PendingClarification("конь", ("b1d2", "f3d2"))
+
+    routed = route(utterance, chess.Board(fen) if fen is not None else None, pending=pending)
+
+    assert routed.kind is CommandKind.SKILL_LAUNCH
+    assert routed.move is None
+    assert routed.resolution is None
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("запусти навык города", CommandKind.UNKNOWN),
+        ("запусти навык шахматы с денисом", CommandKind.UNKNOWN),
+        ("запусти навык", CommandKind.UNKNOWN),
+        ("шахматы с юрой", CommandKind.UNKNOWN),
+        ("не запусти навык шахматы с юрой", CommandKind.UNKNOWN),
+        ("не надо запускать навык шахматы с юрой", CommandKind.UNKNOWN),
+        ("запусти навык шахматы с юрой и включи музыку", CommandKind.UNKNOWN),
+        ("включи музыку", CommandKind.PLATFORM),
+        ("новая игра", CommandKind.NEW_GAME),
+        ("начать игру", CommandKind.START),
+        ("продолжаем", CommandKind.CONTINUE),
+    ],
+)
+def test_skill_launch_does_not_capture_neighboring_commands(utterance: str, expected: CommandKind) -> None:
+    assert route(utterance, chess.Board()).kind is expected
+
+
+@pytest.mark.parametrize(
     ("utterance", "expected"),
     [
         ("пешка е два е четыре", "e2e4"),

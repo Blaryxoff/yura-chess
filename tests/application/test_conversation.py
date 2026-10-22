@@ -95,6 +95,92 @@ def subject(session_factory: sessionmaker[Session], settings: Settings) -> Conve
     return ConversationService(session_factory, FakeEngine(), settings)
 
 
+@pytest.mark.parametrize(
+    ("scenario", "expected"),
+    [
+        ("no_game", "Скажите «новая игра», чтобы начать."),
+        ("active", "Ваш ход. Назовите фигуру и поле назначения."),
+        ("played", "Ваш ход. Назовите фигуру и поле назначения."),
+        ("finished", "Можно разобрать партию или начать новую."),
+        ("engine", "Юра еще думает над ходом. Скажите «продолжаем»."),
+        ("puzzle", "Назовите ход, попросите подсказку или покажите решение."),
+        ("help", "Скажите «дальше», чтобы продолжить справку, или «закрой справку»."),
+        ("review", "Скажите «дальше», чтобы продолжить разбор, или «выйти из разбора»."),
+        ("clarification", "Уточните ход: назовите фигуру и поле назначения."),
+        ("confirmation", "Скажите «да» или «нет»."),
+        ("confirmation_with_help", "Скажите «да» или «нет»."),
+    ],
+)
+async def test_skill_launch_preserves_the_current_context_and_replays_without_mutation(
+    scenario: str,
+    expected: str,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    engine = FakeEngine()
+    conversation = ConversationService(session_factory, engine, offline_settings)
+    state = ConversationState()
+    if scenario == "finished":
+        state = await _finished_game(conversation, "новая игра", 1)
+    elif scenario != "no_game":
+        state = (await conversation.handle(OWNER, "новая игра", context(1))).state
+    if scenario == "played":
+        state = (await conversation.handle(OWNER, "пешка е два е четыре", context(2), state)).state
+    elif scenario == "engine":
+        with session_scope(session_factory) as session:
+            repository = GameRepository(session)
+            game = repository.load(state.game_id or "", OWNER)
+            game = repository.begin_engine_turn(game.id, OWNER, game.revision, "e2e4", "pending")
+        state = replace(state, revision=game.revision)
+    elif scenario in {"puzzle", "help", "clarification", "confirmation"}:
+        utterance = {
+            "puzzle": "дай задачу",
+            "help": "помощь",
+            "clarification": "конь",
+            "confirmation": "сдаюсь",
+        }[scenario]
+        state = (await conversation.handle(OWNER, utterance, context(2), state)).state
+    elif scenario == "review":
+        state = replace(state, reviewing=True)
+    elif scenario == "confirmation_with_help":
+        state = replace(
+            state,
+            pending_action=PendingAction(CommandKind.RESIGN, "сдаюсь"),
+            help=HelpState(HelpTopic.RULES),
+        )
+    with session_scope(session_factory) as session:
+        before = GameRepository(session).load(state.game_id, OWNER) if state.game_id is not None else None
+        games_before = session.scalar(select(func.count()).select_from(GameRow))
+    puzzle_before = PuzzleService(session_factory).find_open(OWNER)
+    searches_before = tuple(engine.skill_levels)
+    request = context(10)
+
+    reply = await conversation.handle(OWNER, "запусти навык шахматы с юрой", request, state)
+    replayed = await conversation.handle(OWNER, "запусти навык шахматы с юрой", request, state)
+
+    assert reply.speech.text == f"Навык «Шахматы с Юрой» уже открыт. {expected}"
+    assert reply.turn is None
+    assert not reply.end_session
+    assert reply.state == replace(state, last_reply=reply.state.last_reply, stuck_turns=0)
+    assert replayed == reply
+    assert tuple(engine.skill_levels) == searches_before
+    assert PuzzleService(session_factory).find_open(OWNER) == puzzle_before
+    with session_scope(session_factory) as session:
+        after = GameRepository(session).load(state.game_id, OWNER) if state.game_id is not None else None
+        assert after == before
+        assert session.scalar(select(func.count()).select_from(GameRow)) == games_before
+        key = request_key(request.skill_id, request.session_id, request.message_id)
+        usage = session.get(UsageRequestRow, key)
+        assert usage is not None
+        assert (usage.command_kind, usage.routing_outcome) == ("skill_launch", "handled")
+        assert (
+            session.scalar(
+                select(func.count()).select_from(AsrTranscriptRow).where(AsrTranscriptRow.request_key == key)
+            )
+            == 1
+        )
+
+
 async def test_voice_move_runs_through_router_game_and_speech(
     session_factory: sessionmaker[Session],
     offline_settings: Settings,

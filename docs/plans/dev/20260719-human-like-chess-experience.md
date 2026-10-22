@@ -358,7 +358,21 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 - [x] Проверить reference/mobile/desktop layout и тесты
 - [x] Mark completed
 
+### Task 26: Ответить на повторный запуск уже открытого навыка
+
+**Files:** Modify `src/yura_chess/application/command_router.py`, `src/yura_chess/application/conversation.py`, `tests/voice/test_move_resolver.py`, `tests/application/test_conversation.py`.
+
+- [x] Распознавать захваченную команду «запусти навык шахматы с юрой» с необязательным «давай» и существующей обработкой обращения к Алисе
+- [x] Сообщать, что навык уже открыт, и произносить следующий допустимый шаг с учётом текущего контекста
+- [x] Сохранять UCI-историю, ревизию, pending turn, подтверждение, уточнение, справку, разбор и попытку задачи; не создавать партию и не запускать движок
+- [x] Проверить отсутствие партии, активную и завершённую партию, ход движка, задачу, справку, разбор, pending-подтверждение, replay и соседние команды
+- [x] Mark completed
+
+**Delivery:** После локальных проверок обязательны MariaDB 11.4 CI, immutable image, health checks и public webhook smoke.
+
 ## Verification notes
+
+Task 26: 31 новый сценарий проверяет узкую маршрутизацию и отсутствие мутаций в 11 разговорных контекстах. Focused tests: 1558 passed; полный локальный набор на MariaDB 12.3: 2498 passed, 26 skipped (opt-in deployed smoke). Ruff lint/format и mypy прошли. MariaDB 11.4 и Docker image проверяются в CI до deploy.
 
 Task 25: `/reviews` использует общий header, hero-actions, launch-action и одну article panel как `/how-to-play`; отдельные CSS правила удалены. Computed styles совпали на ширинах 390 и 1440 px, horizontal overflow отсутствует, отступ CTA — 30 px. Focused presentation/health tests: 49 passed, 2 skipped; voice/review/speech tests: 128 passed, 39 skipped (DB-dependent cases проверяются в CI). Ruff lint/format и mypy прошли.
 
