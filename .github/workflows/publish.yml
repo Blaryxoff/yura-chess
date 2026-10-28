@@ -12,8 +12,9 @@ permissions:
   packages: write
 
 concurrency:
-  group: publish-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: publish-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: false
+  queue: single
 
 jobs:
   image:
