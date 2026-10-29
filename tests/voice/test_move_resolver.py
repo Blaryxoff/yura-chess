@@ -44,6 +44,8 @@ CAPTURE_FEN = "4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1"
         "запусти навык шахматы с юрой",
         "давай запусти навык шахматы с юрой",
         "Алиса, запусти навык «Шахматы с Юрой»",
+        "включи навык шахматы с юрой",
+        "Алиса, включи навык «Шахматы с Юрой»",
     ],
 )
 @pytest.mark.parametrize("fen", [None, chess.STARTING_FEN, TWO_KNIGHTS_FEN])
@@ -67,6 +69,14 @@ def test_skill_launch_requires_the_named_skill_and_never_resolves_a_move(utteran
         ("не запусти навык шахматы с юрой", CommandKind.UNKNOWN),
         ("не надо запускать навык шахматы с юрой", CommandKind.UNKNOWN),
         ("запусти навык шахматы с юрой и включи музыку", CommandKind.UNKNOWN),
+        ("включи навык города", CommandKind.UNKNOWN),
+        ("включи навык шахматы с денисом", CommandKind.UNKNOWN),
+        ("включи навык", CommandKind.UNKNOWN),
+        ("не включи навык шахматы с юрой", CommandKind.UNKNOWN),
+        ("не включай навык шахматы с юрой", CommandKind.UNKNOWN),
+        ("не надо включать навык шахматы с юрой", CommandKind.UNKNOWN),
+        ("включи навык шахматы с юрой и включи музыку", CommandKind.UNKNOWN),
+        ("включи музыку и включи навык шахматы с юрой", CommandKind.PLATFORM),
         ("включи музыку", CommandKind.PLATFORM),
         ("новая игра", CommandKind.NEW_GAME),
         ("начать игру", CommandKind.START),
@@ -75,6 +85,15 @@ def test_skill_launch_requires_the_named_skill_and_never_resolves_a_move(utteran
 )
 def test_skill_launch_does_not_capture_neighboring_commands(utterance: str, expected: CommandKind) -> None:
     assert route(utterance, chess.Board()).kind is expected
+
+
+@pytest.mark.parametrize("fen", [None, chess.STARTING_FEN, TWO_KNIGHTS_FEN])
+def test_back_is_navigation_and_never_a_move_or_undo(fen: str | None) -> None:
+    routed = route("назад", chess.Board(fen) if fen is not None else None, pending=PendingClarification("конь"))
+
+    assert routed.kind is CommandKind.NAVIGATE_BACK
+    assert routed.move is None
+    assert routed.resolution is None
 
 
 @pytest.mark.parametrize(

@@ -83,6 +83,42 @@ async def test_the_same_dialogue_says_everything_without_a_screen(
     assert all(body["response"].get("card") is None for body in heard)
 
 
+@pytest.mark.parametrize("screen", [False, True])
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("включи навык шахматы с юрой", "Навык «Шахматы с Юрой» уже открыт. Ваш ход."),
+        ("назад", "Что вернуть: отменить последний ход или продолжить партию?"),
+    ],
+)
+async def test_relaunch_and_back_preserve_the_game_on_voice_and_screen(
+    screen: bool,
+    utterance: str,
+    expected: str,
+    session_factory: sessionmaker[Session],
+    database_engine: Engine,
+) -> None:
+    async with build_client(session_factory) as client:
+        dialogue = AliceSession(client, "e2e-conversation-navigation", screen=screen)
+        await dialogue.say(new=True)
+        moved = await dialogue.say("пешка е два е четыре")
+        game_id = moved["user_state_update"]["game_id"]
+        before = stored_moves(database_engine, game_id)
+        count_before = games_count(database_engine)
+
+        reply = await dialogue.say(utterance)
+        replayed = await dialogue.resend(dialogue.message_id, utterance)
+
+    assert expected in reply["response"]["text"]
+    assert reply["response"]["end_session"] is False
+    assert dialogue.user_state == moved["user_state_update"]
+    assert replayed == reply
+    assert stored_moves(database_engine, game_id) == before
+    assert games_count(database_engine) == count_before
+    if not screen:
+        assert reply["response"].get("card") is None
+
+
 async def test_a_restarted_session_resumes_the_same_game(
     session_factory: sessionmaker[Session],
     database_engine: Engine,

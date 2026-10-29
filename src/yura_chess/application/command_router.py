@@ -432,7 +432,7 @@ _PLATFORM_REQUEST = re.compile(f"{_PLATFORM_MEDIA}|{_PLATFORM_VOLUME}|{_PLATFORM
 
 
 _CONVERSATION_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
-    (CommandKind.SKILL_LAUNCH, re.compile(r"^(?:давай )?запусти навык шахматы с юрой$")),
+    (CommandKind.SKILL_LAUNCH, re.compile(r"^(?:(?:давай )?запусти|включи) навык шахматы с юрой$")),
     # Before the platform handoff: «алиса измени голос» is about Yura, not about Alice.
     (CommandKind.PERSONA, _PERSONA_REQUEST),
     (CommandKind.PLATFORM, _PLATFORM_REQUEST),
@@ -466,7 +466,7 @@ _CONVERSATION_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         re.compile(r"^(?:а |ну )?как (?:мне |тут |здесь |правильно )?(?:ходить|ходят|двигать фигуры)$"),
     ),
     (CommandKind.ORIENTATION_QUERY, re.compile(r"^(?:разверни|поверни) доску$")),
-    (CommandKind.NAVIGATE_BACK, re.compile(r"^вернись$")),
+    (CommandKind.NAVIGATE_BACK, re.compile(r"^(?:вернись|назад)$")),
     (
         CommandKind.CANCEL_CLARIFY,
         re.compile(r"^(?:отмена|я передумал[а]?|я не это имел[а]? в виду|не это)$"),

@@ -95,6 +95,7 @@ def subject(session_factory: sessionmaker[Session], settings: Settings) -> Conve
     return ConversationService(session_factory, FakeEngine(), settings)
 
 
+@pytest.mark.parametrize("utterance", ["запусти навык шахматы с юрой", "включи навык шахматы с юрой"])
 @pytest.mark.parametrize(
     ("scenario", "expected"),
     [
@@ -112,6 +113,7 @@ def subject(session_factory: sessionmaker[Session], settings: Settings) -> Conve
     ],
 )
 async def test_skill_launch_preserves_the_current_context_and_replays_without_mutation(
+    utterance: str,
     scenario: str,
     expected: str,
     session_factory: sessionmaker[Session],
@@ -133,13 +135,13 @@ async def test_skill_launch_preserves_the_current_context_and_replays_without_mu
             game = repository.begin_engine_turn(game.id, OWNER, game.revision, "e2e4", "pending")
         state = replace(state, revision=game.revision)
     elif scenario in {"puzzle", "help", "clarification", "confirmation"}:
-        utterance = {
+        setup_utterance = {
             "puzzle": "дай задачу",
             "help": "помощь",
             "clarification": "конь",
             "confirmation": "сдаюсь",
         }[scenario]
-        state = (await conversation.handle(OWNER, utterance, context(2), state)).state
+        state = (await conversation.handle(OWNER, setup_utterance, context(2), state)).state
     elif scenario == "review":
         state = replace(state, reviewing=True)
     elif scenario == "confirmation_with_help":
@@ -155,8 +157,8 @@ async def test_skill_launch_preserves_the_current_context_and_replays_without_mu
     searches_before = tuple(engine.skill_levels)
     request = context(10)
 
-    reply = await conversation.handle(OWNER, "запусти навык шахматы с юрой", request, state)
-    replayed = await conversation.handle(OWNER, "запусти навык шахматы с юрой", request, state)
+    reply = await conversation.handle(OWNER, utterance, request, state)
+    replayed = await conversation.handle(OWNER, utterance, request, state)
 
     assert reply.speech.text == f"Навык «Шахматы с Юрой» уже открыт. {expected}"
     assert reply.turn is None
@@ -179,6 +181,56 @@ async def test_skill_launch_preserves_the_current_context_and_replays_without_mu
             )
             == 1
         )
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected"),
+    [
+        ("no_game", "Скажите «новая игра», чтобы начать."),
+        ("active", "Что вернуть: отменить последний ход или продолжить партию? Скажите «отмени ход» или «продолжаем»."),
+        ("puzzle", "Скажите «выйти из задач», чтобы вернуться к партии."),
+        ("clarification", "Скажите «отмена», чтобы отменить неоконченный ход."),
+        ("confirmation", "Скажите «да» или «нет»."),
+    ],
+)
+async def test_back_names_explicit_choices_and_replays_without_mutation(
+    scenario: str,
+    expected: str,
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    engine = FakeEngine()
+    conversation = ConversationService(session_factory, engine, offline_settings)
+    state = ConversationState()
+    if scenario != "no_game":
+        state = (await conversation.handle(OWNER, "новая игра", context(1))).state
+        state = (await conversation.handle(OWNER, "пешка е два е четыре", context(2), state)).state
+    if scenario in {"puzzle", "clarification", "confirmation"}:
+        utterance = {"puzzle": "дай задачу", "clarification": "конь", "confirmation": "сдаюсь"}[scenario]
+        state = (await conversation.handle(OWNER, utterance, context(3), state)).state
+    with session_scope(session_factory) as session:
+        before = GameRepository(session).load(state.game_id, OWNER) if state.game_id is not None else None
+        games_before = session.scalar(select(func.count()).select_from(GameRow))
+    puzzle_before = PuzzleService(session_factory).find_open(OWNER)
+    searches_before = tuple(engine.skill_levels)
+
+    reply = await conversation.handle(OWNER, "назад", context(10), state)
+    replayed = await conversation.handle(OWNER, "назад", context(10), state)
+
+    assert reply.speech.text == expected
+    assert reply.state == replace(state, last_reply=reply.state.last_reply, stuck_turns=0)
+    assert reply.turn is None
+    assert replayed == reply
+    assert not reply.end_session
+    assert PuzzleService(session_factory).find_open(OWNER) == puzzle_before
+    assert tuple(engine.skill_levels) == searches_before
+    with session_scope(session_factory) as session:
+        after = GameRepository(session).load(state.game_id, OWNER) if state.game_id is not None else None
+        assert after == before
+        assert session.scalar(select(func.count()).select_from(GameRow)) == games_before
+        usage = session.get(UsageRequestRow, request_key("shell", "conversation", "10"))
+        assert usage is not None
+        assert (usage.command_kind, usage.routing_outcome) == ("navigate_back", "handled")
 
 
 async def test_voice_move_runs_through_router_game_and_speech(
@@ -2410,20 +2462,41 @@ async def test_help_topic_navigation_is_recorded_as_help_after_contextual_interp
     assert transcript.outcome == "help"
 
 
+@pytest.mark.parametrize("with_puzzle", [False, True])
 async def test_review_navigation_is_recorded_as_review_after_contextual_interpretation(
+    with_puzzle: bool,
     session_factory: sessionmaker[Session],
     offline_settings: Settings,
 ) -> None:
     conversation = subject(session_factory, offline_settings)
-    started = await conversation.handle(OWNER, "новая игра", context(1))
-    asked = await conversation.handle(OWNER, "сдаюсь", context(2), started.state)
-    resigned = await conversation.handle(OWNER, "да", context(3), asked.state)
-    dictated = await conversation.handle(OWNER, "продиктуй ходы", context(4), resigned.state)
-
-    await conversation.handle(OWNER, "назад", context(5), dictated.state)
-
     with session_scope(session_factory) as session:
-        usage = session.get(UsageRequestRow, request_key("shell", "conversation", "5"))
+        repository = GameRepository(session)
+        game = repository.create_game(OWNER, PlayerColor.WHITE)
+        game = repository.append_moves(
+            game.id, OWNER, game.revision, ("g1f3", "g8f6", "f3g1", "f6g8") * 2, status=GameStatus.RESIGNED
+        )
+    state = ConversationState(game_id=game.id, revision=game.revision)
+    if with_puzzle:
+        state = (await conversation.handle(OWNER, "дай задачу", context(1), state)).state
+    dictated = await conversation.handle(OWNER, "продиктуй ходы", context(2), state)
+    forward = await conversation.handle(OWNER, "дальше", context(3), dictated.state)
+    puzzle_before = PuzzleService(session_factory).find_open(OWNER)
+    with session_scope(session_factory) as session:
+        before = ReviewRepository(session).find(game.id, OWNER)
+    assert before is not None and before.page == 1
+
+    back = await conversation.handle(OWNER, "назад", context(4), forward.state)
+    replayed = await conversation.handle(OWNER, "назад", context(4), forward.state)
+
+    assert back.speech == dictated.speech
+    assert back.state.reviewing is True
+    assert replayed == back
+    assert PuzzleService(session_factory).find_open(OWNER) == puzzle_before
+    with session_scope(session_factory) as session:
+        after = ReviewRepository(session).find(game.id, OWNER)
+        assert after is not None and after.page == 0
+        assert GameRepository(session).load(game.id, OWNER) == game
+        usage = session.get(UsageRequestRow, request_key("shell", "conversation", "4"))
     assert usage is not None
     assert (usage.command_kind, usage.routing_outcome) == ("review", "handled")
 

@@ -370,7 +370,28 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 
 **Delivery:** После локальных проверок обязательны MariaDB 11.4 CI, immutable image, health checks и public webhook smoke.
 
+### Task 27: Распознать точный синоним повторного запуска
+
+**Files:** Modify `src/yura_chess/application/command_router.py`, `tests/voice/test_move_resolver.py`, `tests/application/test_conversation.py`.
+
+- [x] Добавить захваченную фразу «включи навык шахматы с юрой» в существующий skill_launch без расширения на другие названия и составные команды
+- [x] Проверить голосовой ответ, replay и сохранение всех 11 контекстов Task 26
+- [x] Проверить отрицания, другие названия навыков и соседние команды музыки
+- [x] Mark completed
+
+### Task 28: Уточнять неоднозначное «назад» вне постраничной навигации
+
+**Files:** Modify `src/yura_chess/application/command_router.py`, `src/yura_chess/application/conversation.py`, `tests/voice/test_move_resolver.py`, `tests/application/test_conversation.py`, `tests/e2e/test_alice_sessions.py`; Create `docs/qa/20261029-conversation-intelligence.md`.
+
+- [x] Сохранить приоритет предыдущей страницы справки и разбора, включая одновременно открытую задачу
+- [x] В обычной партии предложить явный выбор отмены хода или продолжения; в задаче, подтверждении и уточнении назвать контекстную команду
+- [x] Сохранить историю UCI, ревизию, pending turn, попытку задачи и ожидающие действия до явной команды; проверить replay
+- [x] Проверить Alice JSON с экраном и без экрана для обоих изменений; исследовать разрыв записей без изменения production
+- [x] Mark completed
+
 ## Verification notes
+
+Tasks 27–28: сначала воспроизведены 6 падений для отсутствующего синонима и 8 для «назад». Итоговые focused tests: 122 passed; полный локальный набор на MariaDB 12.3: 2536 passed, 26 skipped (opt-in deployed smoke). Ruff lint/format, mypy и Alembic check прошли. Проверены 11 контекстов повторного запуска, отсутствие мутаций и replay, Alice с экраном/без экрана и реальное листание разбора при открытой задаче. Расследование разрыва и план измерения после релиза: `docs/qa/20261029-conversation-intelligence.md`. Production не изменялся; MariaDB 11.4 и image build остаются release/CI-проверками.
 
 Task 26: 31 новый сценарий проверяет узкую маршрутизацию и отсутствие мутаций в 11 разговорных контекстах. Focused tests: 1558 passed; полный локальный набор на MariaDB 12.3: 2498 passed, 26 skipped (opt-in deployed smoke). Ruff lint/format и mypy прошли. MariaDB 11.4 и Docker image проверяются в CI до deploy.
 

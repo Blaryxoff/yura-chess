@@ -472,17 +472,22 @@ class ConversationService:
             )
             return ConversationReply(speech, state)
 
-        if help_navigation is None and routed.kind in {
-            CommandKind.ATTENTION,
-            CommandKind.SKILL_LAUNCH,
-            CommandKind.SOCIAL,
-            CommandKind.PERSONA,
-            CommandKind.PAUSE,
-            CommandKind.AMBIGUOUS_TURN,
-            CommandKind.AMBIGUOUS_LEARNING,
-            CommandKind.ORIENTATION_QUERY,
-            CommandKind.NAVIGATE_BACK,
-        }:
+        if (
+            help_navigation is None
+            and review_step is None
+            and routed.kind
+            in {
+                CommandKind.ATTENTION,
+                CommandKind.SKILL_LAUNCH,
+                CommandKind.SOCIAL,
+                CommandKind.PERSONA,
+                CommandKind.PAUSE,
+                CommandKind.AMBIGUOUS_TURN,
+                CommandKind.AMBIGUOUS_LEARNING,
+                CommandKind.ORIENTATION_QUERY,
+                CommandKind.NAVIGATE_BACK,
+            }
+        ):
             return ConversationReply(
                 _conversational_reply(
                     routed.kind,
@@ -661,12 +666,6 @@ class ConversationService:
             if help_navigation is not None:
                 return self._help_reply(help_navigation, next_state, game)
 
-        # An open puzzle owns moves and hints: they are judged against its own
-        # position, so they must not reach the game's move resolution at all.
-        if open_puzzle is not None:
-            solving = self._puzzle_reply(owner_key, open_puzzle, utterance, request, state, next_state)
-            if solving is not None:
-                return self._with_puzzle_card(owner_key, solving, preferences)
         # An open review owns «дальше» and «назад» while it is being dictated,
         # exactly as open help owns them.
         if state.reviewing and routed.kind is not CommandKind.REVIEW:
@@ -676,6 +675,12 @@ class ConversationService:
                     self._review.dictate(owner_key, reviewed, review_step),
                     replace(self._with_game(next_state, reviewed), reviewing=True),
                 )
+        # An open puzzle owns moves and hints: they are judged against its own
+        # position, so they must not reach the game's move resolution at all.
+        if open_puzzle is not None:
+            solving = self._puzzle_reply(owner_key, open_puzzle, utterance, request, state, next_state)
+            if solving is not None:
+                return self._with_puzzle_card(owner_key, solving, preferences)
         if routed.kind is CommandKind.REVIEW and routed.review is not None:
             return await self._review_reply(owner_key, game, routed.review, utterance, next_state)
         if routed.kind is CommandKind.HELP_EXIT:
@@ -1791,6 +1796,10 @@ def _conversational_reply(
             return Speech.of("Скажите «выйти из разбора», чтобы вернуться к партии.")
         if solving_puzzle:
             return Speech.of("Скажите «выйти из задач», чтобы вернуться к партии.")
+        if text == "назад" and game is not None and game.status is GameStatus.ACTIVE and not engine_to_move:
+            return Speech.of(
+                "Что вернуть: отменить последний ход или продолжить партию? Скажите «отмени ход» или «продолжаем»."
+            )
         return Speech.of(expectation)
 
     if kind is CommandKind.ATTENTION:
