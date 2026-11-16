@@ -432,25 +432,46 @@ class UsageRepository:
                 if "users" in row:
                     values["returning_users"] = values["users"] - values["new_users"]
 
+        active_owners = ""
+        active_sessions = ""
+        if start is not None:
+            active_source = "" if source == "all" else " AND u0.traffic_source = :source"
+            active_time = " AND active.created_at >= :start"
+            if before is not None:
+                active_time += " AND active.created_at < :before"
+            active_tables = "usage_requests active JOIN usage_users u0 ON u0.owner_key = active.owner_key"
+            active_owners = (
+                f" JOIN (SELECT DISTINCT active.owner_key FROM {active_tables} "
+                f"WHERE {_action_filter('active')}{active_time}{active_source}) active_owners"
+                " ON active_owners.owner_key = r0.owner_key"
+            )
+            active_sessions = (
+                f" JOIN (SELECT DISTINCT active.session_key, active.owner_key FROM {active_tables} "
+                f"WHERE 1=1{active_time}{active_source}) active_sessions"
+                " ON active_sessions.session_key = r0.session_key AND active_sessions.owner_key = r0.owner_key"
+            )
+
+        first_bucket = bucket.format(moment=_in_moscow("a.first_at"))
         active_bucket = bucket.format(moment=_in_moscow("r.created_at"))
-        previous_action = (
-            "SELECT 1 FROM usage_requests r0 WHERE r0.owner_key = r.owner_key "
-            f"AND r0.created_at < DATE_SUB({active_bucket}, INTERVAL {int(_MOSCOW_OFFSET.total_seconds())} SECOND) "
-            f"AND {_action_filter('r0')}"
+        first_actions = (
+            "(SELECT r0.owner_key, MIN(r0.created_at) first_at FROM usage_requests r0"
+            f"{active_owners} WHERE {_action_filter('r0')} GROUP BY r0.owner_key) a"
         )
         collect(
             "r.created_at",
-            "usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key",
+            "usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key "
+            f"JOIN {first_actions} ON a.owner_key = r.owner_key",
             f" AND {_action_filter('r')}",
             "COUNT(*) actions, COUNT(DISTINCT r.owner_key) users, COUNT(DISTINCT r.session_key) sessions,"
-            f" COUNT(DISTINCT CASE WHEN NOT EXISTS ({previous_action}) THEN r.owner_key END) new_users",
+            f" COUNT(DISTINCT CASE WHEN {first_bucket} = {active_bucket} THEN r.owner_key END) new_users",
         )
         collect(
-            "r.created_at",
-            "usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key",
-            " AND NOT EXISTS (SELECT 1 FROM usage_requests r0 WHERE r0.session_key = r.session_key"
-            " AND r0.owner_key = r.owner_key AND r0.created_at < r.created_at)",
-            "COUNT(DISTINCT r.session_key, r.owner_key) launches",
+            "s.launched_at",
+            "(SELECT r0.session_key, r0.owner_key, MIN(r0.created_at) launched_at "
+            f"FROM usage_requests r0{active_sessions} GROUP BY r0.session_key, r0.owner_key) s "
+            "JOIN usage_users u ON u.owner_key = s.owner_key",
+            "",
+            "COUNT(*) launches",
         )
         collect(
             "m.created_at",

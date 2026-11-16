@@ -400,7 +400,21 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 - [x] Пройти focused/full tests, Ruff, mypy и Alembic check
 - [x] Mark completed
 
+### Task 30: Устранить повторное сканирование истории в chart queries
+
+**Files:** Modify `src/yura_chess/storage/usage_repository.py` and focused query-plan regression tests.
+
+- [x] Заменить коррелированные проверки истории на групповые first-action/session aggregates для активных владельцев и сессий выбранного периода
+- [x] Проверить отсутствие dependent subqueries в chart EXPLAIN и точность новых/вернувшихся пользователей после старых неклассифицированных запросов
+- [x] Сравнить cold/warm reports с предыдущим релизом на production data в изолированном процессе с лимитом SQL 5 секунд и rollback cache writes
+- [x] Пройти полный локальный набор, Ruff и mypy
+- [x] Mark completed
+
+**Delivery:** MariaDB 11.4 CI и immutable image build обязательны. До переключения приложения прогреть cache one-shot процессом из candidate image, затем проверить public webhook и сайт.
+
 ## Verification notes
+
+Task 30: первый deploy Task 29 был откачен на прежний проверенный image digest после обнаружения chart query длительностью более 110 секунд; схема 0022 сохранена. Website и readiness восстановлены. Регрессия воспроизведена EXPLAIN-тестом (dependent subquery), после исправления focused storage suite — 39 passed; полный локальный набор — 2556 passed, 26 skipped, Ruff/format и mypy прошли. Изолированная проверка на реальных данных MariaDB 11.4: all-time cold 5.336 с / warm 2.714 с, rolling-month cold 5.832 с / warm 0.458 с; все totals/chart совпадают с предыдущим release, cache writes откачены. Исходная синтетическая нагрузка Task 29 не воспроизводила production query plan.
 
 Task 29: 21 focused cache/migration tests прошли, полный набор на локальной MariaDB 12.3 — 2555 passed, 26 skipped. Ruff lint/format, mypy и Alembic check прошли. Миграция 0022 проверена через downgrade/upgrade; восстановление foreign-key index учтено. На синтетических 135000 запросах полный отчёт — 6.044 с, построение cache — 6.019 с, повторный отчёт в новой DB session — 0.265 с (22.8×), totals и chart совпадают. Исторические исправления допускают задержку до следующего московского суточного пересчёта. Production не изменялся; MariaDB 11.4 CI, immutable image и deploy остаются release-проверками.
 
