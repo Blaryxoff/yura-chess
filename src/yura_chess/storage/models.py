@@ -6,6 +6,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     CHAR,
+    JSON,
     BigInteger,
     Boolean,
     Date,
@@ -334,6 +335,7 @@ class UsageRequestRow(Base):
     __table_args__ = (
         Index("ix_usage_requests_created_owner", "created_at", "owner_key"),
         Index("ix_usage_requests_session_created", "session_key", "created_at"),
+        Index("ix_usage_requests_owner_created", "owner_key", "created_at"),
         {"mysql_charset": "utf8mb4", "mysql_collate": "utf8mb4_unicode_ci"},
     )
 
@@ -358,6 +360,18 @@ class UsagePuzzlePlayRow(Base):
     run_key: Mapped[str] = mapped_column(CHAR(36), primary_key=True)
     owner_key: Mapped[str] = mapped_column(CHAR(OWNER_KEY_LENGTH), ForeignKey("usage_users.owner_key"))
     created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class UsageDashboardCacheRow(Base):
+    __tablename__ = "usage_dashboard_cache"
+    __table_args__ = {"mysql_charset": "utf8mb4", "mysql_collate": "utf8mb4_unicode_ci"}
+
+    source: Mapped[str] = mapped_column(String(8), primary_key=True)
+    period: Mapped[str] = mapped_column(String(8), primary_key=True)
+    reporting_day: Mapped[date] = mapped_column(Date)
+    schema_version: Mapped[int] = mapped_column(Integer)
+    totals: Mapped[dict[str, int]] = mapped_column(JSON)
+    buckets: Mapped[dict[str, dict[str, int]]] = mapped_column(JSON)
 
 
 class ReviewClickDailyRow(Base):

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 TEST_DSN_ENV = "YURA_CHESS_TEST_DATABASE_URL"
 _TABLES = (
+    "usage_dashboard_cache",
     "review_click_daily",
     "published_review_snapshots",
     "usage_puzzle_plays",

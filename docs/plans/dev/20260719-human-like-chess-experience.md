@@ -389,7 +389,20 @@ ECO-данные импортируются офлайн из `lichess-org/chess
 - [x] Проверить Alice JSON с экраном и без экрана для обоих изменений; исследовать разрыв записей без изменения production
 - [x] Mark completed
 
+### Task 29: Кэшировать закрытые периоды публичной статистики
+
+**Files:** Modify `src/yura_chess/storage/usage_repository.py`, `src/yura_chess/storage/models.py`, database fixtures and deployment documentation; add a migration and focused cache integration tests.
+
+- [x] Хранить историческую часть каждого отчёта в disposable MariaDB cache; перестраивать раз в московские сутки и сохранять при перезапуске приложения
+- [x] Обновлять только сегодняшний вклад и текущий bucket графика; исключать ранее учтённых пользователей, сессии и партии из distinct-приращений
+- [x] Считать завершённые партии по актуальным статусам; документировать задержку исторических исправлений до следующего суточного пересчёта
+- [x] Проверить точность относительно uncached query, границы Москвы, повторные запросы, разные источники, перезапуск и отсутствие повторной исторической агрегации
+- [x] Пройти focused/full tests, Ruff, mypy и Alembic check
+- [x] Mark completed
+
 ## Verification notes
+
+Task 29: 21 focused cache/migration tests прошли, полный набор на локальной MariaDB 12.3 — 2555 passed, 26 skipped. Ruff lint/format, mypy и Alembic check прошли. Миграция 0022 проверена через downgrade/upgrade; восстановление foreign-key index учтено. На синтетических 135000 запросах полный отчёт — 6.044 с, построение cache — 6.019 с, повторный отчёт в новой DB session — 0.265 с (22.8×), totals и chart совпадают. Исторические исправления допускают задержку до следующего московского суточного пересчёта. Production не изменялся; MariaDB 11.4 CI, immutable image и deploy остаются release-проверками.
 
 Tasks 27–28: сначала воспроизведены 6 падений для отсутствующего синонима и 8 для «назад». Итоговые focused tests: 122 passed; полный локальный набор на MariaDB 12.3: 2536 passed, 26 skipped (opt-in deployed smoke). Ruff lint/format, mypy и Alembic check прошли. Проверены 11 контекстов повторного запуска, отсутствие мутаций и replay, Alice с экраном/без экрана и реальное листание разбора при открытой задаче. Расследование разрыва и план измерения после релиза: `docs/qa/20261029-conversation-intelligence.md`. Production не изменялся; MariaDB 11.4 и image build остаются release/CI-проверками.
 

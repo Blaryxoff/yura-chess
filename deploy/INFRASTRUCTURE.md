@@ -136,12 +136,28 @@ Secrets that exist only on Firebat and never in git:
   aggregate `usage_users`, `usage_requests`, and `usage_puzzle_plays` rows remain available for release diagnostics.
 - MariaDB and persisted timestamps stay in UTC. Public usage reports shift UTC
   timestamps to Moscow time before applying day, month and period boundaries.
+- `usage_dashboard_cache` stores historical totals and closed chart buckets for
+  each source/period (at most nine rows). It survives application restarts and is
+  rebuilt on the first report of each Moscow day. The existing 60-second response
+  cache refreshes today's contribution and the current chart bucket; indexed
+  history lookups exclude previously counted users, sessions and games.
+  Completed-game totals always use current statuses. Late request corrections,
+  source reclassification and undo of historical moves appear at the next daily
+  rebuild. The table is disposable: `DELETE FROM usage_dashboard_cache` forces
+  a rebuild without changing canonical events or game state. The first report
+  after migration, eviction or midnight still pays the historical aggregation cost.
 - Health checks: the container healthcheck polls `/health/live` (liveness only —
   a restart cannot repair a degraded pool or a down database), while
   `/health/ready` (database connection, schema and ready worker count) is polled
   by `deploy.sh` and `rollback.sh` and gates the release; MariaDB uses
   `healthcheck.sh --connect --innodb_initialized`. The engine pool count is
   reported by readiness without ever starting a search.
+- Firebat's host workload watchdog also probes `127.0.0.1:8082/health/live` for
+  automatic application recovery. The statistics-backed home page is a separate
+  alert-only check with a 12-second budget; a slow statistics refresh must never
+  restart a live game service. The watchdog source and tests live in
+  `domovoy/firebat/deploy/monitoring/`, and failed probes appear in
+  `journalctl -u firebat-workload-watchdog.service` on Firebat.
 
 ## Deploy and rollback
 

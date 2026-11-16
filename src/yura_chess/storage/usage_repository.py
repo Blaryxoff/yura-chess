@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from hashlib import sha256
 from typing import Literal
@@ -11,7 +11,7 @@ from sqlalchemy import case, func, text
 from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.orm import Session
 
-from yura_chess.storage.models import UsageRequestRow, UsageUserRow
+from yura_chess.storage.models import UsageDashboardCacheRow, UsageRequestRow, UsageUserRow
 
 TrafficSource = Literal["real", "test"]
 DashboardSource = Literal["real", "test", "all"]
@@ -220,6 +220,8 @@ class UsageRepository:
         now: datetime | None = None,
         period: ChartPeriod = "month",
     ) -> DashboardSnapshot:
+        if now is None:
+            return self.cached_dashboard(source, period=period)
         generated_at = now or datetime.utcnow()
         reporting_day = _moscow_day(generated_at)
         chart = (
@@ -235,13 +237,128 @@ class UsageRepository:
             daily=chart,
         )
 
-    def _totals(self, source: DashboardSource, cutoff: datetime | None) -> UsageTotals:
+    def cached_dashboard(
+        self, source: DashboardSource, now: datetime | None = None, period: ChartPeriod = "month"
+    ) -> DashboardSnapshot:
+        generated_at = now or datetime.now(UTC).replace(tzinfo=None)
+        reporting_day = _moscow_day(generated_at)
+        history = self._history(source, period, reporting_day)
+        current = self._incremental_totals(source, _utc_start(reporting_day), _period_cutoff(generated_at, period))
+        totals = UsageTotals(**{name: history.totals[name] + value for name, value in asdict(current).items()})
+        buckets = {date.fromisoformat(day): values for day, values in history.buckets.items()}
+        end_month = reporting_day.replace(day=1)
+        live_start = reporting_day if period == "month" else end_month
+        buckets.update(self._buckets(source, _DAY_BUCKET if period == "month" else _MONTH_BUCKET, live_start))
+        points: list[DailyUsage] = []
+        if period == "month":
+            days = (reporting_day - timedelta(days=29 - offset) for offset in range(30))
+            points = [DailyUsage(day=day, **buckets.get(day, {})) for day in days]
+        else:
+            month = _add_months(end_month, -11) if period == "year" else min(buckets, default=end_month)
+            while month <= end_month:
+                points.append(DailyUsage(day=month, **buckets.get(month, {})))
+                month = _add_months(month, 1)
+        return DashboardSnapshot(source, period, generated_at, totals, tuple(points))
+
+    def _history(self, source: DashboardSource, period: ChartPeriod, reporting_day: date) -> UsageDashboardCacheRow:
+        cached = self._session.get(UsageDashboardCacheRow, (source, period), populate_existing=True)
+        if cached is not None and cached.reporting_day == reporting_day and cached.schema_version == 1:
+            return cached
+        cutoff = _period_cutoff(datetime.combine(reporting_day, time.min), period)
+        historical_totals = asdict(self._totals(source, cutoff, before=_utc_start(reporting_day)))
+        historical_totals["finished_games"] = 0
+        month = reporting_day.replace(day=1)
+        start = (
+            reporting_day - timedelta(days=29)
+            if period == "month"
+            else _add_months(month, -11)
+            if period == "year"
+            else None
+        )
+        closed_before = _utc_start(reporting_day if period == "month" else month)
+        buckets = self._buckets(
+            source, _DAY_BUCKET if period == "month" else _MONTH_BUCKET, start, before=closed_before
+        )
+        values = {
+            "reporting_day": reporting_day,
+            "schema_version": 1,
+            "totals": historical_totals,
+            "buckets": {day.isoformat(): values for day, values in buckets.items()},
+        }
+        statement = insert(UsageDashboardCacheRow).values(source=source, period=period, **values)
+        self._session.execute(statement.on_duplicate_key_update(**values))
+        if cached is not None:
+            self._session.expire(cached)
+        return UsageDashboardCacheRow(source=source, period=period, **values)
+
+    def _incremental_totals(self, source: DashboardSource, today: datetime, cutoff: datetime | None) -> UsageTotals:
         source_filter = "" if source == "all" else " AND u.traffic_source = :source"
-        request_time = "" if cutoff is None else " AND r.created_at >= :cutoff"
-        launch_time = "" if cutoff is None else " WHERE s.launched_at >= :cutoff"
-        move_time = "" if cutoff is None else " AND m.created_at >= :cutoff"
+        previous_source = "" if source == "all" else " AND prior_u.traffic_source = :source"
+        previous_time = "" if cutoff is None else " AND prior.created_at >= :cutoff"
         finish_time = "" if cutoff is None else " AND g.updated_at >= :cutoff"
-        puzzle_time = "" if cutoff is None else " AND p.created_at >= :cutoff"
+        action = _action_filter("r")
+        prior_action = _action_filter("prior")
+        statement = text(
+            f"""
+            SELECT
+              (SELECT COUNT(DISTINCT r.session_key)
+               FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
+               WHERE r.created_at >= :today{source_filter} AND NOT EXISTS (
+                 SELECT 1 FROM usage_requests prior JOIN usage_users prior_u ON prior_u.owner_key = prior.owner_key
+                 WHERE prior.session_key = r.session_key AND prior.created_at < :today{previous_source}
+               )) AS launches,
+              (SELECT COUNT(*) FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
+               WHERE r.created_at >= :today AND {action}{source_filter}) AS actions,
+              (SELECT COUNT(DISTINCT r.owner_key) FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
+               WHERE r.created_at >= :today AND {action}{source_filter} AND NOT EXISTS (
+                 SELECT 1 FROM usage_requests prior WHERE prior.owner_key = r.owner_key
+                 AND prior.created_at < :today{previous_time} AND {prior_action}
+               )) AS users,
+              (SELECT COUNT(DISTINCT r.session_key)
+               FROM usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key
+               WHERE r.created_at >= :today AND {action}{source_filter} AND NOT EXISTS (
+                 SELECT 1 FROM usage_requests prior JOIN usage_users prior_u ON prior_u.owner_key = prior.owner_key
+                 WHERE prior.session_key = r.session_key AND prior.created_at < :today
+                 {previous_time}{previous_source} AND {prior_action}
+               )) AS sessions,
+              (SELECT COUNT(DISTINCT g.id) FROM games g JOIN usage_users u ON u.owner_key = g.owner_key
+               JOIN game_moves m ON m.game_id = g.id AND m.actor = 'player'
+               WHERE m.created_at >= :today{source_filter} AND NOT EXISTS (
+                 SELECT 1 FROM game_moves prior WHERE prior.game_id = g.id AND prior.actor = 'player'
+                 AND prior.created_at < :today{previous_time}
+               )) AS engaged_games,
+              (SELECT COUNT(*) FROM game_moves m JOIN games g ON g.id = m.game_id
+               JOIN usage_users u ON u.owner_key = g.owner_key
+               WHERE m.actor = 'player' AND m.created_at >= :today{source_filter}) AS player_moves,
+              (SELECT COUNT(*) FROM games g JOIN usage_users u ON u.owner_key = g.owner_key
+               WHERE g.status IN ('finished', 'resigned'){source_filter}{finish_time}) AS finished_games,
+              (SELECT COUNT(*) FROM puzzle_attempts p JOIN usage_users u ON u.owner_key = p.owner_key
+               WHERE p.created_at >= :today{source_filter}) AS puzzle_plays
+            """
+        )
+        parameters: dict[str, object] = {"today": today}
+        if source != "all":
+            parameters["source"] = source
+        if cutoff is not None:
+            parameters["cutoff"] = cutoff
+        row = self._session.execute(statement, parameters).mappings().one()
+        return UsageTotals(**{name: int(row[name]) for name in UsageTotals.__dataclass_fields__})
+
+    def _totals(
+        self, source: DashboardSource, cutoff: datetime | None, *, before: datetime | None = None
+    ) -> UsageTotals:
+        source_filter = "" if source == "all" else " AND u.traffic_source = :source"
+
+        def window(column: str) -> str:
+            lower = "" if cutoff is None else f" AND {column} >= :cutoff"
+            upper = "" if before is None else f" AND {column} < :before"
+            return lower + upper
+
+        request_time = window("r.created_at")
+        launch_time = " WHERE 1=1" + window("s.launched_at")
+        move_time = window("m.created_at")
+        finish_time = window("g.updated_at")
+        puzzle_time = window("p.created_at")
         action = _action_filter("r")
         statement = text(
             f"""
@@ -275,10 +392,14 @@ class UsageRepository:
             parameters["source"] = source
         if cutoff is not None:
             parameters["cutoff"] = cutoff
+        if before is not None:
+            parameters["before"] = before
         row = self._session.execute(statement, parameters).mappings().one()
         return UsageTotals(**{field: int(row[field]) for field in UsageTotals.__dataclass_fields__})
 
-    def _buckets(self, source: DashboardSource, bucket: str, start: date | None) -> dict[date, dict[str, int]]:
+    def _buckets(
+        self, source: DashboardSource, bucket: str, start: date | None, *, before: datetime | None = None
+    ) -> dict[date, dict[str, int]]:
         """Every charted metric grouped by the given time bucket, keyed by its first day."""
         source_filter = "" if source == "all" else " AND u.traffic_source = :source"
         parameters: dict[str, object] = {}
@@ -286,10 +407,14 @@ class UsageRepository:
             parameters["source"] = source
         if start is not None:
             parameters["start"] = _utc_start(start)
+        if before is not None:
+            parameters["before"] = before
         buckets: dict[date, dict[str, int]] = {}
 
         def collect(column: str, tables: str, condition: str, metrics: str) -> None:
             time_filter = "" if start is None else f" AND {column} >= :start"
+            if before is not None:
+                time_filter += f" AND {column} < :before"
             rows = self._session.execute(
                 text(
                     f"""
@@ -304,29 +429,28 @@ class UsageRepository:
             for row in rows:
                 values = buckets.setdefault(row["bucket"], {})
                 values.update({name: int(count) for name, count in row.items() if name != "bucket"})
+                if "users" in row:
+                    values["returning_users"] = values["users"] - values["new_users"]
 
-        first_bucket = bucket.format(moment=_in_moscow("a.first_at"))
         active_bucket = bucket.format(moment=_in_moscow("r.created_at"))
-        first_actions = (
-            "(SELECT r0.owner_key, MIN(r0.created_at) first_at FROM usage_requests r0 "
-            f"WHERE {_action_filter('r0')} GROUP BY r0.owner_key) a"
+        previous_action = (
+            "SELECT 1 FROM usage_requests r0 WHERE r0.owner_key = r.owner_key "
+            f"AND r0.created_at < DATE_SUB({active_bucket}, INTERVAL {int(_MOSCOW_OFFSET.total_seconds())} SECOND) "
+            f"AND {_action_filter('r0')}"
         )
         collect(
             "r.created_at",
-            f"usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key JOIN {first_actions}"
-            " ON a.owner_key = r.owner_key",
+            "usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key",
             f" AND {_action_filter('r')}",
             "COUNT(*) actions, COUNT(DISTINCT r.owner_key) users, COUNT(DISTINCT r.session_key) sessions,"
-            f" COUNT(DISTINCT CASE WHEN {first_bucket} = {active_bucket} THEN r.owner_key END) new_users,"
-            f" COUNT(DISTINCT CASE WHEN {first_bucket} < {active_bucket} THEN r.owner_key END) returning_users",
+            f" COUNT(DISTINCT CASE WHEN NOT EXISTS ({previous_action}) THEN r.owner_key END) new_users",
         )
         collect(
-            "s.launched_at",
-            "(SELECT r.session_key, r.owner_key, MIN(r.created_at) launched_at "
-            "FROM usage_requests r GROUP BY r.session_key, r.owner_key) s "
-            "JOIN usage_users u ON u.owner_key = s.owner_key",
-            "",
-            "COUNT(*) launches",
+            "r.created_at",
+            "usage_requests r JOIN usage_users u ON u.owner_key = r.owner_key",
+            " AND NOT EXISTS (SELECT 1 FROM usage_requests r0 WHERE r0.session_key = r.session_key"
+            " AND r0.owner_key = r.owner_key AND r0.created_at < r.created_at)",
+            "COUNT(DISTINCT r.session_key, r.owner_key) launches",
         )
         collect(
             "m.created_at",
