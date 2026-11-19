@@ -449,7 +449,13 @@ _CONVERSATION_PATTERNS: tuple[tuple[CommandKind, re.Pattern[str]], ...] = (
         CommandKind.BACKCHANNEL,
         re.compile(r"^(?:понятно|понял|поняла|хорошо|ладно|нормально|угу|поехали|погнали|вперед|начали|начинаем)$"),
     ),
-    (CommandKind.REPEAT_REPLY, re.compile(r"^(?:повтори|еще раз)$")),
+    (
+        CommandKind.REPEAT_REPLY,
+        re.compile(
+            r"^(?:пожалуйста )?(?:повтори(?:те)?(?: еще раз)?|еще раз(?: (?:повтори(?:те)?|скажи(?:те)?))?|"
+            r"скажи(?:те)? еще раз|(?:можно|можешь) повторить(?: еще раз)?|можно еще раз)(?: пожалуйста)?$"
+        ),
+    ),
     (
         CommandKind.PAUSE,
         re.compile(

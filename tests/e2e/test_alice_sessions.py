@@ -83,6 +83,32 @@ async def test_the_same_dialogue_says_everything_without_a_screen(
     assert all(body["response"].get("card") is None for body in heard)
 
 
+@pytest.mark.parametrize("utterance", ["повтори еще раз", "еще раз повтори"])
+async def test_repeat_again_reads_the_last_reply_without_a_screen_and_is_safe_to_redeliver(
+    utterance: str,
+    session_factory: sessionmaker[Session],
+    database_engine: Engine,
+) -> None:
+    async with build_client(session_factory) as client:
+        dialogue = AliceSession(client, "e2e-repeat-reply", screen=False)
+        await dialogue.say(new=True)
+        moved = await dialogue.say("пешка е два е четыре")
+        game_id = moved["user_state_update"]["game_id"]
+        moves = stored_moves(database_engine, game_id)
+        assert moves[0] == "e2e4"
+
+        repeated = await dialogue.say(utterance)
+        replayed = await dialogue.resend(dialogue.message_id, utterance)
+
+    assert repeated["response"]["text"] == moved["session_state"]["last_reply"]
+    assert repeated["response"].get("card") is None
+    assert repeated["response"]["end_session"] is False
+    assert repeated["session_state"] == moved["session_state"]
+    assert dialogue.user_state == moved["user_state_update"]
+    assert replayed == repeated
+    assert stored_moves(database_engine, game_id) == moves
+
+
 @pytest.mark.parametrize("screen", [False, True])
 @pytest.mark.parametrize(
     ("utterance", "expected"),

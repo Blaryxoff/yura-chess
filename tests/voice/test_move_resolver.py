@@ -96,6 +96,46 @@ def test_back_is_navigation_and_never_a_move_or_undo(fen: str | None) -> None:
     assert routed.resolution is None
 
 
+@pytest.mark.parametrize("fen", [None, chess.STARTING_FEN])
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("повтори еще раз", CommandKind.REPEAT_REPLY),
+        ("Повтори ещё раз!", CommandKind.REPEAT_REPLY),
+        ("еще раз повтори", CommandKind.REPEAT_REPLY),
+        ("Алиса, ещё раз повтори, пожалуйста", CommandKind.REPEAT_REPLY),
+        ("повторите", CommandKind.REPEAT_REPLY),
+        ("повторите еще раз", CommandKind.REPEAT_REPLY),
+        ("повтори пожалуйста", CommandKind.REPEAT_REPLY),
+        ("повтори ещё раз, пожалуйста", CommandKind.REPEAT_REPLY),
+        ("пожалуйста, повтори ещё раз", CommandKind.REPEAT_REPLY),
+        ("скажи ещё раз", CommandKind.REPEAT_REPLY),
+        ("скажите ещё раз", CommandKind.REPEAT_REPLY),
+        ("ещё раз скажи", CommandKind.REPEAT_REPLY),
+        ("можно повторить", CommandKind.REPEAT_REPLY),
+        ("можно ещё раз", CommandKind.REPEAT_REPLY),
+        ("можешь повторить ещё раз", CommandKind.REPEAT_REPLY),
+        ("повтори еще раз медленно", CommandKind.REPEAT_SLOW),
+        ("повтори ответ", CommandKind.REPEAT_SLOW),
+        ("повтори еще раз ход", CommandKind.POSITION_QUERY),
+        ("повтори позицию", CommandKind.PUZZLE),
+        ("скажи еще раз позицию", CommandKind.PUZZLE),
+        ("повтори задачу", CommandKind.PUZZLE),
+        ("еще раз повтори задачу", CommandKind.PUZZLE),
+        ("не повтори еще раз", CommandKind.UNKNOWN),
+        ("не скажи еще раз", CommandKind.UNKNOWN),
+        ("можно повторить ход", CommandKind.UNKNOWN),
+    ],
+)
+def test_repeat_reply_is_distinct_from_repeating_a_move_or_position(
+    utterance: str, expected: CommandKind, fen: str | None
+) -> None:
+    routed = route(utterance, chess.Board(fen) if fen is not None else None)
+
+    assert routed.kind is expected
+    assert routed.move is None
+
+
 @pytest.mark.parametrize(
     ("utterance", "expected"),
     [

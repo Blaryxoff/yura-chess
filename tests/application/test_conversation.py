@@ -1224,6 +1224,35 @@ async def test_bare_repeat_replays_the_previous_reply_without_replacing_it(
     assert game.moves == ()
 
 
+@pytest.mark.parametrize("setup", [(), ("новая игра", "сдаюсь"), ("все команды", "дальше"), ("дай задачу",)])
+async def test_repeat_again_preserves_the_current_conversation(
+    setup: tuple[str, ...],
+    session_factory: sessionmaker[Session],
+    offline_settings: Settings,
+) -> None:
+    conversation = subject(session_factory, offline_settings)
+    state = ConversationState()
+    for step, utterance in enumerate(setup, start=1):
+        state = (await conversation.handle(OWNER, utterance, context(step), state)).state
+    puzzles = PuzzleService(session_factory)
+    puzzle_before = puzzles.find_open(OWNER)
+    if setup == ("новая игра", "сдаюсь"):
+        assert state.pending_action is not None
+    elif setup == ("все команды", "дальше"):
+        assert state.help is not None and state.help.page > 0
+    elif setup == ("дай задачу",):
+        assert puzzle_before is not None
+
+    request = context(len(setup) + 1)
+    repeated = await conversation.handle(OWNER, "повтори еще раз", request, state)
+    replayed = await conversation.handle(OWNER, "повтори еще раз", request, state)
+
+    assert repeated.speech.text == (state.last_reply or "Пока нечего повторять.")
+    assert repeated.state == state
+    assert replayed == repeated
+    assert puzzles.find_open(OWNER) == puzzle_before
+
+
 @pytest.mark.parametrize("utterance", ["помощь", "что ты умеешь"])
 async def test_help_replaces_a_returning_users_resume_confirmation(
     utterance: str,
